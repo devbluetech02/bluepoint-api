@@ -1,0 +1,130 @@
+import { NextRequest } from 'next/server';
+import { query } from '@/lib/db';
+import { hashPassword } from '@/lib/auth';
+import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { withGestor } from '@/lib/middleware';
+import { criarColaboradorSchema, validateBody } from '@/lib/validation';
+import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { cleanCPF, isValidCPF } from '@/lib/utils';
+import { invalidateColaboradorCache } from '@/lib/cache';
+import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
+
+export async function POST(request: NextRequest) {
+  return withGestor(request, async (req, user) => {
+    try {
+      const body = await req.json();
+      
+      const validation = validateBody(criarColaboradorSchema, body);
+      if (!validation.success) {
+        return validationErrorResponse(validation.errors);
+      }
+
+      const data = validation.data;
+
+      // Validar CPF
+      if (!isValidCPF(data.cpf)) {
+        return errorResponse('CPF inválido', 400);
+      }
+
+      const cpfLimpo = cleanCPF(data.cpf);
+
+      // Verificar se email ou CPF já existe
+      const existeResult = await query(
+        `SELECT id FROM bluepoint.bt_colaboradores WHERE email = $1 OR cpf = $2`,
+        [data.email, cpfLimpo]
+      );
+
+      if (existeResult.rows.length > 0) {
+        return errorResponse('Email ou CPF já cadastrado', 400);
+      }
+
+      // Mapear categoria para valor do ENUM do banco
+      const categoriaMap: Record<string, string> = { 'empregado': 'empregado_clt' };
+      const categoria = data.categoria ? (categoriaMap[data.categoria] || data.categoria) : null;
+
+      // Hash da senha
+      const senhaHash = await hashPassword(data.senha);
+
+      // Detectar tipo do usuário baseado no cargo
+      let tipoUsuario = 'colaborador';
+      if (data.cargoId) {
+        const cargoResult = await query(
+          `SELECT nome FROM bluepoint.bt_cargos WHERE id = $1`,
+          [data.cargoId]
+        );
+        if (cargoResult.rows.length > 0) {
+          tipoUsuario = detectarTipoPorCargo(cargoResult.rows[0].nome);
+        }
+      }
+
+      // Inserir colaborador
+      const result = await query(
+        `INSERT INTO bluepoint.bt_colaboradores (
+          nome, email, senha_hash, cpf, rg, telefone, pis, categoria, observacao, cargo_id,
+          tipo, empresa_id, departamento_id, jornada_id, data_admissao, data_nascimento, data_desligamento,
+          endereco_cep, endereco_logradouro, endereco_numero, 
+          endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado,
+          permite_ponto_mobile, permite_ponto_qualquer_empresa, vale_alimentacao, vale_transporte
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        RETURNING id, nome, email, tipo`,
+        [
+          data.nome,
+          data.email,
+          senhaHash,
+          cpfLimpo,
+          data.rg || null,
+          data.telefone || null,
+          data.pis || null,
+          categoria,
+          data.observacao || null,
+          data.cargoId || null,
+          tipoUsuario,
+          data.empresaId || null,
+          data.departamentoId || null,
+          data.jornadaId || null,
+          data.dataAdmissao,
+          data.dataNascimento || null,
+          data.dataDesligamento || null,
+          data.endereco?.cep || null,
+          data.endereco?.logradouro || null,
+          data.endereco?.numero || null,
+          data.endereco?.complemento || null,
+          data.endereco?.bairro || null,
+          data.endereco?.cidade || null,
+          data.endereco?.estado || null,
+          data.permitePontoMobile ?? false,
+          data.permitePontoQualquerEmpresa ?? false,
+          data.valeAlimentacao ?? false,
+          data.valeTransporte ?? false,
+        ]
+      );
+
+      const novoColaborador = result.rows[0];
+
+      // Invalidar cache
+      await invalidateColaboradorCache();
+
+      // Registrar auditoria
+      await registrarAuditoria({
+        usuarioId: user.userId,
+        acao: 'CREATE',
+        modulo: 'colaboradores',
+        descricao: `Colaborador criado: ${novoColaborador.nome}`,
+        ip: getClientIp(request),
+        userAgent: getUserAgent(request),
+        dadosNovos: { id: novoColaborador.id, nome: data.nome, email: data.email },
+      });
+
+      return createdResponse({
+        id: novoColaborador.id,
+        nome: novoColaborador.nome,
+        email: novoColaborador.email,
+        tipo: novoColaborador.tipo,
+        mensagem: 'Colaborador criado com sucesso',
+      });
+    } catch (error) {
+      console.error('Erro ao criar colaborador:', error);
+      return serverErrorResponse('Erro ao criar colaborador');
+    }
+  });
+}
