@@ -5,6 +5,7 @@ import { withAdmin } from '@/lib/middleware';
 import { criarLocalizacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateLocalizacaoCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withAdmin(request, async (req, user) => {
@@ -45,13 +46,13 @@ export async function POST(request: NextRequest) {
 
       const localizacao = result.rows[0];
 
-      // Invalidar cache
       await invalidateLocalizacaoCache();
+      await embedTableRowAfterInsert('bt_localizacoes', localizacao.id);
 
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'localizacoes',
         descricao: `Localização criada: ${localizacao.nome}`,
         ip: getClientIp(request),

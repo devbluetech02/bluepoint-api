@@ -1,4 +1,0 @@
-# Dependências para scripts/sincronizar_telefone_pcempr.py (Oracle + PostgreSQL)
-# Uso: pip install -r scripts/requirements-sync-telefone.txt
-oracledb>=2.0.0
-psycopg2-binary>=2.9.0

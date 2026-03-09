@@ -66,7 +66,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'biometria',
         descricao: `Face removida de: ${colaborador.nome}`,
         ip: getClientIp(request),

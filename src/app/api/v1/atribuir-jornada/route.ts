@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'jornadas',
         descricao: `Jornada ${jornadaResult.rows[0].nome} atribuída a ${colaboradoresAtualizados} colaborador(es)`,
         ip: getClientIp(request),

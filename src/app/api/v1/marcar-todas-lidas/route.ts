@@ -17,7 +17,7 @@ export async function PATCH(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'notificacoes',
         descricao: `${result.rowCount} notificação(ões) marcada(s) como lida(s)`,
         ip: getClientIp(request),

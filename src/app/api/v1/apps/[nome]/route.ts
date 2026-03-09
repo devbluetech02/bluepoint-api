@@ -71,7 +71,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'apps',
         descricao: `APK deletado: ${nome}`,
         ip: getClientIp(request),

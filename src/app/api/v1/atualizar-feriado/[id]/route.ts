@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'feriados',
         descricao: `Feriado atualizado: ${data.nome || atualResult.rows[0].nome}`,
         ip: getClientIp(request),

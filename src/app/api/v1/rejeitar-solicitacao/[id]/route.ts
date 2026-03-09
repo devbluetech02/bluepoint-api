@@ -3,7 +3,7 @@ import { query } from '@/lib/db';
 import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { rejeitarSolicitacaoSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidateSolicitacaoCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { criarNotificacao } from '@/lib/notificacoes';
 
@@ -118,15 +118,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       await cacheDelPattern(`${CACHE_KEYS.HORAS_EXTRAS}*`);
 
       // Registrar auditoria
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'REJECT',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'rejeitar',
         modulo: 'solicitacoes',
         descricao: `Solicitação rejeitada: ${solicitacao.tipo} de ${solicitacao.colaborador_nome}`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId: solicitacao.colaborador_id,
+        colaboradorNome: solicitacao.colaborador_nome,
+        entidadeId: solicitacaoId,
+        entidadeTipo: 'solicitacao',
         dadosNovos: { solicitacaoId, status: 'rejeitada', motivo },
-      });
+      }));
 
       return successResponse({
         id: solicitacaoId,

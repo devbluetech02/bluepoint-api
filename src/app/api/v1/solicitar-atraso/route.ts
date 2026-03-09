@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'registro_ponto',
         descricao: `Solicitação de atraso criada: ${colaborador.nome} (${analise.atrasoMinutos}min atraso)`,
         ip: getClientIp(request),

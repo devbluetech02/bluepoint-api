@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
 
     await registrarAuditoria({
       usuarioId: user.id,
-      acao: 'CREATE',
+      acao: 'criar',
       modulo: 'autenticacao',
       descricao: `Solicitação de recuperação de senha para ${user.email}`,
       ip: getClientIp(request),

@@ -58,7 +58,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'api_keys',
         descricao: `Token regenerado para API Key: ${apiKey.nome}`,
         ip: getClientIp(request),

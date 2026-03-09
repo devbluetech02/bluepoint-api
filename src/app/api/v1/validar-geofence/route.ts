@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'geofence',
         descricao: dentroPerimetro 
           ? `Geofence validado: dentro do perímetro de ${localizacaoEncontrada?.nome}`

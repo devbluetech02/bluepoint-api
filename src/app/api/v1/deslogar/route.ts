@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'LOGOUT',
+        acao: 'logout',
         modulo: 'autenticacao',
         descricao: `Logout realizado: ${user.email}`,
         ip: getClientIp(request),

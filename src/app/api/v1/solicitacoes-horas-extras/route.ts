@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'custos_horas_extras',
         descricao: `Solicitação de hora extra criada: ${data.solicitante} em ${data.data} (${de}-${ate})`,
         ip: getClientIp(request),

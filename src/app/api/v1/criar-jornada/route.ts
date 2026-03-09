@@ -6,6 +6,7 @@ import { criarJornadaSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { calcularCargaHoraria } from '@/lib/utils';
 import { invalidateJornadaCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -74,13 +75,12 @@ export async function POST(request: NextRequest) {
 
       await client.query('COMMIT');
 
-      // Invalidar cache
       await invalidateJornadaCache();
+      await embedTableRowAfterInsert('bt_jornadas', jornada.id);
 
-      // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'jornadas',
         descricao: `Jornada criada: ${jornada.nome} (${jornada.tipo})`,
         ip: getClientIp(request),

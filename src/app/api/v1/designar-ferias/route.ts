@@ -3,7 +3,7 @@ import { getClient } from '@/lib/db';
 import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { designarFeriasSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -93,15 +93,16 @@ export async function POST(request: NextRequest) {
 
       await client.query('COMMIT');
 
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'CREATE',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'criar',
         modulo: 'ferias',
         descricao: `Férias designadas para ${colaborador.nome}: ${dataInicio} a ${dataFim} (${dias} dias)`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId,
+        colaboradorNome: colaborador.nome,
+        entidadeId: periodo.id,
+        entidadeTipo: 'ferias',
         dadosNovos: { id: periodo.id, colaboradorId, dataInicio, dataFim, dias, solicitacaoId },
-      });
+      }));
 
       return createdResponse({
         id: periodo.id,

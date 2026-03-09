@@ -3,7 +3,7 @@ import { query } from '@/lib/db';
 import { verifyPassword, generateTokenPair } from '@/lib/auth';
 import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
 import { loginSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -50,14 +50,13 @@ export async function POST(request: NextRequest) {
     });
 
     // Registrar auditoria
-    await registrarAuditoria({
-      usuarioId: user.id,
-      acao: 'LOGIN',
+    await registrarAuditoria(buildAuditParams(request, { userId: user.id, nome: user.nome, email: user.email }, {
+      acao: 'login',
       modulo: 'autenticacao',
       descricao: `Login realizado: ${user.email}`,
-      ip: getClientIp(request),
-      userAgent: getUserAgent(request),
-    });
+      colaboradorId: user.id,
+      colaboradorNome: user.nome,
+    }));
 
     // Buscar permissões concedidas ao tipo do usuário
     const permResult = await query(

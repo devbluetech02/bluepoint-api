@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'solicitacoes',
         descricao: `Atestado médico enviado - ${diasAfastamento} dia(s)`,
         ip: getClientIp(request),

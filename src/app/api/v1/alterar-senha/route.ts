@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'colaboradores',
         descricao: 'Senha alterada pelo próprio usuário',
         ip: getClientIp(request),

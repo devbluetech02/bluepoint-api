@@ -113,7 +113,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'api_keys',
         descricao: `API Key criada: ${dados.nome}`,
         ip: getClientIp(request),

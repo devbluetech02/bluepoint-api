@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'colaboradores',
         descricao: `Biometria facial cadastrada: ${colaboradorResult.rows[0].nome}`,
         ip: getClientIp(request),

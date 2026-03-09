@@ -130,7 +130,7 @@ export async function POST(
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'relatorios',
         descricao: `Recurso aberto para relatório mensal ${relatorio.mes}/${relatorio.ano} - ${protocolo}`,
         ip: getClientIp(request),

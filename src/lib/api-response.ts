@@ -76,6 +76,15 @@ export function buildPaginatedResponse<T>(
   };
 }
 
+export function paginatedSuccessResponse<T>(
+  dados: T[],
+  total: number,
+  pagina: number,
+  limite: number
+) {
+  return NextResponse.json(buildPaginatedResponse(dados, total, pagina, limite));
+}
+
 // Helper para extrair parâmetros de paginação da URL
 export function getPaginationParams(searchParams: URLSearchParams) {
   const pagina = Math.max(1, parseInt(searchParams.get('pagina') || '1'));

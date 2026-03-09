@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'localizacoes',
         descricao: `Localização atualizada: ${data.nome || atualResult.rows[0].nome}`,
         ip: getClientIp(request),

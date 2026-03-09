@@ -315,7 +315,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'EXPORT',
+        acao: 'exportar',
         modulo: 'exportacao',
         descricao: `Exportação gerada: ${nomeArquivo} (${linhas.length} linhas, ${colaboradoresResult.rows.length} colaboradores)`,
         ip: getClientIp(request),

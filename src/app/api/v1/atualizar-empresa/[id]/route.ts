@@ -119,7 +119,7 @@ export async function PUT(
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'empresas',
         descricao: `Empresa atualizada: ${empresa.nome_fantasia}`,
         ip: getClientIp(request),

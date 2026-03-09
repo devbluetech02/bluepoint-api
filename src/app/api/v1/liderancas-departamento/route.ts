@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'liderancas_departamento',
         descricao: `Lideranças do departamento "${departamentoNome}" atualizadas`,
         ip: getClientIp(request),

@@ -21,6 +21,8 @@ import {
   appsCategory,
   healthCategory,
 } from './outros';
+import { prestadoresCategory } from './prestadores';
+import { gestaoPessoasCategory } from './gestao-pessoas';
 
 // Todas as categorias da API
 export const API_CATEGORIES: CategorySpec[] = [
@@ -38,6 +40,8 @@ export const API_CATEGORIES: CategorySpec[] = [
   notificacoesCategory,
   anexosCategory,
   dispositivosCategory,
+  prestadoresCategory,
+  gestaoPessoasCategory,
   relatoriosCategory,
   configuracoesCategory,
   appsCategory,

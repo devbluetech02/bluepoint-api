@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'cache',
         descricao: 'Cache do Redis completamente limpo',
         ip: getClientIp(request),

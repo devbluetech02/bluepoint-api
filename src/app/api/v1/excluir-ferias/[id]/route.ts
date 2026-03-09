@@ -39,7 +39,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'ferias',
         descricao: `Férias removidas de ${periodo.colaborador_nome}: ${periodo.data_inicio} a ${periodo.data_fim}`,
         ip: getClientIp(request),

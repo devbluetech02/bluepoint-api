@@ -61,7 +61,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
         await registrarAuditoria({
           usuarioId: user.userId,
-          acao: 'UPDATE',
+          acao: 'editar',
           modulo: 'dispositivos',
           descricao: `Dispositivo inativado (possui ${totalMarcacoes} marcações): ${dispositivo.nome}`,
           ip: getClientIp(request),
@@ -88,7 +88,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'dispositivos',
         descricao: `Dispositivo excluído: ${dispositivo.nome}`,
         ip: getClientIp(request),

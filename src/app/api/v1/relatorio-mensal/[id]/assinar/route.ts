@@ -120,7 +120,7 @@ export async function POST(
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'relatorios',
         descricao: `Relatório mensal ${relatorio.mes}/${relatorio.ano} assinado pelo colaborador ${data.colaboradorId}`,
         ip: ipAddress,

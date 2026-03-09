@@ -355,6 +355,57 @@ export async function deletarApk(nomeApp: string): Promise<void> {
 }
 
 // =====================================================
+// OPERAÇÕES DE PRESTADORES (contratos e NFes no bucket bluepoint)
+// =====================================================
+
+const PASTA_PRESTADORES = 'prestadores';
+
+/**
+ * Retorna o caminho da pasta do prestador: prestadores/{id}-{nome_normalizado}
+ * A pasta é criada implicitamente ao fazer o primeiro upload nesse prefixo.
+ */
+export function getPastaPrestador(prestadorId: number, prestadorNome: string): string {
+  const nomeSeguro = normalizarNomePasta(prestadorNome) || `prestador-${prestadorId}`;
+  return `${PASTA_PRESTADORES}/${prestadorId}-${nomeSeguro}`;
+}
+
+/**
+ * Faz upload de arquivo de contrato para prestadores/{id}-{nome}/contratos/
+ * Retorna a URL pública do arquivo.
+ */
+export async function uploadContratoPrestador(
+  prestadorId: number,
+  prestadorNome: string,
+  buffer: Buffer,
+  contentType: string,
+  nomeArquivo: string
+): Promise<string> {
+  await garantirBucket();
+  const pasta = getPastaPrestador(prestadorId, prestadorNome);
+  const nomeSeguro = nomeArquivo.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const caminho = `${pasta}/contratos/${nomeSeguro}`;
+  return uploadArquivo(caminho, buffer, contentType);
+}
+
+/**
+ * Faz upload de arquivo de NFe para prestadores/{id}-{nome}/nfes/
+ * Retorna a URL pública do arquivo.
+ */
+export async function uploadNfePrestador(
+  prestadorId: number,
+  prestadorNome: string,
+  buffer: Buffer,
+  contentType: string,
+  nomeArquivo: string
+): Promise<string> {
+  await garantirBucket();
+  const pasta = getPastaPrestador(prestadorId, prestadorNome);
+  const nomeSeguro = nomeArquivo.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const caminho = `${pasta}/nfes/${nomeSeguro}`;
+  return uploadArquivo(caminho, buffer, contentType);
+}
+
+// =====================================================
 // EXPORTAR CLIENTE (para uso avançado)
 // =====================================================
 

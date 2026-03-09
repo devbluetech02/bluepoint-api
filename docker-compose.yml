@@ -17,12 +17,12 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=America/Sao_Paulo
-      # Database (banco externo via pgbouncer)
-      - DB_HOST=${DB_HOST:-pgbouncer}
-      - DB_PORT=${DB_PORT:-6432}
-      - DB_USERNAME=${DB_USERNAME:-doadmin}
+      # Database (PostgreSQL vetorizado no host 10.1.3.216)
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT:-5437}
+      - DB_USERNAME=${DB_USERNAME:-bluepoint}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_DATABASE=${DB_DATABASE:-defaultdb}
+      - DB_DATABASE=${DB_DATABASE:-bluepoint_vector}
       - DB_SSLMODE=${DB_SSLMODE:-disable}
       # JWT
       - JWT_SECRET=${JWT_SECRET}
@@ -42,8 +42,8 @@ services:
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-local-minio-secret}
       - MINIO_BUCKET=${MINIO_BUCKET:-bluepoint}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
-      # Redis (cache)
-      - REDIS_HOST=${REDIS_HOST:-portal_do_empregado-redis-1}
+      # Redis (cache próprio do stack)
+      - REDIS_HOST=${REDIS_HOST:-redis}
       - REDIS_PORT=${REDIS_PORT:-6379}
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       # Face Service (microserviço Python)
@@ -59,6 +59,8 @@ services:
       # Gemini (IA)
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     depends_on:
+      redis:
+        condition: service_started
       face-service:
         condition: service_healthy
     networks:
@@ -70,6 +72,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # =====================================================
+  # Redis - Cache (próprio do BluePoint, usado pela API)
+  # =====================================================
+  redis:
+    image: redis:7-alpine
+    container_name: bluepoint-redis
+    restart: unless-stopped
+    # Porta 6379 só na rede interna (API acessa por REDIS_HOST=redis)
+    command: redis-server
+    volumes:
+      - bluepoint-redis-data:/data
+    networks:
+      - bluepoint-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # =====================================================
   # Face Recognition Service (InsightFace/ArcFace)
@@ -102,3 +123,9 @@ networks:
   pgbouncer-network:
     external: true
     name: portal_do_empregado_backend
+
+# =====================================================
+# Volumes (persistência do Redis)
+# =====================================================
+volumes:
+  bluepoint-redis-data:

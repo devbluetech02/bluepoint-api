@@ -6,6 +6,7 @@ import { validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { z } from 'zod';
 import { invalidateEmpresaCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 const criarEmpresaSchema = z.object({
   razaoSocial: z.string().min(1).max(255),
@@ -66,13 +67,12 @@ export async function POST(request: NextRequest) {
 
       const empresa = result.rows[0];
 
-      // Invalidar cache de empresas
       await invalidateEmpresaCache();
+      await embedTableRowAfterInsert('bt_empresas', empresa.id);
 
-      // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'empresas',
         descricao: `Empresa criada: ${empresa.nome_fantasia}`,
         ip: getClientIp(request),

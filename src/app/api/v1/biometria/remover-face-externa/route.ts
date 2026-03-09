@@ -101,7 +101,7 @@ export async function DELETE(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: registro.colaborador_id || null,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'biometria',
         descricao: `Face externa removida (externalId: ${externalId})`,
         ip: getClientIp(request),

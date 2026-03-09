@@ -4,6 +4,7 @@ import { createdResponse, errorResponse, serverErrorResponse } from '@/lib/api-r
 import { withAuth } from '@/lib/middleware';
 import { getMinioClient, getBucketName, gerarUrlPublica } from '@/lib/storage';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -52,10 +53,11 @@ export async function POST(request: NextRequest) {
       );
 
       const anexo = result.rows[0];
+      embedTableRowAfterInsert('bt_anexos', anexo.id).catch(() => {});
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'anexos',
         descricao: `Anexo #${anexo.id} enviado (${arquivo.name})`,
         ip: getClientIp(request),

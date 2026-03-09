@@ -524,6 +524,114 @@ Lista anexos de uma solicitação
 
 ---
 
+## Prestadores de Serviços
+
+Cadastro de prestadores (PJ), contratos e NFes vinculados.
+
+### GET /listar-prestadores
+Lista prestadores com paginação e filtros (busca, status).
+
+**Query params:** `busca`, `status` (ativo | inativo | bloqueado), `pagina`, `limite`
+
+### GET /obter-prestador/{id}
+Obtém um prestador por ID.
+
+### POST /criar-prestador
+Cadastra novo prestador (gestor/admin).
+
+**Request:**
+```json
+{
+  "razaoSocial": "Empresa X Ltda",
+  "nomeFantasia": "Empresa X",
+  "cnpjCpf": "12.345.678/0001-90",
+  "email": "contato@empresax.com",
+  "telefone": "(11) 99999-0000",
+  "endereco": "Rua ABC, 123 - São Paulo/SP",
+  "areaAtuacao": "TI",
+  "status": "ativo",
+  "observacoes": ""
+}
+```
+
+### PUT /atualizar-prestador/{id}
+Atualiza dados do prestador (atualização parcial).
+
+### DELETE /excluir-prestador/{id}
+Exclui um prestador (e contratos/NFes vinculados).
+
+---
+
+### Contratos de prestador
+
+### GET /listar-contratos-prestador
+Lista contratos com filtros (prestador_id, status, busca) e paginação.
+
+**Query params:** `prestador_id`, `status` (vigente | vencido | renovado | cancelado), `busca`, `pagina`, `limite`
+
+### POST /criar-contrato-prestador
+Cria contrato vinculado a um prestador.
+
+**Request:**
+```json
+{
+  "prestadorId": 1,
+  "numero": "CT-2026-001",
+  "descricao": "Manutenção de servidores",
+  "dataInicio": "2026-01-01",
+  "dataFim": "2026-12-31",
+  "valor": 5000.00,
+  "formaPagamento": "mensal",
+  "status": "vigente",
+  "alertaRenovacaoDias": 30,
+  "observacoes": ""
+}
+```
+
+**Forma de pagamento:** `mensal` | `quinzenal` | `por_demanda` | `unico`
+
+### PUT /atualizar-contrato-prestador/{id}
+Atualiza um contrato de prestador.
+
+### DELETE /excluir-contrato-prestador/{id}
+Exclui um contrato.
+
+---
+
+### NFes de prestador
+
+### GET /listar-nfes-prestador
+Lista NFes com filtros (prestador_id, contrato_id, status, busca) e paginação.
+
+**Query params:** `prestador_id`, `contrato_id`, `status` (pendente | aprovada | rejeitada | paga), `busca`, `pagina`, `limite`
+
+### POST /criar-nfe-prestador
+Cadastra NFe vinculada a prestador (e opcionalmente a um contrato).
+
+**Request:**
+```json
+{
+  "prestadorId": 1,
+  "contratoId": 1,
+  "numero": "000123",
+  "serie": "1",
+  "chaveAcesso": "35260612345678000190550010001230001234567890",
+  "dataEmissao": "2026-02-01",
+  "valor": 5000.00,
+  "status": "pendente",
+  "arquivoUrl": "",
+  "observacoes": ""
+}
+```
+
+### PUT /atualizar-nfe-prestador/{id}
+Atualiza uma NFe (ex.: status, arquivoUrl).
+
+### DELETE /excluir-nfe-prestador/{id}
+Exclui uma NFe.
+
+---
+
 ## Departamentos
 
 ### GET /listar-departamentos

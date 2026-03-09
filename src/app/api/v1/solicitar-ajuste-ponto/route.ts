@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'solicitacoes',
         descricao: `Solicitação de ajuste de ponto criada (${data.ajustes.length} marcação(ões))`,
         ip: getClientIp(request),

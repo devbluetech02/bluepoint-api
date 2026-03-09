@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'solicitacoes',
         descricao: `Solicitação de ${data.dias} dias de férias`,
         ip: getClientIp(request),

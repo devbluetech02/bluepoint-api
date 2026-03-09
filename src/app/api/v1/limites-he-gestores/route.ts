@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
 
         await registrarAuditoria({
           usuarioId: user.userId,
-          acao: 'DELETE',
+          acao: 'excluir',
           modulo: 'limites_he_gestores',
           descricao: `Limite de HE removido do gestor "${gestorNome}"`,
           ip: getClientIp(request),
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'limites_he_gestores',
         descricao: `Limite de HE atualizado para gestor "${gestorNome}": R$ ${limiteNumerico.toFixed(2)} (${podeExtrapolarValor ? 'pode extrapolar' : 'não pode extrapolar'})`,
         ip: getClientIp(request),

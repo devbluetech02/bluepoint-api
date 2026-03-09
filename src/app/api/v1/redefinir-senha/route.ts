@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     // Registrar auditoria
     await registrarAuditoria({
       usuarioId: tokenData.usuario_id,
-      acao: 'UPDATE',
+      acao: 'editar',
       modulo: 'autenticacao',
       descricao: `Senha redefinida via recuperação: ${tokenData.email}`,
       ip: getClientIp(request),

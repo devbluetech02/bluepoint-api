@@ -5,6 +5,7 @@ import { withGestor } from '@/lib/middleware';
 import { criarMarcacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateMarcacaoCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -47,13 +48,13 @@ export async function POST(request: NextRequest) {
 
       const marcacao = result.rows[0];
 
-      // Invalidar cache de marcações
       await invalidateMarcacaoCache(data.colaboradorId);
+      await embedTableRowAfterInsert('bt_marcacoes', marcacao.id);
 
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'marcacoes',
         descricao: `Marcação manual criada para ${colaboradorResult.rows[0].nome}`,
         ip: getClientIp(request),

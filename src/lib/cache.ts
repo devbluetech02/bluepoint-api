@@ -54,6 +54,7 @@ export const CACHE_KEYS = {
   HORAS_EXTRAS: 'horas_extras:',
   PARAMETROS_HORA_EXTRA: 'parametros_hora_extra:',
   PARAMETROS_BENEFICIOS: 'parametros_beneficios:',
+  PARAMETROS_ASSIDUIDADE: 'parametros_assiduidade:',
   TOLERANCIA_HORA_EXTRA: 'tolerancia_hora_extra:',
   SOLICITACOES_HORAS_EXTRAS: 'solicitacoes_horas_extras:',
   CUSTO_HORAS_EXTRAS: 'custo_horas_extras:',
@@ -108,6 +109,18 @@ export const CACHE_KEYS = {
   
   // Alertas Inteligentes (IA)
   ALERTAS_INTELIGENTES: 'alertas_inteligentes:',
+
+  // Prestadores de Serviços
+  PRESTADOR: 'prestador:',
+  PRESTADORES: 'prestadores:',
+  CONTRATO_PRESTADOR: 'contrato_prestador:',
+  CONTRATOS_PRESTADOR: 'contratos_prestador:',
+  NFE_PRESTADOR: 'nfe_prestador:',
+  NFES_PRESTADOR: 'nfes_prestador:',
+
+  // Gestão de Pessoas
+  GESTAO_PESSOAS: 'gestao_pessoas:',
+  GESTAO_PESSOA: 'gestao_pessoa:',
 
   // Rate limiting
   RATE_LIMIT: 'rate_limit:',
@@ -624,6 +637,10 @@ export async function invalidateParametrosBeneficiosCache(): Promise<void> {
   await cacheDelPattern(`${CACHE_KEYS.PARAMETROS_BENEFICIOS}*`);
 }
 
+export async function invalidateParametrosAssiduidadeCache(): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.PARAMETROS_ASSIDUIDADE}*`);
+}
+
 /**
  * Invalida cache relacionado a tolerância de hora extra de um colaborador
  */
@@ -643,6 +660,55 @@ export async function invalidateApiKeyCache(apiKeyId?: number | string): Promise
   
   if (apiKeyId) {
     await cacheDel(`${CACHE_KEYS.API_KEY}${apiKeyId}`);
+  }
+}
+
+/**
+ * Invalida cache relacionado a prestadores de serviços
+ */
+export async function invalidatePrestadorCache(prestadorId?: number | string): Promise<void> {
+  await invalidateMultipleCache([
+    CACHE_KEYS.PRESTADORES,
+    CACHE_KEYS.CONTRATOS_PRESTADOR,
+    CACHE_KEYS.NFES_PRESTADOR,
+  ]);
+
+  if (prestadorId) {
+    await cacheDel(`${CACHE_KEYS.PRESTADOR}${prestadorId}`);
+  }
+}
+
+/**
+ * Invalida cache relacionado a contratos de prestadores
+ */
+export async function invalidateContratoPrestadorCache(contratoId?: number | string): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.CONTRATOS_PRESTADOR}*`);
+  await cacheDelPattern(`${CACHE_KEYS.NFES_PRESTADOR}*`);
+
+  if (contratoId) {
+    await cacheDel(`${CACHE_KEYS.CONTRATO_PRESTADOR}${contratoId}`);
+  }
+}
+
+/**
+ * Invalida cache relacionado a NFEs de prestadores
+ */
+export async function invalidateNfePrestadorCache(nfeId?: number | string): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.NFES_PRESTADOR}*`);
+
+  if (nfeId) {
+    await cacheDel(`${CACHE_KEYS.NFE_PRESTADOR}${nfeId}`);
+  }
+}
+
+/**
+ * Invalida cache relacionado a gestão de pessoas
+ */
+export async function invalidateGestaoPessoasCache(registroId?: number | string): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.GESTAO_PESSOAS}*`);
+
+  if (registroId) {
+    await cacheDel(`${CACHE_KEYS.GESTAO_PESSOA}${registroId}`);
   }
 }
 

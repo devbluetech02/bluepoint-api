@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'marcacoes',
         descricao: `Sincronização offline: ${sincronizadas} marcações sincronizadas`,
         ip: getClientIp(request),

@@ -3,7 +3,7 @@ import { getClient } from '@/lib/db';
 import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { aprovarSolicitacaoSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidateSolicitacaoCache, invalidateMarcacaoCache, invalidateLimitesHeEmpresasCache, invalidateLimitesHeDepartamentosCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { criarNotificacao } from '@/lib/notificacoes';
 import { registrarOcorrenciaAtraso } from '@/lib/ocorrencias-externas';
@@ -418,15 +418,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
 
       // Registrar auditoria
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'APPROVE',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'aprovar',
         modulo: 'solicitacoes',
         descricao: `Solicitação aprovada: ${solicitacao.tipo} de ${solicitacao.colaborador_nome}`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId: solicitacao.colaborador_id,
+        colaboradorNome: solicitacao.colaborador_nome,
+        entidadeId: solicitacaoId,
+        entidadeTipo: 'solicitacao',
         dadosNovos: { solicitacaoId, status: 'aprovada' },
-      });
+      }));
 
       return successResponse({
         id: solicitacaoId,

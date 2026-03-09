@@ -128,7 +128,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'dispositivos',
         descricao: `Dispositivo atualizado: ${dispositivoAntigo.nome}`,
         ip: getClientIp(request),

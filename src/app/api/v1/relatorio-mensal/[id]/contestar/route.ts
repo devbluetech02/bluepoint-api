@@ -97,7 +97,7 @@ export async function POST(
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'relatorios',
         descricao: `Contestação do relatório mensal ${relatorio.mes}/${relatorio.ano} (solicitação #${solicitacaoId})`,
         ip: ipAddress,

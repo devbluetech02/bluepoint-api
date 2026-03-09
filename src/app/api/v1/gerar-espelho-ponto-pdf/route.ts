@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { errorResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { formatCPF, formatCNPJ } from '@/lib/utils';
 import { getDiasEmFeriasNoPeriodo } from '@/lib/periodos-ferias';
 import PDFDocument from 'pdfkit';
@@ -516,7 +517,7 @@ function gerarPDF(dados: {
 // =====================================================
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const colaboradorId = searchParams.get('colaboradorId');
@@ -718,6 +719,14 @@ export async function GET(request: NextRequest) {
       // ─── Retornar PDF ──────────────────────────────
 
       const nomeArquivo = `espelho-ponto-${colab.nome.replace(/\s+/g, '-').toLowerCase()}-${dataInicio}-${dataFim}.pdf`;
+
+      await registrarAuditoria(buildAuditParams(req, user, {
+        acao: 'exportar',
+        modulo: 'relatorios',
+        descricao: `Espelho de ponto PDF: ${colab.nome} (${dataInicio} a ${dataFim})`,
+        colaboradorId: parseInt(colaboradorId),
+        colaboradorNome: colab.nome,
+      }));
 
       return new Response(pdfBuffer as unknown as BodyInit, {
         status: 200,

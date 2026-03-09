@@ -5,6 +5,7 @@ import { withAdmin } from '@/lib/middleware';
 import { criarDepartamentoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateDepartamentoCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withAdmin(request, async (req, user) => {
@@ -30,10 +31,12 @@ export async function POST(request: NextRequest) {
       // Invalidar cache
       await invalidateDepartamentoCache();
 
+      await embedTableRowAfterInsert('bt_departamentos', departamento.id);
+
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'departamentos',
         descricao: `Departamento criado: ${departamento.nome}`,
         ip: getClientIp(request),

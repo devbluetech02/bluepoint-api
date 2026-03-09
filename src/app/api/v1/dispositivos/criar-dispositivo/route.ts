@@ -5,6 +5,7 @@ import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { invalidateDispositivoCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 const criarDispositivoSchema = z.object({
   nome: z.string().min(3).max(100),
@@ -106,13 +107,13 @@ export async function POST(request: NextRequest) {
 
       const dispositivo = result.rows[0];
 
-      // Invalidar cache
       await invalidateDispositivoCache();
+      await embedTableRowAfterInsert('bt_dispositivos', dispositivo.id);
 
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'dispositivos',
         descricao: `Dispositivo criado: ${nome}`,
         ip: getClientIp(request),

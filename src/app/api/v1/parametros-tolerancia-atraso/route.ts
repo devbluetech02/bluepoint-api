@@ -82,11 +82,11 @@ export async function PUT(request: NextRequest) {
       );
 
       let result;
-      let acao: 'CREATE' | 'UPDATE';
+      let acao: 'criar' | 'editar';
 
       if (existeResult.rows.length > 0) {
         const parametroId = existeResult.rows[0].id;
-        acao = 'UPDATE';
+        acao = 'editar';
 
         result = await query(
           `UPDATE bluepoint.bt_parametros_tolerancia_atraso
@@ -99,7 +99,7 @@ export async function PUT(request: NextRequest) {
           [data.toleranciaPeriodoMin, data.toleranciaDiarioMaxMin, data.ativo, user.userId, parametroId]
         );
       } else {
-        acao = 'CREATE';
+        acao = 'criar';
 
         result = await query(
           `INSERT INTO bluepoint.bt_parametros_tolerancia_atraso
@@ -121,7 +121,7 @@ export async function PUT(request: NextRequest) {
         usuarioId: user.userId,
         acao,
         modulo: 'registro_ponto',
-        descricao: `Parâmetros de tolerância de atraso ${acao === 'CREATE' ? 'criados' : 'atualizados'}: período ${data.toleranciaPeriodoMin}min, diário ${data.toleranciaDiarioMaxMin}min, ${data.ativo ? 'ativo' : 'inativo'}`,
+        descricao: `Parâmetros de tolerância de atraso ${acao === 'criar' ? 'criados' : 'atualizados'}: período ${data.toleranciaPeriodoMin}min, diário ${data.toleranciaDiarioMaxMin}min, ${data.ativo ? 'ativo' : 'inativo'}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosNovos: {

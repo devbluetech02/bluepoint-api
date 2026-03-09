@@ -40,7 +40,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'notificacoes',
         descricao: `Notificação #${notificacaoId} marcada como lida`,
         ip: getClientIp(request),

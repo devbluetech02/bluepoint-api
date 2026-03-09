@@ -50,7 +50,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'marcacoes',
         descricao: `Marcação excluída: ${marcacao.colaborador_nome} - ${marcacao.tipo} em ${marcacao.data_hora}`,
         ip: getClientIp(request),

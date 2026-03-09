@@ -4,10 +4,11 @@ import { hashPassword } from '@/lib/auth';
 import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { criarColaboradorSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache } from '@/lib/cache';
 import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -104,16 +105,20 @@ export async function POST(request: NextRequest) {
       // Invalidar cache
       await invalidateColaboradorCache();
 
+      // Gerar embedding para busca vetorial
+      await embedTableRowAfterInsert('bt_colaboradores', novoColaborador.id);
+
       // Registrar auditoria
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'CREATE',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'criar',
         modulo: 'colaboradores',
         descricao: `Colaborador criado: ${novoColaborador.nome}`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId: novoColaborador.id,
+        colaboradorNome: novoColaborador.nome,
+        entidadeId: novoColaborador.id,
+        entidadeTipo: 'colaborador',
         dadosNovos: { id: novoColaborador.id, nome: data.nome, email: data.email },
-      });
+      }));
 
       return createdResponse({
         id: novoColaborador.id,

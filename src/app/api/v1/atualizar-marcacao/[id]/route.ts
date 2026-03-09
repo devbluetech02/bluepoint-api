@@ -73,7 +73,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'marcacoes',
         descricao: `Marcação atualizada: ${dadosAnteriores.colaborador_nome}`,
         ip: getClientIp(request),

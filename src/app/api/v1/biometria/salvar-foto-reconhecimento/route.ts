@@ -140,7 +140,7 @@ export async function POST(request: NextRequest) {
 
     await registrarAuditoria({
       usuarioId: colaboradorId,
-      acao: 'CREATE',
+      acao: 'criar',
       modulo: 'biometria',
       descricao: `Foto de reconhecimento salva para colaborador #${colaboradorId} (${colaborador.nome})`,
       ip: getClientIp(request),

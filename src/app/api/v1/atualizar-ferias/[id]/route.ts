@@ -106,7 +106,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'ferias',
         descricao: `Férias atualizadas de ${atual.colaborador_nome}: ${atualizado.data_inicio} a ${atualizado.data_fim}`,
         ip: getClientIp(request),

@@ -3,13 +3,14 @@ import { query } from '@/lib/db';
 import { successResponse, notFoundResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 
 interface Params {
   params: Promise<{ id: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  return withAuth(request, async () => {
+  return withAuth(request, async (req, user) => {
     try {
       const { id } = await params;
       const colaboradorId = parseInt(id);
@@ -112,6 +113,16 @@ export async function GET(request: NextRequest, { params }: Params) {
       if (!colaborador) {
         return notFoundResponse('Colaborador não encontrado');
       }
+
+      await registrarAuditoria(buildAuditParams(req, user, {
+        acao: 'visualizar',
+        modulo: 'usuarios',
+        descricao: 'Visualização de dados do colaborador',
+        colaboradorId,
+        colaboradorNome: colaborador.nome,
+        entidadeId: colaboradorId,
+        entidadeTipo: 'colaborador',
+      }));
 
       return successResponse(colaborador);
     } catch (error) {

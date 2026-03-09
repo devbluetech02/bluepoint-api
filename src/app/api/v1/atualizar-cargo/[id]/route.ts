@@ -98,7 +98,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'cargos',
         descricao: `Cargo atualizado: ${cargo.nome}`,
         ip: getClientIp(request),

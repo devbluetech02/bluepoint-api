@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
+import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
         return { dados, total, pagina, limite };
       }, CACHE_TTL.SHORT);
 
-      return successResponse(buildPaginatedResponse(resultado.dados, resultado.total, resultado.pagina, resultado.limite));
+      return paginatedSuccessResponse(resultado.dados, resultado.total, resultado.pagina, resultado.limite);
     } catch (error) {
       console.error('Erro ao listar marcações:', error);
       return serverErrorResponse('Erro ao listar marcações');

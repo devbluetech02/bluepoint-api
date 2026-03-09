@@ -142,7 +142,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'api_keys',
         descricao: `API Key atualizada: ${apiKeyAtual.nome}`,
         ip: getClientIp(request),
@@ -210,7 +210,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'api_keys',
         descricao: `API Key revogada: ${apiKey.nome}`,
         ip: getClientIp(request),

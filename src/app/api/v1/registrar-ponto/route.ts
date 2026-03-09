@@ -13,6 +13,7 @@ import {
   analisarAtraso,
   registrarAtrasoTolerado,
 } from '@/lib/tolerancia-atraso';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 /**
  * POST /api/v1/registrar-ponto
@@ -175,6 +176,7 @@ export async function POST(request: NextRequest) {
       );
 
       const marcacao = result.rows[0];
+      embedTableRowAfterInsert('bt_marcacoes', marcacao.id).catch(() => {});
 
       // Se houve atraso tolerado, registrar no controle interno
       if (analise.atrasado && analise.registrarNormalmente && analise.atrasoMinutos > 0) {
@@ -219,7 +221,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'registro_ponto',
         descricao: `${tipoLabel[evento.tipoMarcacao] || 'Ponto registrado'}: ${colaborador.nome}${analise.atrasado ? ` (atraso tolerado: ${analise.atrasoMinutos}min)` : ''}`,
         ip: getClientIp(request),

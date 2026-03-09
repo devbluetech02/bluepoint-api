@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'apps',
         descricao: `APK enviado: ${nome} v${resultado.versao} (substituiu anterior se existia)`,
         ip: getClientIp(request),

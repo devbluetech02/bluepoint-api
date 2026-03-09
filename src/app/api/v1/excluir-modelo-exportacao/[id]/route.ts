@@ -40,7 +40,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'exportacao',
         descricao: `Modelo de exportação excluído: ${modelo.nome}`,
         ip: getClientIp(request),

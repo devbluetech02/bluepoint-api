@@ -98,7 +98,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'colaboradores',
         descricao: `Foto atualizada: ${colaborador.nome}`,
         ip: getClientIp(request),
@@ -162,7 +162,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'colaboradores',
         descricao: `Foto removida: ${colaborador.nome}`,
         ip: getClientIp(request),

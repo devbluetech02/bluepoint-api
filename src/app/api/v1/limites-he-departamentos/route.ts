@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'limites_he_departamentos',
         descricao: `Limite de HE do departamento "${departamentoNome}" definido: R$ ${limite_mensal.toFixed(2)}`,
         ip: getClientIp(request),

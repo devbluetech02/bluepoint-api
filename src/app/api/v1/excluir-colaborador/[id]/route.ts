@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { noContentResponse, notFoundResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAdmin } from '@/lib/middleware';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidateColaboradorCache } from '@/lib/cache';
 
 interface Params {
@@ -41,15 +41,16 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       await invalidateColaboradorCache(colaboradorId);
 
       // Registrar auditoria
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'DELETE',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'excluir',
         modulo: 'colaboradores',
         descricao: `Colaborador excluído: ${colaborador.nome}`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId,
+        colaboradorNome: colaborador.nome,
+        entidadeId: colaboradorId,
+        entidadeTipo: 'colaborador',
         dadosAnteriores: { id: colaboradorId, nome: colaborador.nome, email: colaborador.email },
-      });
+      }));
 
       return noContentResponse();
     } catch (error) {

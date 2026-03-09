@@ -400,6 +400,20 @@ export const parametrosBeneficiosSchema = z.object({
 });
 
 // =====================================================
+// SCHEMAS DE PARÂMETROS DE ASSIDUIDADE
+// =====================================================
+
+export const parametrosAssiduidadeSchema = z.object({
+  limitePontosZerar: z.number().int().min(0, 'Limite deve ser >= 0').max(100, 'Limite deve ser <= 100'),
+  minDiasAdmissaoMes: z.number().int().min(1, 'Dias deve ser >= 1').max(31, 'Dias deve ser <= 31'),
+  valorInicial: z.number().min(0, 'Valor deve ser >= 0').max(10000, 'Valor deve ser <= 10000'),
+  incrementoMensal: z.number().min(0, 'Valor deve ser >= 0').max(10000, 'Valor deve ser <= 10000'),
+  valorMaximo: z.number().min(0, 'Valor deve ser >= 0').max(10000, 'Valor deve ser <= 10000'),
+  cargosExcluidos: z.array(z.string().min(1)).default([]),
+  ativo: z.boolean(),
+});
+
+// =====================================================
 // SCHEMAS DE SOLICITAÇÃO DE HORAS EXTRAS (CUSTOS)
 // =====================================================
 
@@ -569,6 +583,56 @@ export const atualizarConfigSistemaSchema = z.object({
 );
 
 // =====================================================
+// SCHEMAS DE PRESTADORES DE SERVIÇOS
+// =====================================================
+
+export const criarPrestadorSchema = z.object({
+  razaoSocial: z.string().min(2, 'Razão social deve ter no mínimo 2 caracteres').max(255),
+  nomeFantasia: z.string().max(255).optional().nullable(),
+  cnpjCpf: z.string().min(11, 'CNPJ/CPF inválido').max(20),
+  tipo: z.any().optional().transform(() => 'PJ' as const),
+  email: z.string().email('Email inválido').optional().nullable(),
+  telefone: z.string().max(20).optional().nullable(),
+  endereco: z.string().max(500).optional().nullable(),
+  areaAtuacao: z.string().max(100).optional().nullable(),
+  status: z.enum(['ativo', 'inativo', 'bloqueado'], { message: 'Status deve ser ativo, inativo ou bloqueado' }).optional().default('ativo'),
+  observacoes: z.string().optional().nullable(),
+});
+
+export const atualizarPrestadorSchema = criarPrestadorSchema.partial();
+
+export const criarContratoPrestadorSchema = z.object({
+  prestadorId: z.number().int().positive('Prestador é obrigatório'),
+  numero: z.string().min(1, 'Número do contrato é obrigatório').max(50),
+  descricao: z.string().optional().nullable(),
+  dataInicio: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data início inválida'),
+  dataFim: z.string().refine((val) => !val || !isNaN(Date.parse(val)), 'Data fim inválida').optional().nullable(),
+  valor: z.number().min(0, 'Valor deve ser >= 0'),
+  formaPagamento: z.enum(['mensal', 'quinzenal', 'por_demanda', 'unico'], { message: 'Forma de pagamento inválida' }),
+  status: z.enum(['vigente', 'vencido', 'renovado', 'cancelado'], { message: 'Status do contrato inválido' }).optional().default('vigente'),
+  alertaRenovacaoDias: z.number().int().min(0).max(365).optional().default(30),
+  observacoes: z.string().optional().nullable(),
+  arquivoUrl: z.string().max(500).optional().nullable(),
+});
+
+export const atualizarContratoPrestadorSchema = criarContratoPrestadorSchema.partial();
+
+export const criarNfePrestadorSchema = z.object({
+  prestadorId: z.number().int().positive('Prestador é obrigatório'),
+  contratoId: z.number().int().positive().optional().nullable(),
+  numero: z.string().max(20).optional().nullable(),
+  serie: z.string().max(5).optional().nullable(),
+  chaveAcesso: z.string().max(50).optional().nullable(),
+  dataEmissao: z.string().refine((val) => !val || !isNaN(Date.parse(val)), 'Data de emissão inválida').optional().nullable(),
+  valor: z.number().min(0, 'Valor deve ser >= 0').optional(),
+  status: z.enum(['pendente', 'aprovada', 'rejeitada', 'paga'], { message: 'Status da NFe inválido' }).optional().default('pendente'),
+  arquivoUrl: z.string().max(500).optional().nullable(),
+  observacoes: z.string().optional().nullable(),
+});
+
+export const atualizarNfePrestadorSchema = criarNfePrestadorSchema.partial();
+
+// =====================================================
 // HELPER DE VALIDAÇÃO
 // =====================================================
 
@@ -616,3 +680,18 @@ export function validateBody<T>(schema: z.ZodSchema<T>, body: unknown): {
   
   return { success: false, errors };
 }
+
+// =====================================================
+// SCHEMAS DE GESTÃO DE PESSOAS
+// =====================================================
+
+export const atualizarGestaoPessoasSchema = z.object({
+  status: z.enum(['pendente', 'em_andamento', 'concluido', 'cancelado']).optional(),
+  titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255).optional(),
+  descricao: z.string().min(3, 'Descrição deve ter no mínimo 3 caracteres').optional(),
+  reuniaoData: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data da reunião inválida').optional(),
+  reuniaoHora: z.string().regex(/^\d{2}:\d{2}$/, 'Hora deve estar no formato HH:mm').optional(),
+  reuniaoStatus: z.enum(['agendada', 'realizada', 'cancelada']).optional(),
+  reuniaoObservacoes: z.string().optional().nullable(),
+  participantesIds: z.array(z.number().int().positive()).min(1, 'Pelo menos 1 participante').optional(),
+});

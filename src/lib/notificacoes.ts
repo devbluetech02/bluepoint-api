@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 type TipoNotificacao = 'sistema' | 'solicitacao' | 'marcacao' | 'alerta' | 'lembrete';
 
@@ -30,7 +31,11 @@ export async function criarNotificacao(params: CriarNotificacaoParams): Promise<
         params.metadados ? JSON.stringify(params.metadados) : null,
       ]
     );
-    return result.rows[0]?.id ?? null;
+    const id = result.rows[0]?.id ?? null;
+    if (id != null) {
+      embedTableRowAfterInsert('bt_notificacoes', id).catch(() => {});
+    }
+    return id;
   } catch (error) {
     console.error('[Notificação] Erro ao criar notificação:', error);
     return null;

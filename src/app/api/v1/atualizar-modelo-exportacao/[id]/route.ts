@@ -86,7 +86,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'exportacao',
         descricao: `Modelo de exportação atualizado: ${modelo.nome}`,
         ip: getClientIp(request),

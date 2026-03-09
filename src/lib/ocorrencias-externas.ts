@@ -533,3 +533,159 @@ export async function enviarJustificativaAtrasoAoPortal(params: {
     return false;
   }
 }
+
+// =====================================================
+// ASSIDUIDADE - Busca de Pontos de Ocorrência
+// =====================================================
+// Funções para o módulo de assiduidade: consulta ocorrências
+// do Portal e calcula a soma de gravidades por colaborador/mês.
+// =====================================================
+
+import type { BuscarPontosFn } from './assiduidade';
+
+export interface PontosColaborador {
+  total_pontos: number;
+  ocorrencias_periodo: number;
+}
+
+const PONTOS_ZERO: PontosColaborador = { total_pontos: 0, ocorrencias_periodo: 0 };
+
+interface OcorrenciaListItem {
+  id: number;
+  colaborador_id: number;
+  data_ocorrencia: string;
+  gravidade: number | null;
+}
+
+interface ListaOcorrenciasResponse {
+  success: boolean;
+  data: OcorrenciaListItem[];
+  pagination: { page: number; limit: number; total: number; totalPages: number; hasNext: boolean };
+}
+
+function formatarDataAssiduidade(ano: number, mes: number, dia: number): string {
+  return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+}
+
+async function fetchOcorrenciasPaginado(
+  params: Record<string, string>,
+): Promise<OcorrenciaListItem[]> {
+  const todas: OcorrenciaListItem[] = [];
+  let page = 1;
+  let hasNext = true;
+
+  while (hasNext) {
+    const url = new URL(`${PORTAL_BASE_URL}/api/external/ocorrencias`);
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.set(k, v);
+    }
+    url.searchParams.set('limit', '200');
+    url.searchParams.set('page', String(page));
+
+    const res = await fetchComTimeout(url.toString(), {
+      method: 'GET',
+      headers: { 'X-API-Key': PORTAL_API_KEY },
+    });
+
+    if (!res.ok) {
+      throw new Error(`API externa de ocorrencias retornou HTTP ${res.status}`);
+    }
+
+    const json: ListaOcorrenciasResponse = await res.json();
+    todas.push(...json.data);
+    hasNext = json.pagination?.hasNext ?? false;
+    page++;
+  }
+
+  return todas;
+}
+
+/**
+ * Busca todas as ocorrencias de um mes/ano e retorna mapa
+ * agrupado por colaborador_id com soma de gravidades.
+ */
+export async function buscarPontosMes(
+  mes: number,
+  ano: number,
+): Promise<Map<number, PontosColaborador>> {
+  const primeiroDia = formatarDataAssiduidade(ano, mes, 1);
+  const ultimoDiaNum = new Date(ano, mes, 0).getDate();
+  const ultimoDia = formatarDataAssiduidade(ano, mes, ultimoDiaNum);
+
+  const ocorrencias = await fetchOcorrenciasPaginado({
+    data_inicio: primeiroDia,
+    data_fim: ultimoDia,
+  });
+
+  const mapa = new Map<number, PontosColaborador>();
+  for (const oc of ocorrencias) {
+    const grav = oc.gravidade ?? 0;
+    const existing = mapa.get(oc.colaborador_id);
+    if (existing) {
+      existing.total_pontos += grav;
+      existing.ocorrencias_periodo += 1;
+    } else {
+      mapa.set(oc.colaborador_id, { total_pontos: grav, ocorrencias_periodo: 1 });
+    }
+  }
+
+  return mapa;
+}
+
+/**
+ * Busca ocorrencias de um colaborador especifico num mes/ano.
+ */
+export async function buscarPontosColaboradorMes(
+  colaboradorId: number,
+  mes: number,
+  ano: number,
+): Promise<PontosColaborador> {
+  const primeiroDia = formatarDataAssiduidade(ano, mes, 1);
+  const ultimoDiaNum = new Date(ano, mes, 0).getDate();
+  const ultimoDia = formatarDataAssiduidade(ano, mes, ultimoDiaNum);
+
+  const ocorrencias = await fetchOcorrenciasPaginado({
+    data_inicio: primeiroDia,
+    data_fim: ultimoDia,
+    colaborador_id: String(colaboradorId),
+  });
+
+  let totalPontos = 0;
+  for (const oc of ocorrencias) {
+    totalPontos += oc.gravidade ?? 0;
+  }
+
+  return { total_pontos: totalPontos, ocorrencias_periodo: ocorrencias.length };
+}
+
+/**
+ * Cria uma funcao BuscarPontosFn com cache interno.
+ * Para o mes pre-carregado, usa o mapa fornecido (eficiente para batch).
+ * Para outros meses, busca por colaborador sob demanda (eficiente para cadeia).
+ */
+export function criarBuscadorPontos(options?: {
+  pontosPreCarregados?: Map<number, PontosColaborador>;
+  mesPreCarregado?: number;
+  anoPreCarregado?: number;
+}): BuscarPontosFn {
+  const cache = new Map<string, PontosColaborador>();
+
+  return async (colaboradorId, mes, ano) => {
+    if (
+      options?.pontosPreCarregados &&
+      mes === options.mesPreCarregado &&
+      ano === options.anoPreCarregado
+    ) {
+      return options.pontosPreCarregados.get(colaboradorId) ?? PONTOS_ZERO;
+    }
+
+    const chave = `${colaboradorId}-${mes}-${ano}`;
+    if (cache.has(chave)) {
+      return cache.get(chave)!;
+    }
+
+    const pontos = await buscarPontosColaboradorMes(colaboradorId, mes, ano);
+    cache.set(chave, pontos);
+    return pontos;
+  };
+}

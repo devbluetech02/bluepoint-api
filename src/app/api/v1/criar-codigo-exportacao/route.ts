@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'exportacao',
         descricao: `Código de exportação criado: ${codigo} no modelo #${modeloId}`,
         ip: getClientIp(request),

@@ -5,6 +5,7 @@ import { withAdmin } from '@/lib/middleware';
 import { criarFeriadoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateFeriadoCache } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withAdmin(request, async (req, user) => {
@@ -27,13 +28,12 @@ export async function POST(request: NextRequest) {
 
       const feriado = result.rows[0];
 
-      // Invalidar cache
       await invalidateFeriadoCache();
+      await embedTableRowAfterInsert('bt_feriados', feriado.id);
 
-      // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'feriados',
         descricao: `Feriado criado: ${feriado.nome}`,
         ip: getClientIp(request),

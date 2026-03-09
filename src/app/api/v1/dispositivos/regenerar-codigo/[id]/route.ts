@@ -67,7 +67,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'dispositivos',
         descricao: `Código do dispositivo regenerado: ${dispositivo.nome}`,
         ip: getClientIp(request),

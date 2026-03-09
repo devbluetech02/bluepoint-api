@@ -41,7 +41,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'exportacao',
         descricao: `Código de exportação excluído: ${codigoExportacao.codigo}`,
         ip: getClientIp(request),

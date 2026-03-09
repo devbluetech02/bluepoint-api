@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'limites_he_empresas',
         descricao: `Limite de HE removido da empresa ID ${empresaId}`,
         ip: getClientIp(request),

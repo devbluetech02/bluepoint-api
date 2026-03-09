@@ -43,7 +43,7 @@ export async function PUT(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'configuracoes',
         descricao: `Configurações atualizadas: ${categoria}`,
         ip: getClientIp(request),

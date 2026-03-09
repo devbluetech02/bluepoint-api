@@ -6,6 +6,7 @@ import { criarSolicitacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateSolicitacaoCache } from '@/lib/cache';
 import { calcularCustoHoraExtra, salvarCustoHoraExtra } from '@/lib/custoHorasExtrasService';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -134,6 +135,8 @@ export async function POST(request: NextRequest) {
 
       await client.query('COMMIT');
 
+      await embedTableRowAfterInsert('bt_solicitacoes', solicitacao.id);
+
       // Calcular e salvar custos de HE (fora da transação - não bloqueia criação)
       const da = dadosAdicionais as Record<string, unknown>;
       if (data.tipo === 'hora_extra' && typeof da.horaInicio === 'string' && typeof da.horaFim === 'string') {
@@ -159,7 +162,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'solicitacoes',
         descricao: `Solicitação criada: ${data.tipo}`,
         ip: getClientIp(request),

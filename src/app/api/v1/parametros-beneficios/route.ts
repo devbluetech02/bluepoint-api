@@ -80,7 +80,7 @@ export async function PUT(request: NextRequest) {
       );
 
       let result;
-      const acao: 'CREATE' | 'UPDATE' = existeResult.rows.length > 0 ? 'UPDATE' : 'CREATE';
+      const acao: 'criar' | 'editar' = existeResult.rows.length > 0 ? 'editar' : 'criar';
 
       if (existeResult.rows.length > 0) {
         const parametroId = existeResult.rows[0].id;
@@ -146,7 +146,7 @@ export async function PUT(request: NextRequest) {
         usuarioId: user.userId,
         acao,
         modulo: 'beneficios',
-        descricao: `Parâmetros de benefícios (VA/VT) ${acao === 'CREATE' ? 'criados' : 'atualizados'}`,
+        descricao: `Parâmetros de benefícios (VA/VT) ${acao === 'criar' ? 'criados' : 'atualizados'}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosNovos: dataResponse,

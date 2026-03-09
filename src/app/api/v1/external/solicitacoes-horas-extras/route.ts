@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
         const authInfo = getAuthInfo(auth);
         await registrarAuditoria({
           usuarioId: typeof authInfo.id === 'number' ? authInfo.id : null,
-          acao: 'CREATE',
+          acao: 'criar',
           modulo: 'custos_horas_extras',
           descricao: `[API Externa] Solicitação HE criada: ${solicitante} em ${data} (${horaDe}-${horaAte})`,
           ip: getClientIp(request),

@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     await registrarAuditoria({
       usuarioId: null,
-      acao: 'UPDATE',
+      acao: 'editar',
       modulo: 'dispositivos',
       descricao: `Dispositivo #${dispositivo.id} (${dispositivo.nome}) ativado via código ${codigo}`,
       ip: clientIp,

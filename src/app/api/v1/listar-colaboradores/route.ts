@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams, getOrderParams } from '@/lib/api-response';
+import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams, getOrderParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { getDiasDescontoPorColaborador } from '@/lib/beneficios-desconto';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
@@ -143,7 +144,13 @@ export async function GET(request: NextRequest) {
         return { dados, total, pagina, limite };
       }, CACHE_TTL.SHORT);
 
-      return successResponse(buildPaginatedResponse(resultado.dados, resultado.total, resultado.pagina, resultado.limite));
+      await registrarAuditoria(buildAuditParams(req, user, {
+        acao: 'visualizar',
+        modulo: 'usuarios',
+        descricao: 'Listagem de colaboradores',
+      }));
+
+      return paginatedSuccessResponse(resultado.dados, resultado.total, resultado.pagina, resultado.limite);
     } catch (error) {
       console.error('Erro ao listar colaboradores:', error);
       return serverErrorResponse('Erro ao listar colaboradores');

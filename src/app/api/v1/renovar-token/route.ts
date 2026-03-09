@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     await registrarAuditoria({
       usuarioId: tokenData.id,
-      acao: 'UPDATE',
+      acao: 'editar',
       modulo: 'tokens',
       descricao: `Token renovado para ${tokenData.email}`,
       ip: getClientIp(request),

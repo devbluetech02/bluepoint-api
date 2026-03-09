@@ -76,12 +76,12 @@ export async function PUT(request: NextRequest) {
       );
 
       let result;
-      let acao: 'CREATE' | 'UPDATE';
+      let acao: 'criar' | 'editar';
 
       if (existeResult.rows.length > 0) {
         // Atualizar registro existente
         const parametroId = existeResult.rows[0].id;
-        acao = 'UPDATE';
+        acao = 'editar';
 
         result = await query(
           `UPDATE bluepoint.bt_parametros_hora_extra
@@ -95,7 +95,7 @@ export async function PUT(request: NextRequest) {
         );
       } else {
         // Criar novo registro
-        acao = 'CREATE';
+        acao = 'criar';
 
         result = await query(
           `INSERT INTO bluepoint.bt_parametros_hora_extra
@@ -116,7 +116,7 @@ export async function PUT(request: NextRequest) {
         usuarioId: user.userId,
         acao,
         modulo: 'horas_extras',
-        descricao: `Parâmetros de hora extra ${acao === 'CREATE' ? 'criados' : 'atualizados'}: tolerância ${data.minutosTolerancia}min, ${data.diasPermitidosPorMes} dias/mês, ${data.ativo ? 'ativo' : 'inativo'}`,
+        descricao: `Parâmetros de hora extra ${acao === 'criar' ? 'criados' : 'atualizados'}: tolerância ${data.minutosTolerancia}min, ${data.diasPermitidosPorMes} dias/mês, ${data.ativo ? 'ativo' : 'inativo'}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosNovos: {

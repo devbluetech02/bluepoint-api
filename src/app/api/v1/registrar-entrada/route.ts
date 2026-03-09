@@ -221,7 +221,7 @@ export async function POST(request: NextRequest) {
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'marcacoes',
         descricao: descricaoAuditoria,
         ip: getClientIp(request),

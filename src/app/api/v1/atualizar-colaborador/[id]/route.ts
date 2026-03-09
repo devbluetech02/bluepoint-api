@@ -3,7 +3,7 @@ import { query } from '@/lib/db';
 import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { atualizarColaboradorSchema, validateBody } from '@/lib/validation';
-import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
@@ -180,16 +180,17 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       // Registrar auditoria
-      await registrarAuditoria({
-        usuarioId: user.userId,
-        acao: 'UPDATE',
+      await registrarAuditoria(buildAuditParams(request, user, {
+        acao: 'editar',
         modulo: 'colaboradores',
         descricao: `Colaborador atualizado: ${data.nome || dadosAnteriores.nome}`,
-        ip: getClientIp(request),
-        userAgent: getUserAgent(request),
+        colaboradorId,
+        colaboradorNome: (data.nome || dadosAnteriores.nome) as string,
+        entidadeId: colaboradorId,
+        entidadeTipo: 'colaborador',
         dadosAnteriores: { id: colaboradorId, ...dadosAnteriores },
         dadosNovos: { id: colaboradorId, ...data },
-      });
+      }));
 
       return successResponse({
         id: colaboradorId,

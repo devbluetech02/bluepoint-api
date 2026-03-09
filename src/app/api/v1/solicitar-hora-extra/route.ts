@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'horas_extras',
         descricao: `Solicitação de hora extra criada para ${colaborador.nome}: ${totalHoras}h em ${data.data} (Gestor: ${gestor.nome})`,
         ip: getClientIp(request),

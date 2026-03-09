@@ -163,7 +163,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'colaboradores',
         descricao: `Colaborador atualizado parcialmente: ${dadosAnteriores.nome}`,
         ip: getClientIp(request),

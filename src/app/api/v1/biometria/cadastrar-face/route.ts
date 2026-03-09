@@ -419,7 +419,7 @@ export async function POST(request: NextRequest) {
         if (user) {
           await registrarAuditoria({
             usuarioId: user.userId,
-            acao: 'UPDATE',
+            acao: 'editar',
             modulo: 'biometria',
             descricao: `Encoding adicional cadastrado para: ${colaboradorNome} (total: ${totalAtual + 1})`,
             ip: getClientIp(request),

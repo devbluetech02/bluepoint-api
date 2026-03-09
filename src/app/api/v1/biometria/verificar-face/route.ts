@@ -10,7 +10,8 @@ import {
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
-import { cacheGet, cacheSet, cacheDel, cacheDelPattern, checkRateLimit, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { cacheGet, cacheSet, cacheDel, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { verificarEAplicarToleranciaHoraExtra, verificarEAplicarToleranciaHoraExtraEntrada } from '@/lib/hora-extra-tolerancia';
 import {
   obterJornadaDoDia,
@@ -18,6 +19,7 @@ import {
   analisarAtraso,
   registrarAtrasoTolerado,
 } from '@/lib/tolerancia-atraso';
+import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { z } from 'zod';
 
 const verificarFaceSchema = z.object({
@@ -54,18 +56,6 @@ interface Dispositivo {
   localizacao_id: number | null;
 }
 
-// Função para obter IP do cliente
-function getClientIp(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  const realIp = request.headers.get('x-real-ip');
-  const cfIp = request.headers.get('cf-connecting-ip');
-  
-  if (cfIp) return cfIp;
-  if (forwarded) return forwarded.split(',')[0].trim();
-  if (realIp) return realIp;
-  
-  return 'unknown';
-}
 
 // Response helpers com headers padronizados
 function jsonResponse(data: object, status: number = 200, headers: Record<string, string> = {}) {
@@ -215,7 +205,15 @@ async function registrarPonto(
       [clientIp || null, dispositivo.id]
     );
 
-    return { sucesso: true, marcacaoId: result.rows[0].id, tipo, sequencia };
+    const marcacaoId = result.rows[0].id;
+
+    // Invalidar cache de marcações para que listagens reflitam o novo registro
+    await invalidateMarcacaoCache(colaboradorId);
+    await cacheDelPattern(`${CACHE_KEYS.ATRASOS_TOLERADOS}*`);
+
+    embedTableRowAfterInsert('bt_marcacoes', marcacaoId).catch(() => {});
+
+    return { sucesso: true, marcacaoId, tipo, sequencia };
   } catch (error) {
     console.error('Erro ao registrar ponto:', error);
     return { sucesso: false, erro: 'Erro ao registrar ponto' };
@@ -786,6 +784,25 @@ export async function POST(request: NextRequest) {
                     'Deseja notificar o seu gestor para autorizar o registro de ponto?',
                 };
                 console.log(`[Biometria/Tolerância] ${colaborador.nome} - atraso de ${analiseAtrasoResult.atrasoMinutos}min FORA da tolerância (previsto: ${analiseAtrasoResult.horarioPrevisto}, atual: ${analiseAtrasoResult.horarioTentativa})`);
+                await registrarAuditoria({
+                  usuarioId: null,
+                  acao: 'criar',
+                  modulo: 'registro_ponto',
+                  descricao: `Verificação por face: ${colaborador.nome} chegou atrasado (${analiseAtrasoResult.atrasoMinutos} min) - requer aprovação do gestor para registrar ponto`,
+                  ip: getClientIp(request),
+                  userAgent: getUserAgent(request),
+                  colaboradorId: colaborador.id,
+                  colaboradorNome: colaborador.nome,
+                  entidadeTipo: 'marcacao',
+                  dadosNovos: {
+                    tipoMarcacao: tipoFinal,
+                    atrasoMinutos: analiseAtrasoResult.atrasoMinutos,
+                    horarioPrevisto: analiseAtrasoResult.horarioPrevisto,
+                    horarioTentativa: analiseAtrasoResult.horarioTentativa,
+                    requerAprovacao: true,
+                    metodo: 'biometria',
+                  },
+                });
               }
             }
           }
@@ -899,6 +916,47 @@ export async function POST(request: NextRequest) {
               console.error('Erro ao processar tolerância de hora extra (não crítico):', toleranciaError);
             }
           }
+
+          const tipoLabel: Record<string, string> = {
+            entrada: 'Entrada',
+            almoco: 'Saída para almoço',
+            retorno: 'Retorno do almoço',
+            saida: 'Saída',
+          };
+          let descricaoLog = `Verificação por face: ${colaborador.nome} registrou ponto (${tipoLabel[resultadoPonto.tipo!]}) no dispositivo ${dispositivo.nome}`;
+          if (pontoRegistrado.atrasoTolerado) {
+            descricaoLog += ` - atraso tolerado: ${pontoRegistrado.atrasoTolerado.minutos} min`;
+          }
+          if (pontoRegistrado.toleranciaHoraExtra?.consumiuTolerancia) {
+            descricaoLog += ' - tolerância de hora extra aplicada';
+          }
+          await registrarAuditoria({
+            usuarioId: null,
+            acao: 'criar',
+            modulo: 'registro_ponto',
+            descricao: descricaoLog,
+            ip: getClientIp(request),
+            userAgent: getUserAgent(request),
+            colaboradorId: colaborador.id,
+            colaboradorNome: colaborador.nome,
+            entidadeId: resultadoPonto.marcacaoId ?? undefined,
+            entidadeTipo: 'marcacao',
+            dadosNovos: {
+              marcacaoId: resultadoPonto.marcacaoId,
+              tipo: resultadoPonto.tipo,
+              dispositivoId: dispositivo.id,
+              dispositivoNome: dispositivo.nome,
+              metodo: 'biometria',
+              ...(pontoRegistrado.atrasoTolerado && {
+                atrasoTolerado: pontoRegistrado.atrasoTolerado.minutos,
+                horarioPrevisto: pontoRegistrado.atrasoTolerado.horarioPrevisto,
+              }),
+              ...(pontoRegistrado.toleranciaHoraExtra?.consumiuTolerancia && {
+                toleranciaHoraExtra: true,
+                solicitacaoId: pontoRegistrado.toleranciaHoraExtra.solicitacaoId,
+              }),
+            },
+          });
         } else {
           return jsonResponse({
             success: false,

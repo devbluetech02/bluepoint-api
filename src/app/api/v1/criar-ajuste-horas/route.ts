@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'banco_horas',
         descricao: `Ajuste de horas criado para ${colaborador.nome}: ${data.tipo} ${data.horas}h`,
         ip: getClientIp(request),

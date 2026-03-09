@@ -38,7 +38,7 @@ export async function DELETE(
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'DELETE',
+        acao: 'excluir',
         modulo: 'empresas',
         descricao: `Empresa excluída: ${dadosAnteriores.fantasia}`,
         ip: getClientIp(request),

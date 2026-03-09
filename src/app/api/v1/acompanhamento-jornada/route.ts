@@ -1,7 +1,6 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import {
-  successResponse,
   serverErrorResponse,
   errorResponse,
   buildPaginatedResponse,
@@ -186,7 +185,7 @@ export async function GET(request: NextRequest) {
       const total = parseInt(countResult.rows[0].total);
 
       if (total === 0) {
-        return successResponse(buildPaginatedResponse([], total, pagina, limite));
+        return buildPaginatedResponse([], total, pagina, limite);
       }
 
       // ---------- Buscar colaboradores paginados ----------
@@ -206,7 +205,7 @@ export async function GET(request: NextRequest) {
       );
 
       if (colabResult.rows.length === 0) {
-        return successResponse(buildPaginatedResponse([], total, pagina, limite));
+        return buildPaginatedResponse([], total, pagina, limite);
       }
 
       const colabIds = colabResult.rows.map(r => r.id);
@@ -477,7 +476,7 @@ export async function GET(request: NextRequest) {
 
       }, CACHE_TTL.SHORT);
 
-      return successResponse(resultado);
+      return NextResponse.json(resultado);
     } catch (error) {
       console.error('Erro ao buscar acompanhamento de jornada:', error);
       return serverErrorResponse('Erro ao buscar acompanhamento de jornada');

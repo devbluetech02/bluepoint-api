@@ -111,7 +111,14 @@ export async function sendPush(apiKey: string, payload: Record<string, unknown>)
   return { ok: resp.ok, status: resp.status, body };
 }
 
+/** Nomes dos apps que devem receber push de nova versão (apenas BluePoint Mobile). */
+const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'bluepoint-mobile'];
+
 export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlDownload: string): Promise<void> {
+  if (!APPS_COM_PUSH_NOVA_VERSAO.includes(nomeApp)) {
+    return; // Push de nova versão só para BluePoint Mobile; Station não notifica
+  }
+
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_REST_API_KEY;
   if (!appId || !apiKey) return;

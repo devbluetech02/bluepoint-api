@@ -4,6 +4,7 @@ import { createdResponse, serverErrorResponse, validationErrorResponse } from '@
 import { withAdmin } from '@/lib/middleware';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateCache, CACHE_KEYS } from '@/lib/cache';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { z } from 'zod';
 
 const criarCargoSchema = z.object({
@@ -39,12 +40,12 @@ export async function POST(request: NextRequest) {
 
       const cargo = result.rows[0];
 
-      // Invalidar cache de cargos
       await invalidateCache(CACHE_KEYS.CARGOS);
+      await embedTableRowAfterInsert('bt_cargos', cargo.id);
 
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'CREATE',
+        acao: 'criar',
         modulo: 'cargos',
         descricao: `Cargo criado: ${cargo.nome}`,
         ip: getClientIp(request),

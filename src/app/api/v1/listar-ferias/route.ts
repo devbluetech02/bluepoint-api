@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
+import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 
 export async function GET(request: NextRequest) {
@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
         criadoEm: row.criado_em,
       }));
 
-      return successResponse(buildPaginatedResponse(dados, total, pagina, limite));
+      return paginatedSuccessResponse(dados, total, pagina, limite);
     } catch (error) {
       console.error('Erro ao listar férias:', error);
       return serverErrorResponse('Erro ao listar férias');

@@ -44,7 +44,7 @@ export async function PUT(request: NextRequest) {
       // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
-        acao: 'UPDATE',
+        acao: 'editar',
         modulo: 'configuracoes',
         descricao: 'Tolerâncias de ponto atualizadas',
         ip: getClientIp(request),
