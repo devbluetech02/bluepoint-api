@@ -58,6 +58,10 @@ services:
       - PUSH_SMALL_ICON=${PUSH_SMALL_ICON:-}
       # Gemini (IA)
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # OpenRouter / extração NFe PDF (OPENAI_*)
+      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-google/gemini-2.0-flash-001}
     depends_on:
       redis:
         condition: service_started

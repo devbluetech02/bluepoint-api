@@ -248,19 +248,17 @@ O sistema detecta automaticamente o tipo de token.`,
             description: 'Lista de colaboradores',
             example: {
               success: true,
-              data: {
-                dados: [
-                  {
-                    id: 1, nome: 'João Silva', email: 'joao@empresa.com', cpf: '123.456.789-00',
-                    empresa: { id: 1, nomeFantasia: 'Minha Empresa' },
-                    departamento: { id: 1, nome: 'TI' },
-                    jornada: { id: 1, nome: 'Comercial 8h' },
-                    cargo: { id: 1, nome: 'Desenvolvedor' }, dataAdmissao: '2024-01-15', status: 'ativo',
-                    foto: 'https://...', biometria: { cadastrada: true, cadastradaEm: '2026-02-01' },
-                  },
-                ],
-                paginacao: { total: 645, pagina: 1, limite: 50, totalPaginas: 13 },
-              },
+              data: [
+                {
+                  id: 1, nome: 'João Silva', email: 'joao@empresa.com', cpf: '123.456.789-00',
+                  empresa: { id: 1, nomeFantasia: 'Minha Empresa' },
+                  departamento: { id: 1, nome: 'TI' },
+                  jornada: { id: 1, nome: 'Comercial 8h' },
+                  cargo: { id: 1, nome: 'Desenvolvedor' }, dataAdmissao: '2024-01-15', status: 'ativo',
+                  foto: 'https://...', biometria: { cadastrada: true, cadastradaEm: '2026-02-01' },
+                },
+              ],
+              paginacao: { total: 645, pagina: 1, limite: 50, totalPaginas: 13 },
             },
           },
           errors: [{ status: 401, code: 'UNAUTHORIZED', message: 'Token não fornecido ou inválido' }],
@@ -352,8 +350,9 @@ Nota: Tanto JWT quanto API Key usam o mesmo header Authorization: Bearer <token>
             email: { type: 'string', description: 'Email' },
             cargoId: { type: 'number', description: 'ID do cargo' },
             status: { type: 'string', description: 'Status', enum: ['ativo', 'inativo'] },
+            novaSenha: { type: 'string', description: 'Nova senha (apenas gestores/admins)' },
           },
-          example: { nome: 'João Silva Atualizado', cargoId: 2 },
+          example: { nome: 'João Silva Atualizado', cargoId: 2, novaSenha: 'NovaSenha@123' },
         },
         responses: {
           success: { status: 200, description: 'Colaborador atualizado', example: { success: true, data: { mensagem: 'Colaborador atualizado com sucesso' } } },
@@ -484,7 +483,7 @@ Nota: Tanto JWT quanto API Key usam o mesmo header Authorization: Bearer <token>
           limite: { type: 'number', description: 'Limite por página (padrão: 50)' },
         },
         responses: {
-          success: { status: 200, description: 'Lista de marcações', example: { success: true, data: { dados: [], paginacao: {} } } },
+          success: { status: 200, description: 'Lista de marcações', example: { success: true, data: [], paginacao: {} } },
           errors: [],
         },
       },
@@ -728,7 +727,7 @@ Nota: Tanto JWT quanto API Key usam o mesmo header Authorization: Bearer <token>
           busca: { type: 'string', description: 'Busca por nome fantasia, razão social ou CNPJ' },
         },
         responses: {
-          success: { status: 200, description: 'Lista de empresas', example: { success: true, data: { dados: [], paginacao: {} } } },
+          success: { status: 200, description: 'Lista de empresas', example: { success: true, data: [], paginacao: {} } },
           errors: [],
         },
       },
@@ -838,7 +837,7 @@ Nota: Tanto JWT quanto API Key usam o mesmo header Authorization: Bearer <token>
     endpoints: [
       {
         id: 'listar-cargos', method: 'GET', path: '/api/v1/listar-cargos', summary: 'Lista todos os cargos', auth: 'both',
-        responses: { success: { status: 200, description: 'Lista de cargos', example: { success: true, data: { dados: [], paginacao: {} } } }, errors: [] },
+        responses: { success: { status: 200, description: 'Lista de cargos', example: { success: true, data: [], paginacao: {} } }, errors: [] },
       },
       {
         id: 'obter-cargo', method: 'GET', path: '/api/v1/obter-cargo/{id}', summary: 'Obtém um cargo', auth: 'both',
@@ -911,7 +910,7 @@ Nota: Tanto JWT quanto API Key usam o mesmo header Authorization: Bearer <token>
     description: 'Férias, ajustes, atestados e mais',
     icon: 'FileText',
     endpoints: [
-      { id: 'listar-solicitacoes', method: 'GET', path: '/api/v1/listar-solicitacoes', summary: 'Lista todas as solicitações', auth: 'both', responses: { success: { status: 200, description: 'Lista', example: { success: true, data: { dados: [], paginacao: {} } } }, errors: [] } },
+      { id: 'listar-solicitacoes', method: 'GET', path: '/api/v1/listar-solicitacoes', summary: 'Lista todas as solicitações', auth: 'both', responses: { success: { status: 200, description: 'Lista', example: { success: true, data: [], paginacao: {} } }, errors: [] } },
       { id: 'listar-solicitacoes-pendentes', method: 'GET', path: '/api/v1/listar-solicitacoes-pendentes', summary: 'Lista solicitações pendentes (gestor)', auth: 'jwt', responses: { success: { status: 200, description: 'Pendentes', example: { success: true, data: [] } }, errors: [] } },
       { id: 'listar-solicitacoes-colaborador', method: 'GET', path: '/api/v1/listar-solicitacoes-colaborador/{colaboradorId}', summary: 'Lista solicitações de um colaborador', auth: 'both', pathParams: { colaboradorId: { type: 'number', required: true, description: 'ID' } }, responses: { success: { status: 200, description: 'Lista', example: { success: true, data: [] } }, errors: [] } },
       { id: 'obter-solicitacao', method: 'GET', path: '/api/v1/obter-solicitacao/{id}', summary: 'Obtém detalhes de uma solicitação', auth: 'both', pathParams: { id: { type: 'number', required: true, description: 'ID' } }, responses: { success: { status: 200, description: 'Detalhes', example: { success: true, data: {} } }, errors: [] } },
@@ -1197,7 +1196,7 @@ Todos usam o mesmo header Authorization: Bearer <token>`,
     description: 'Logs de auditoria do sistema',
     icon: 'Activity',
     endpoints: [
-      { id: 'listar-logs-auditoria', method: 'GET', path: '/api/v1/listar-logs-auditoria', summary: 'Lista logs de auditoria (admin)', auth: 'jwt', responses: { success: { status: 200, description: 'Logs', example: { success: true, data: { dados: [], paginacao: {} } } }, errors: [] } },
+      { id: 'listar-logs-auditoria', method: 'GET', path: '/api/v1/listar-logs-auditoria', summary: 'Lista logs de auditoria (admin)', auth: 'jwt', responses: { success: { status: 200, description: 'Logs', example: { success: true, data: [], paginacao: {} } }, errors: [] } },
     ],
   },
 

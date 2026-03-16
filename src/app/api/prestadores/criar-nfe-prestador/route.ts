@@ -9,23 +9,27 @@ import { uploadNfePrestador } from '@/lib/storage';
 
 function parseBodyFromFormData(formData: FormData): Record<string, unknown> {
   const get = (k: string) => formData.get(k) as string | null;
-  const getOne = (...keys: string[]) => keys.map(get).find((v) => v != null && v !== '');
-  const prestadorId = getOne('prestadorId', 'prestador_id');
-  const contratoId = getOne('contratoId', 'contrato_id');
-  const valor = getOne('valor');
+  const prestadorId = get('prestadorId');
+  const contratoId = get('contratoId');
+  const valor = get('valor');
   return {
     prestadorId: prestadorId != null ? Number(prestadorId) : undefined,
     contratoId: contratoId != null && contratoId !== '' ? Number(contratoId) : undefined,
-    numero: getOne('numero') ?? undefined,
-    serie: getOne('serie') ?? undefined,
-    chaveAcesso: getOne('chaveAcesso', 'chave_acesso') ?? undefined,
-    dataEmissao: getOne('dataEmissao', 'data_emissao') ?? undefined,
+    numero: get('numero') ?? undefined,
+    serie: get('serie') ?? undefined,
+    chaveAcesso: get('chaveAcesso') ?? undefined,
+    dataEmissao: get('dataEmissao') ?? undefined,
     valor: valor != null ? Number(valor) : undefined,
-    status: getOne('status') ?? undefined,
-    observacoes: getOne('observacoes') ?? undefined,
+    status: get('status') ?? undefined,
+    observacoes: get('observacoes') ?? undefined,
   };
 }
 
+/**
+ * POST /api/prestadores/criar-nfe-prestador
+ * Cadastra NFe vinculada a prestador (e opcionalmente a um contrato).
+ * Mesma lógica de /api/v1/criar-nfe-prestador para compatibilidade com clientes que usam o path /api/prestadores/*.
+ */
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
     try {
@@ -49,7 +53,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       if (!arquivo || arquivo.size === 0) {
-        return errorResponse('Envie o arquivo da NFe (campo "arquivo")', 400);
+        return errorResponse('Envie o arquivo da NFe (campo "arquivo" ou "file")', 400);
       }
 
       const prestadorResult = await query(

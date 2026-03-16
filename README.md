@@ -164,6 +164,32 @@ curl -X GET https://bluepoint-api.bluetechfilms.com.br/api/v1/listar-colaborador
 
 > **Importante:** NÃO existe header `X-API-Key`. Tanto JWT quanto API Key usam `Authorization: Bearer <token>`.
 
+**Todos os endpoints protegidos** (exceto os listados em "Endpoints sem autenticação" abaixo) aceitam **JWT ou API Key** no mesmo header. O middleware detecta automaticamente o tipo e aplica as regras de permissão (admin, gestor, colaborador / admin, write, read).
+
+### Endpoints sem autenticação
+
+Estes endpoints **não** exigem `Authorization`:
+
+| Método | Endpoint | Uso |
+|--------|----------|-----|
+| POST | `/api/v1/autenticar` | Login (retorna JWT) |
+| POST | `/api/v1/renovar-token` | Renovar JWT com refresh token |
+| POST | `/api/v1/solicitar-recuperacao-senha` | Enviar email de recuperação |
+| POST | `/api/v1/redefinir-senha` | Redefinir senha com token do email |
+| GET | `/api/v1/health` | Health check (banco, Redis) |
+| POST | `/api/v1/biometria/verificar-face` | Verificação facial (identificação; pode receber dispositivo opcional) |
+
+Demais endpoints exigem `Authorization: Bearer <token>` (JWT ou API Key).
+
+### Padronização de respostas
+
+Todas as respostas da API seguem o mesmo formato:
+
+- **Sucesso com corpo:** `{ "success": true, "data": ... }`. Em listagens paginadas: `{ "success": true, "data": [ ... ], "paginacao": { "total", "pagina", "limite", "totalPaginas" } }`.
+- **Erro:** `{ "success": false, "error": "mensagem" }` (e opcionalmente `errors` para validação, `code` para códigos específicos).
+
+A chave de dados de sucesso é sempre **`data`** (não `dados`). Use `data` ao consumir as respostas.
+
 ### Tipos de Usuário (JWT)
 
 | Tipo | Permissões |
@@ -188,6 +214,8 @@ curl -X GET https://bluepoint-api.bluetechfilms.com.br/api/v1/listar-colaborador
 ```
 https://bluepoint-api.bluetechfilms.com.br/api/v1
 ```
+
+**Queries SQL:** Os scripts SQL executados no banco por cada endpoint estão documentados em **[docs/SQL-QUERIES.md](docs/SQL-QUERIES.md)**.
 
 ---
 
@@ -318,7 +346,8 @@ Lista todos os cargos (paginado)
 **Response:**
 ```json
 {
-  "dados": [
+  "success": true,
+  "data": [
     {
       "id": 1,
       "nome": "Desenvolvedor Full Stack",
@@ -352,6 +381,15 @@ Exclui cargo (apenas admin). Não permite excluir cargo com colaboradores vincul
 
 ### GET /listar-colaboradores
 Lista todos os colaboradores (paginado)
+
+**Query params:** `pagina`, `limite`, `busca`, `filtro[departamentoId]`, `filtro[status]`, `filtro[mesReferencia]`, `ordenar` (`nome`, `email`, `data_admissao`, `criado_em`)
+
+
+### GET /listar-estoquistas
+Lista colaboradores com cargo de estoquista (paginado). Query: `pagina`, `limite`, `busca`, `filtro[departamentoId]`, `filtro[status]`, `ordenar`. Aceita JWT ou API Key.
+
+### GET /listar-supervisores
+Lista colaboradores supervisores (paginado). Query: `pagina`, `limite`, `busca`, filtros. Aceita JWT ou API Key.
 
 ### GET /obter-colaborador/{id}
 Obtém dados de um colaborador específico
@@ -420,6 +458,9 @@ Registra saída do colaborador
 ### GET /listar-marcacoes
 Lista todas as marcações (paginado)
 
+**Query params:** `pagina`, `limite`, `colaboradorId`, `dataInicio`, `dataFim`, `tipo`, `filtro[departamentoId]`
+
+
 ### GET /listar-marcacoes-hoje
 Lista marcações do dia atual
 
@@ -466,6 +507,9 @@ Cria ajuste manual no banco de horas
 
 ### GET /listar-solicitacoes
 Lista todas as solicitações
+
+**Query params:** `pagina`, `limite`, `colaboradorId`, `tipo`, `status`, `dataInicio`, `dataFim`, `gestorId`
+
 
 ### GET /listar-solicitacoes-pendentes
 Lista solicitações pendentes
@@ -672,6 +716,7 @@ Lista todas as jornadas de trabalho
 **Response:**
 ```json
 {
+  "success": true,
   "data": [
     {
       "id": 1,
@@ -1093,6 +1138,9 @@ Gera relatório de banco de horas
 ### GET /listar-logs-auditoria
 Lista logs de auditoria do sistema
 
+### GET /auditoria/logs
+Lista logs de auditoria com filtros (dataInicio, dataFim, modulo, acao, colaboradorId, busca, pagina, limite). Aceita JWT ou API Key.
+
 ---
 
 ## Comandos Docker
@@ -1121,32 +1169,23 @@ docker compose restart api
 
 ## Estrutura do Banco de Dados
 
-### Schema: `bluepoint`
+Documentação completa das tabelas, colunas, índices, FKs e views: **[docs/DATABASE.md](docs/DATABASE.md)**.
 
-**Tabelas principais:**
-- `bt_colaboradores` - Usuários do sistema
-- `bt_empresas` - Empresas cadastradas
-- `bt_departamentos` - Departamentos
-- `bt_cargos` - Cargos (nome, CBO, descrição)
-- `bt_jornadas` - Jornadas de trabalho (simples ou circular)
-- `bt_jornada_horarios` - Horários (entrada1, saida1, entrada2, saida2, folga)
-- `bt_marcacoes` - Marcações de ponto
-- `bt_banco_horas` - Movimentações de banco de horas
-- `bt_solicitacoes` - Solicitações diversas
-- `bt_anexos` - Arquivos anexados
-- `bt_localizacoes` - Localizações (geofence)
-- `bt_feriados` - Feriados (nacional, estadual, municipal)
-- `bt_ferias` - Períodos de férias
-- `bt_notificacoes` - Notificações
-- `bt_refresh_tokens` - Tokens de refresh
-- `bt_configuracoes` - Configurações do sistema
-- `bt_auditoria` - Logs de auditoria
-- `bt_biometria_facial` - Cadastros faciais (colaborador_id ou external_id)
-- `bt_alertas_inteligentes` - Alertas (regras e IA)
-- `bt_limites_he_empresas`, `bt_limites_he_departamentos`, `bt_limites_he_gestores` - Limites de HE
-- `bt_dispositivos` - Dispositivos de ponto
-- `bt_permissoes`, `bt_api_keys` - Permissões e API Keys
-- Demais tabelas de exportação, relatório mensal, benefícios, etc.
+**Resumo — Schema `bluepoint`:**
+
+| Área | Tabelas principais |
+|------|--------------------|
+| **Cadastros** | `bt_empresas`, `bt_cargos`, `bt_colaboradores`, `bt_departamentos`, `bt_documentos_colaborador` |
+| **Jornada e ponto** | `bt_jornadas`, `bt_jornada_horarios`, `bt_marcacoes`, `bt_colaborador_jornadas_historico` |
+| **Banco de horas / HE** | `bt_banco_horas`, `bt_parametros_hora_extra`, `bt_historico_tolerancia_hora_extra`, `bt_limites_he_*`, `bt_solicitacoes_horas_extras` |
+| **Solicitações** | `bt_solicitacoes`, `bt_solicitacoes_historico`, `bt_tipos_solicitacao`, `bt_anexos` |
+| **Local e feriados** | `bt_localizacoes`, `bt_localizacao_departamentos`, `bt_feriados` |
+| **Auth e segurança** | `bt_refresh_tokens`, `bt_tokens_recuperacao`, `bt_permissoes`, `bt_tipo_usuario_permissoes`, `bt_api_keys` |
+| **Config e sistema** | `bt_configuracoes`, `bt_configuracoes_empresa`, `bt_config_sistema` |
+| **Biometria e auditoria** | `bt_biometria_facial`, `bt_auditoria`, `bt_notificacoes` |
+| **Módulos** | `bt_gestao_pessoas*`, `bt_prestadores`, `bt_contratos_prestador`, `bt_nfes_prestador`, `bt_dispositivos`, `bt_alertas_inteligentes`, `bt_modelos_exportacao`, `bt_codigos_exportacao`, `bt_relatorios_mensais` |
+
+Views: `vw_colaboradores_completo`, `vw_marcacoes_hoje`, `vw_solicitacoes_pendentes`, `vw_saldo_banco_horas`. Scripts SQL por endpoint: [docs/SQL-QUERIES.md](docs/SQL-QUERIES.md).
 
 ---
 
@@ -1164,7 +1203,7 @@ docker compose restart api
 
 ## Total de Endpoints: 185+
 
-As rotas estão em `src/app/api/v1/`. Cada recurso pode expor GET, POST, PUT, PATCH ou DELETE conforme o caso.
+As rotas estão em `src/app/api/v1/`. Cada recurso pode expor GET, POST, PUT, PATCH ou DELETE conforme o caso. **Todos os endpoints protegidos aceitam JWT e API Key** (header `Authorization: Bearer <token>`); apenas os listados em "Endpoints sem autenticação" não exigem token.
 
 ---
 
@@ -1196,6 +1235,11 @@ bluepoint_api/
 ---
 
 ## Changelog
+
+### v1.7.0 (2026-03-10)
+- **Padronização de respostas:** Todas as respostas de sucesso usam a chave `data` (e `paginacao` em listagens). Exemplo de listar-cargos atualizado no README.
+- **Autenticação:** Documentado que todos os endpoints protegidos aceitam **JWT e API Key** (withAuth, withAdmin, withGestor, withRole). Tabela de endpoints sem autenticação adicionada.
+- README: seção "Padronização de respostas" e "Endpoints sem autenticação" incluídas.
 
 ### v1.6.0 (2026-02-27)
 - Documentação geral revisada e atualizada

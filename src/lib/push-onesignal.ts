@@ -116,12 +116,16 @@ const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'bluepoint-mobile'];
 
 export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlDownload: string): Promise<void> {
   if (!APPS_COM_PUSH_NOVA_VERSAO.includes(nomeApp)) {
+    console.log('[OneSignal] Push nova versao NAO enviado: app nao elegivel para push de nova versao:', nomeApp);
     return; // Push de nova versão só para BluePoint Mobile; Station não notifica
   }
 
   const appId = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_REST_API_KEY;
-  if (!appId || !apiKey) return;
+  if (!appId || !apiKey) {
+    console.warn('[OneSignal] Push nova versao NAO enviado: ONESIGNAL_APP_ID ou ONESIGNAL_REST_API_KEY nao configurados');
+    return;
+  }
 
   const titulo = APP_TITLES[nomeApp] || nomeApp;
   const visual = PUSH_VISUAL.atualizacao;

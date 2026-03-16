@@ -277,10 +277,8 @@ export const dispositivosCategory: CategorySpec = {
           description: 'Lista paginada', 
           example: { 
             success: true, 
-            data: { 
-              dispositivos: [{ id: 1, codigo: 'ABC123', nome: 'Totem', descricao: 'Recepção', status: 'ativo', permiteEntrada: true, permiteSaida: true, requerFoto: true, requerGeolocalizacao: false, modelo: 'Samsung Tab', sistemaOperacional: 'Android 12', versaoApp: '1.0.0', ultimoAcesso: '2024-01-15T10:00:00Z', totalRegistros: 150, empresa: { id: 1, nome: 'Empresa' }, localizacao: { id: 1, nome: 'Sede' } }], 
-              paginacao: { total: 10, pagina: 1, limite: 50, totalPaginas: 1 } 
-            } 
+            data: [{ id: 1, codigo: 'ABC123', nome: 'Totem', descricao: 'Recepção', status: 'ativo', permiteEntrada: true, permiteSaida: true, requerFoto: true, requerGeolocalizacao: false, modelo: 'Samsung Tab', sistemaOperacional: 'Android 12', versaoApp: '1.0.0', ultimoAcesso: '2024-01-15T10:00:00Z', totalRegistros: 150, empresa: { id: 1, nome: 'Empresa' }, localizacao: { id: 1, nome: 'Sede' } }], 
+            paginacao: { total: 10, pagina: 1, limite: 50, totalPaginas: 1 } 
           } 
         }, 
         errors: [] 

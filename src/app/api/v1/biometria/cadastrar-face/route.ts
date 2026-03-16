@@ -466,7 +466,14 @@ export async function POST(request: NextRequest) {
           );
           console.log(`[Cadastrar Face] MERGE: Adicionado ${externalData.prefixo}:${externalData.id} ao registro ${registroExistenteId}`);
         } else {
-          // Adicionar colaborador_id ao registro que só tem external_ids
+          // Adicionar colaborador_id ao registro que só tem external_ids.
+          // Se já existir outro registro com este colaborador_id (ex.: cadastro anterior só BluePoint),
+          // removê-lo antes para não violar UNIQUE(colaborador_id).
+          await query(
+            `DELETE FROM bluepoint.bt_biometria_facial 
+             WHERE colaborador_id = $1 AND id != $2`,
+            [colaboradorId_final, registroExistenteId]
+          );
           await query(
             `UPDATE bluepoint.bt_biometria_facial 
              SET colaborador_id = $1, encoding = $2, qualidade = $3, foto_referencia_url = $4, atualizado_em = NOW()

@@ -129,10 +129,16 @@ async function detectarTipoPonto(colaboradorId: number): Promise<'entrada' | 'sa
       return 'saida';
     }
     if (ultimoTipo === 'saida') {
-      return 'entrada';
+      // Fluxo completo já finalizado com saída; não reiniciar com nova entrada automática
+      return 'saida';
     }
 
-    // Fallback: alterna entre entrada e saída
+    // Fallback: alterna entre entrada e saída, mas nunca reinicia como entrada
+    // se já houve uma saída registrada no dia.
+    const jaTeveSaida = marcacoes.some((m) => m.tipo === 'saida');
+    if (jaTeveSaida) {
+      return 'saida';
+    }
     return (ultimoTipo === 'entrada' || ultimoTipo === 'retorno') ? 'saida' : 'entrada';
   } catch (error) {
     console.error('Erro ao detectar tipo de ponto:', error);

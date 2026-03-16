@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { atualizarColaboradorSchema, validateBody } from '@/lib/validation';
+import { hashPassword } from '@/lib/auth';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
@@ -115,6 +116,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
           values.push(valor);
           paramIndex++;
         }
+      }
+
+      // Atualizar senha, se informada (apenas gestores/admins via this endpoint)
+      if (data.novaSenha) {
+        const senhaHash = await hashPassword(data.novaSenha);
+        setClauses.push(`senha_hash = $${paramIndex}`);
+        values.push(senhaHash);
+        paramIndex++;
       }
 
       // Campos de endereço

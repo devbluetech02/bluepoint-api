@@ -139,8 +139,10 @@ export const colaboradoresCategory: CategorySpec = {
           telefone: { type: 'string', description: 'Telefone' },
           cargoId: { type: 'number', description: 'ID do cargo' },
           departamentoId: { type: 'number', description: 'ID do departamento' },
+          status: { type: 'string', description: 'Status do colaborador', enum: ['ativo', 'inativo'] },
+          novaSenha: { type: 'string', description: 'Nova senha (apenas gestores/admins)' },
         },
-        example: { nome: 'João da Silva Santos', cargoId: 2 },
+        example: { nome: 'João da Silva Santos', cargoId: 2, novaSenha: 'NovaSenha@123' },
       },
       responses: {
         success: { status: 200, description: 'Atualizado', example: { success: true } },

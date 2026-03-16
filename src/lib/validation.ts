@@ -65,9 +65,18 @@ export const criarColaboradorSchema = z.object({
   senha: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
 });
 
-export const atualizarColaboradorSchema = criarColaboradorSchema.partial().omit({ senha: true }).extend({
-  status: z.enum(['ativo', 'inativo'], { message: 'Status deve ser "ativo" ou "inativo"' }).optional(),
-});
+export const atualizarColaboradorSchema = criarColaboradorSchema
+  .partial()
+  .omit({ senha: true })
+  .extend({
+    status: z
+      .enum(['ativo', 'inativo'], { message: 'Status deve ser "ativo" ou "inativo"' })
+      .optional(),
+    novaSenha: z
+      .string()
+      .min(6, 'Nova senha deve ter no mínimo 6 caracteres')
+      .optional(),
+  });
 
 // =====================================================
 // SCHEMAS DE MARCAÇÃO

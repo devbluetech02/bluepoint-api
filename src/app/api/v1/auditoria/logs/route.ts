@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { errorResponse, serverErrorResponse, paginatedSuccessResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 
@@ -113,15 +113,12 @@ export async function GET(request: NextRequest) {
         colaboradorId: colaboradorId ? parseInt(colaboradorId) : undefined,
       }));
 
-      return Response.json({
-        data: result.rows,
-        paginacao: {
-          total,
-          pagina,
-          limite,
-          totalPaginas: Math.ceil(total / limite),
-        },
-      });
+      return paginatedSuccessResponse(
+        result.rows,
+        total,
+        pagina,
+        limite
+      );
     } catch (error) {
       console.error('Erro ao listar logs de auditoria:', error);
       return serverErrorResponse('Erro ao listar logs de auditoria');

@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { successResponse, serverErrorResponse } from '@/lib/api-response';
+import { successResponse, serverErrorResponse, paginatedSuccessResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { listarAlertasInteligentes } from '@/lib/ai-analytics';
 import { getPaginationParams } from '@/lib/api-response';
@@ -24,15 +24,12 @@ export async function GET(request: NextRequest) {
         offset,
       });
 
-      return successResponse({
-        alertas: resultado.alertas,
-        paginacao: {
-          total: resultado.total,
-          pagina,
-          limite,
-          totalPaginas: Math.ceil(resultado.total / limite),
-        },
-      });
+      return paginatedSuccessResponse(
+        resultado.alertas,
+        resultado.total,
+        pagina,
+        limite
+      );
     } catch (error) {
       console.error('Erro ao listar alertas inteligentes:', error);
       return serverErrorResponse('Erro ao listar alertas inteligentes');

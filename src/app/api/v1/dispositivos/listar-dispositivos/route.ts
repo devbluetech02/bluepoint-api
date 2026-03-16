@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
+import { paginatedSuccessResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 
@@ -114,10 +115,12 @@ export async function GET(request: NextRequest) {
         };
       }, CACHE_TTL.MEDIUM);
 
-      return jsonResponse({
-        success: true,
-        data: resultado,
-      });
+      return paginatedSuccessResponse(
+        resultado.dispositivos,
+        resultado.paginacao.total,
+        resultado.paginacao.pagina,
+        resultado.paginacao.limite
+      );
 
     } catch (error) {
       console.error('Erro ao listar dispositivos:', error);
