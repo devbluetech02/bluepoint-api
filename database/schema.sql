@@ -121,18 +121,57 @@ ALTER TABLE bluepoint.bt_colaboradores
 ADD CONSTRAINT fk_colaborador_cargo
 FOREIGN KEY (cargo_id) REFERENCES bluepoint.bt_cargos(id) ON DELETE SET NULL;
 
+-- Tabela de Tipos de Documento do Colaborador (ASO, EPI, CNH, etc.)
+CREATE TABLE bluepoint.bt_tipos_documento_colaborador (
+    id SERIAL PRIMARY KEY,
+    codigo VARCHAR(50) NOT NULL UNIQUE,
+    nome_exibicao VARCHAR(100) NOT NULL,
+    validade_meses INTEGER,
+    obrigatorio_padrao BOOLEAN NOT NULL DEFAULT true,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_bt_tipos_documento_codigo ON bluepoint.bt_tipos_documento_colaborador(codigo);
+
 -- Tabela de Documentos do Colaborador
 CREATE TABLE bluepoint.bt_documentos_colaborador (
     id SERIAL PRIMARY KEY,
     colaborador_id INTEGER NOT NULL REFERENCES bluepoint.bt_colaboradores(id) ON DELETE CASCADE,
     tipo VARCHAR(50) NOT NULL,
+    tipo_documento_id INTEGER REFERENCES bluepoint.bt_tipos_documento_colaborador(id) ON DELETE SET NULL,
     nome VARCHAR(255) NOT NULL,
     url TEXT NOT NULL,
+    storage_key TEXT,
     tamanho INTEGER,
-    data_upload TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    data_upload TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data_validade DATE
 );
 
 CREATE INDEX idx_bt_documentos_colaborador ON bluepoint.bt_documentos_colaborador(colaborador_id);
+CREATE INDEX idx_bt_documentos_colaborador_tipo ON bluepoint.bt_documentos_colaborador(tipo_documento_id);
+CREATE INDEX idx_bt_documentos_colaborador_validade ON bluepoint.bt_documentos_colaborador(data_validade);
+
+-- Obrigatoriedade por cargo (ex.: vendedor interno sem CNH/Direção Defensiva). Requer bt_cargos.
+CREATE TABLE bluepoint.bt_cargo_tipo_documento (
+    cargo_id INTEGER NOT NULL REFERENCES bluepoint.bt_cargos(id) ON DELETE CASCADE,
+    tipo_documento_id INTEGER NOT NULL REFERENCES bluepoint.bt_tipos_documento_colaborador(id) ON DELETE CASCADE,
+    obrigatorio BOOLEAN NOT NULL,
+    PRIMARY KEY (cargo_id, tipo_documento_id)
+);
+
+CREATE INDEX idx_bt_cargo_tipo_documento_cargo ON bluepoint.bt_cargo_tipo_documento(cargo_id);
+CREATE INDEX idx_bt_cargo_tipo_documento_tipo ON bluepoint.bt_cargo_tipo_documento(tipo_documento_id);
+
+-- Seed tipos de documento (ASO, EPI, CNH, etc.)
+INSERT INTO bluepoint.bt_tipos_documento_colaborador (codigo, nome_exibicao, validade_meses, obrigatorio_padrao)
+VALUES
+  ('aso', 'ASO', 12, true),
+  ('epi', 'EPI', 12, true),
+  ('direcao_defensiva', 'Direção Defensiva', 12, true),
+  ('cnh', 'CNH', 60, true),
+  ('nr35', 'NR35', 12, true),
+  ('outros', 'Outros Documentos', NULL, false);
 
 -- Tabela de Marcações de Ponto
 CREATE TABLE bluepoint.bt_marcacoes (
@@ -742,6 +781,48 @@ COMMENT ON TABLE bluepoint.bt_config_sistema IS 'Configurações do sistema por 
 CREATE TRIGGER tr_config_sistema_atualizado_em
     BEFORE UPDATE ON bluepoint.bt_config_sistema
     FOR EACH ROW EXECUTE FUNCTION bluepoint.atualizar_timestamp();
+
+-- =====================================================
+-- ESPORTES (SESSÕES E INSCRIÇÕES)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS bluepoint.bt_parametros_esportes (
+    id SERIAL PRIMARY KEY,
+    dia_semana SMALLINT NOT NULL CHECK (dia_semana BETWEEN 0 AND 6),
+    hora_inicio TIME NOT NULL,
+    total_jogadores INTEGER NOT NULL CHECK (total_jogadores > 0),
+    horas_jogo INTEGER NOT NULL CHECK (horas_jogo > 0),
+    local VARCHAR(255) NOT NULL,
+    ativo BOOLEAN NOT NULL DEFAULT true,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_por INTEGER REFERENCES bluepoint.bt_colaboradores(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS bluepoint.bt_esportes_sessoes (
+    id SERIAL PRIMARY KEY,
+    data_sessao DATE NOT NULL UNIQUE,
+    hora_inicio TIME NOT NULL,
+    horas_jogo INTEGER NOT NULL CHECK (horas_jogo > 0),
+    local VARCHAR(255) NOT NULL,
+    total_vagas INTEGER NOT NULL CHECK (total_vagas > 0),
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS bluepoint.bt_esportes_inscricoes (
+    id SERIAL PRIMARY KEY,
+    sessao_id INTEGER NOT NULL REFERENCES bluepoint.bt_esportes_sessoes(id) ON DELETE CASCADE,
+    colaborador_id INTEGER NOT NULL REFERENCES bluepoint.bt_colaboradores(id) ON DELETE CASCADE,
+    posicao VARCHAR(20) NOT NULL CHECK (posicao IN ('linha', 'goleiro')),
+    confirmado BOOLEAN NOT NULL DEFAULT false,
+    confirmado_em TIMESTAMP,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(sessao_id, colaborador_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bt_esportes_sessoes_data ON bluepoint.bt_esportes_sessoes(data_sessao);
+CREATE INDEX IF NOT EXISTS idx_bt_esportes_inscricoes_sessao ON bluepoint.bt_esportes_inscricoes(sessao_id);
+CREATE INDEX IF NOT EXISTS idx_bt_esportes_inscricoes_colaborador ON bluepoint.bt_esportes_inscricoes(colaborador_id);
 
 -- =====================================================
 -- FIM DO SCRIPT

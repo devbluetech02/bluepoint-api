@@ -50,8 +50,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
         // Buscar documentos
         const docsResult = await query(
-          `SELECT id, tipo, nome, url, data_upload
-           FROM bt_documentos_colaborador
+          `SELECT id, tipo, tipo_documento_id, nome, url, tamanho, data_upload, data_validade
+           FROM bluepoint.bt_documentos_colaborador
            WHERE colaborador_id = $1
            ORDER BY data_upload DESC`,
           [colaboradorId]
@@ -100,13 +100,28 @@ export async function GET(request: NextRequest, { params }: Params) {
           valeTransporte: row.vale_transporte === true,
           criadoEm: row.criado_em,
           atualizadoEm: row.atualizado_em,
-          documentos: docsResult.rows.map(doc => ({
-            id: doc.id,
-            tipo: doc.tipo,
-            nome: doc.nome,
-            url: doc.url,
-            dataUpload: doc.data_upload,
-          })),
+          documentos: (() => {
+            type DocRow = { id: number; tipo: string; tipo_documento_id: number | null; nome: string; url: string; tamanho: number | null; data_upload: string; data_validade: string | null };
+            const hoje = new Date().toISOString().substring(0, 10);
+            const hojeDate = new Date(hoje);
+            const diasParaVencer = (dataValidade: string | null): number | null => {
+              if (dataValidade == null) return null;
+              const diffMs = new Date(dataValidade).getTime() - hojeDate.getTime();
+              return Math.floor(diffMs / (24 * 60 * 60 * 1000));
+            };
+            return (docsResult.rows as DocRow[]).map((doc) => ({
+              id: doc.id,
+              tipo: doc.tipo,
+              tipoDocumentoId: doc.tipo_documento_id,
+              nome: doc.nome,
+              url: doc.url,
+              tamanho: doc.tamanho,
+              dataUpload: doc.data_upload,
+              dataValidade: doc.data_validade,
+              vencido: doc.data_validade != null && doc.data_validade < hoje,
+              diasParaVencer: diasParaVencer(doc.data_validade),
+            }));
+          })(),
         };
       }, CACHE_TTL.SHORT);
 

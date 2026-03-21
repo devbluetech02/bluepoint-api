@@ -713,6 +713,13 @@ export async function invalidateGestaoPessoasCache(registroId?: number | string)
 }
 
 /**
+ * Invalida cache de documentos do colaborador (lista de documentos)
+ */
+export async function invalidateDocumentosColaboradorCache(colaboradorId: number | string): Promise<void> {
+  await cacheDel(`${CACHE_KEYS.DOCUMENTOS}colaborador:${colaboradorId}`);
+}
+
+/**
  * Invalida todo o cache (usar com cuidado!)
  */
 export async function invalidateAllCache(): Promise<void> {

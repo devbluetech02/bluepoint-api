@@ -433,7 +433,22 @@ Atualiza foto do colaborador
 Obtém foto do colaborador
 
 ### GET /listar-documentos-colaborador/{id}
-Lista documentos do colaborador
+Lista documentos do colaborador (inclui `dataValidade`, `vencido`, `tiposObrigatoriosCargo`).
+
+### GET /tipos-documento-colaborador
+Lista tipos de documento (ASO, EPI, CNH, NR35, Direção Defensiva, Outros) com `validadeMeses` e `obrigatorioPadrao`.
+
+### GET /cargos/{id}/tipos-documento
+Para um cargo, lista os tipos de documento com indicador `obrigatorio` (obrigatório ou opcional para aquele cargo).
+
+### PUT /cargos/{id}/tipos-documento
+Define obrigatoriedade por cargo. Body: `{ "tipos": [{ "tipoDocumentoId": 1, "obrigatorio": false }] }`.
+
+### POST /colaboradores/{id}/documentos
+Envia documento do colaborador. FormData: `tipoDocumentoId`, `arquivo`, `dataValidade` (opcional). Arquivos em MinIO.
+
+### DELETE /colaboradores/{id}/documentos/{docId}
+Remove documento do colaborador (MinIO + banco).
 
 ---
 
@@ -529,10 +544,10 @@ Atualiza uma solicitação
 ### DELETE /excluir-solicitacao/{id}
 Remove/cancela uma solicitação
 
-### POST /aprovar-solicitacao/{id}
+### PATCH /aprovar-solicitacao/{id}
 Aprova uma solicitação (gestor)
 
-### POST /rejeitar-solicitacao/{id}
+### PATCH /rejeitar-solicitacao/{id}
 Rejeita uma solicitação (gestor)
 
 ### GET /listar-tipos-solicitacao
@@ -872,7 +887,7 @@ Remove um feriado
 - `GET /obter-ferias/{id}` - Obtém registro de férias
 - `POST /designar-ferias` - Designa férias
 - `POST /solicitar-ferias` - Solicitação de férias
-- `PUT /atualizar-ferias/{id}` - Atualiza férias
+- `PATCH /atualizar-ferias/{id}` - Atualiza férias
 - `DELETE /excluir-ferias/{id}` - Remove férias
 
 ---
@@ -884,13 +899,13 @@ Remove um feriado
 - `GET /solicitacoes-horas-extras` - Solicitações de HE
 - `GET /solicitacoes-horas-extras/{id}/custos` - Custos da solicitação
 - `POST /solicitar-hora-extra` - Nova solicitação de HE
-- `GET /limites-he-empresas`, `GET /limites-he-empresas/{empresaId}` - Limites por empresa
-- `GET /limites-he-departamentos`, `GET /limites-he-departamentos/{id}` - Limites por departamento
+- `GET /limites-he-empresas`, `DELETE /limites-he-empresas/{empresaId}` - Limites por empresa
+- `GET /limites-he-departamentos`, `DELETE /limites-he-departamentos/{id}` - Limites por departamento
 - `GET /limites-he-gestores` - Limites por gestor
 - `GET /saldo-he-gestor/{gestorId}` - Saldo HE do gestor
 - `GET /saldo-tolerancia-hora-extra/{colaboradorId}` - Saldo tolerância HE
 - `GET /parametros-hora-extra` - Parâmetros de HE
-- `GET /liderancas-departamento`, `GET /liderancas-departamento/{id}` - Lideranças
+- `GET /liderancas-departamento`, `DELETE /liderancas-departamento/{id}` - Lideranças
 
 ---
 
@@ -974,10 +989,10 @@ Lista notificações do usuário
 ### GET /obter-notificacao/{id}
 Obtém uma notificação específica
 
-### PUT /marcar-notificacao-lida/{id}
+### PATCH /marcar-notificacao-lida/{id}
 Marca notificação como lida
 
-### PUT /marcar-todas-lidas
+### PATCH /marcar-todas-lidas
 Marca todas as notificações como lidas
 
 ### DELETE /excluir-notificacao/{id}
@@ -1125,10 +1140,10 @@ Dashboard com totalizadores e gráficos
 ### GET /obter-status-tempo-real
 Status em tempo real dos colaboradores
 
-### POST /gerar-espelho-ponto
+### GET /gerar-espelho-ponto
 Gera espelho de ponto (PDF)
 
-### POST /gerar-relatorio-banco-horas
+### GET /gerar-relatorio-banco-horas
 Gera relatório de banco de horas
 
 ---

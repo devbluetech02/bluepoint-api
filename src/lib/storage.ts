@@ -188,6 +188,62 @@ export async function salvarFotoColaborador(
   return { url, caminho: caminhoCompleto };
 }
 
+// =====================================================
+// DOCUMENTOS DO COLABORADOR (ASO, EPI, CNH, etc.)
+// =====================================================
+
+/** Códigos de tipo de documento (pastas no MinIO) */
+export const CODIGOS_TIPO_DOCUMENTO = [
+  'aso',
+  'epi',
+  'direcao_defensiva',
+  'cnh',
+  'nr35',
+  'outros',
+] as const;
+
+export type CodigoTipoDocumento = (typeof CODIGOS_TIPO_DOCUMENTO)[number];
+
+/**
+ * Monta o caminho (key) do objeto no MinIO para um documento do colaborador.
+ * Formato: colaboradores/{id}/documentos/{tipo}/{uuid}.{ext}
+ */
+export function buildDocumentoColaboradorPath(
+  colaboradorId: number,
+  codigoTipo: string,
+  fileName: string,
+  uniqueId?: string
+): string {
+  const ext = fileName.split('.').pop()?.toLowerCase() || 'pdf';
+  const safeExt = ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'].includes(ext) ? ext : 'pdf';
+  const id = uniqueId || `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+  return `colaboradores/${colaboradorId}/documentos/${codigoTipo}/${id}.${safeExt}`;
+}
+
+/**
+ * Upload de documento do colaborador para MinIO.
+ * Retorna a URL pública e o storage_key para persistir no banco.
+ */
+export async function uploadDocumentoColaborador(
+  colaboradorId: number,
+  codigoTipo: string,
+  buffer: Buffer,
+  contentType: string,
+  nomeOriginal: string
+): Promise<{ url: string; storageKey: string }> {
+  await garantirBucket();
+  const storageKey = buildDocumentoColaboradorPath(colaboradorId, codigoTipo, nomeOriginal);
+  const url = await uploadArquivo(storageKey, buffer, contentType);
+  return { url, storageKey };
+}
+
+/**
+ * Remove um documento do colaborador do MinIO pelo storage_key.
+ */
+export async function deletarDocumentoColaborador(storageKey: string): Promise<void> {
+  await deletarArquivo(storageKey);
+}
+
 /**
  * Deleta foto do colaborador
  */

@@ -422,6 +422,19 @@ export const parametrosAssiduidadeSchema = z.object({
   ativo: z.boolean(),
 });
 
+export const parametrosEsportesSchema = z.object({
+  dia_semana: z.number().int().min(0, 'dia_semana deve ser entre 0 e 6').max(6, 'dia_semana deve ser entre 0 e 6'),
+  hora_inicio: z.string().regex(/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/, 'hora_inicio deve estar no formato HH:MM'),
+  total_jogadores: z.number().int().min(2, 'total_jogadores deve ser >= 2').max(200, 'total_jogadores deve ser <= 200'),
+  horas_jogo: z.number().int().min(1, 'horas_jogo deve ser >= 1').max(12, 'horas_jogo deve ser <= 12'),
+  local: z.string().min(2, 'local é obrigatório').max(255, 'local deve ter no máximo 255 caracteres'),
+  ativo: z.boolean(),
+});
+
+export const inscricaoEsportesSchema = z.object({
+  posicao: z.enum(['linha', 'goleiro'], { message: "posicao aceita apenas 'linha' ou 'goleiro'" }),
+});
+
 // =====================================================
 // SCHEMAS DE SOLICITAÇÃO DE HORAS EXTRAS (CUSTOS)
 // =====================================================
