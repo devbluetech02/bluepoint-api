@@ -1257,7 +1257,7 @@ export async function GET(
           colunasPersonalizadas = colunasParam.split(',').map(c => c.trim());
         } else {
           const configResult = await query(
-            `SELECT colunas FROM bt_config_relatorio_personalizado WHERE usuario_id = $1`,
+            `SELECT colunas FROM config_relatorio_personalizado WHERE usuario_id = $1`,
             [user.userId]
           );
           if (configResult.rows.length > 0 && Array.isArray(configResult.rows[0].colunas) && configResult.rows[0].colunas.length > 0) {
@@ -1276,9 +1276,9 @@ export async function GET(
         `SELECT c.id, c.nome, c.cpf, c.cargo_id, cg.nome as cargo_nome, c.data_admissao,
                 c.empresa_id, c.jornada_id,
                 e.razao_social AS empresa_razao_social, e.cnpj AS empresa_cnpj
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.empresas e ON c.empresa_id = e.id
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -1293,7 +1293,7 @@ export async function GET(
       if (colab.jornada_id) {
         const jornadaResult = await query(
           `SELECT dia_semana, dias_semana, folga, periodos
-           FROM bluepoint.bt_jornada_horarios
+           FROM people.jornada_horarios
            WHERE jornada_id = $1
            ORDER BY COALESCE(dia_semana, sequencia, id)`,
           [colab.jornada_id]
@@ -1313,7 +1313,7 @@ export async function GET(
 
       const marcacoesResult = await query(
         `SELECT data_hora, tipo
-         FROM bluepoint.bt_marcacoes
+         FROM people.marcacoes
          WHERE colaborador_id = $1
            AND data_hora >= $2
            AND data_hora < ($3::date + interval '1 day')
@@ -1329,7 +1329,7 @@ export async function GET(
       }
 
       const feriadosResult = await query(
-        `SELECT data, nome FROM bluepoint.bt_feriados
+        `SELECT data, nome FROM people.feriados
          WHERE data >= $1 AND data <= $2`,
         [dataInicio, dataFim]
       );
@@ -1489,7 +1489,7 @@ export async function GET(
                WHEN tipo IN ('debito', 'compensacao') THEN -horas
                ELSE 0 END
         ), 0) as saldo
-         FROM bluepoint.bt_banco_horas
+         FROM people.banco_horas
          WHERE colaborador_id = $1
            AND data >= $2 AND data <= $3`,
         [colaboradorId, dataInicio, dataFim]
@@ -1506,7 +1506,7 @@ export async function GET(
       let assinatura: DadosAssinatura | null = null;
       const relResult = await query(
         `SELECT status, assinado_em, dispositivo, localizacao_gps, assinatura_imagem, ip_address
-         FROM bluepoint.bt_relatorios_mensais
+         FROM people.relatorios_mensais
          WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
         [colaboradorId, mes, ano]
       );

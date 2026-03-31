@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se solicitação existe
       const solicitacaoResult = await query(
-        `SELECT id FROM bt_solicitacoes WHERE id = $1`,
+        `SELECT id FROM solicitacoes WHERE id = $1`,
         [solicitacaoId]
       );
 
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Buscar anexos
         const result = await query(
           `SELECT id, nome, tipo, tamanho, url, data_upload
-           FROM bt_anexos
+           FROM anexos
            WHERE solicitacao_id = $1
            ORDER BY data_upload`,
           [solicitacaoId]

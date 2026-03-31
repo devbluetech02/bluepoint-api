@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_prestadores WHERE cnpj_cpf = $1`,
+        `SELECT id FROM people.prestadores WHERE cnpj_cpf = $1`,
         [data.cnpjCpf]
       );
 
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_prestadores (
+        `INSERT INTO people.prestadores (
           razao_social, nome_fantasia, cnpj_cpf, tipo, email, telefone,
           endereco, area_atuacao, status, observacoes
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       };
 
       await invalidatePrestadorCache();
-      await embedTableRowAfterInsert('bt_prestadores', novo.id);
+      await embedTableRowAfterInsert('prestadores', novo.id);
 
       await registrarAuditoria(buildAuditParams(request, user, {
         acao: 'criar',

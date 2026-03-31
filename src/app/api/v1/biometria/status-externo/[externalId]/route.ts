@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar biometria onde external_id contém o prefixo e o ID específico
       const biometriaResult = await query(
         `SELECT qualidade, data_cadastro, atualizado_em, external_id
-         FROM bluepoint.bt_biometria_facial
+         FROM people.biometria_facial
          WHERE external_id ? $1 AND external_id ->> $1 = $2`,
         [prefixo, id]
       );

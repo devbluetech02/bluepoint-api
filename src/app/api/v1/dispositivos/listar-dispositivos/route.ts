@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) FROM bluepoint.bt_dispositivos d ${whereClause}`,
+          `SELECT COUNT(*) FROM people.dispositivos d ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].count);
@@ -67,9 +67,9 @@ export async function GET(request: NextRequest) {
             d.criado_em, d.atualizado_em,
             e.id as empresa_id, e.nome_fantasia as empresa_nome,
             l.id as localizacao_id, l.nome as localizacao_nome
-          FROM bluepoint.bt_dispositivos d
-          LEFT JOIN bluepoint.bt_empresas e ON d.empresa_id = e.id
-          LEFT JOIN bluepoint.bt_localizacoes l ON d.localizacao_id = l.id
+          FROM people.dispositivos d
+          LEFT JOIN people.empresas e ON d.empresa_id = e.id
+          LEFT JOIN people.localizacoes l ON d.localizacao_id = l.id
           ${whereClause}
           ORDER BY d.criado_em DESC
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

@@ -19,7 +19,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT id, nome FROM bt_localizacoes WHERE id = $1`,
+        `SELECT id, nome FROM localizacoes WHERE id = $1`,
         [localizacaoId]
       );
 
@@ -31,7 +31,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Soft delete
       await query(
-        `UPDATE bt_localizacoes SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE localizacoes SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
         [localizacaoId]
       );
 

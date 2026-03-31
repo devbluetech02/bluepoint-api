@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -33,9 +33,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dados = await cacheAside(cacheKey, async () => {
         const result = await query(
           `SELECT d.id, d.tipo, d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho, d.data_upload, d.data_validade,
-                  t.codigo AS tipo_codigo, t.nome_exibicao AS tipo_nome_exibicao, t.validade_meses
-           FROM bluepoint.bt_documentos_colaborador d
-           LEFT JOIN bluepoint.bt_tipos_documento_colaborador t ON t.id = d.tipo_documento_id
+                  t.codigo AS tipo_codigo, t.nome_exibicao AS tipo_nome_exibicao, t.validade_meses, t.categoria AS tipo_categoria
+           FROM people.documentos_colaborador d
+           LEFT JOIN people.tipos_documento_colaborador t ON t.id = d.tipo_documento_id
            WHERE d.colaborador_id = $1
            ORDER BY d.data_upload DESC`,
           [colaboradorId]
@@ -64,6 +64,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           tipo_codigo: string | null;
           tipo_nome_exibicao: string | null;
           validade_meses: number | null;
+          tipo_categoria: 'operacional' | 'admissao' | null;
         };
         const documentos = (result.rows as DocRow[]).map((doc) => {
           const vencido = doc.data_validade != null && doc.data_validade < hoje;
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest, { params }: Params) {
             tipo: doc.tipo,
             tipoDocumentoId: doc.tipo_documento_id,
             tipoNomeExibicao: doc.tipo_nome_exibicao ?? doc.tipo,
+            categoria: doc.tipo_categoria ?? 'operacional',
             nome: doc.nome,
             url: doc.url,
             tamanho: doc.tamanho,
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
         // Tipos obrigatórios para o cargo do colaborador (para o front exibir o que falta)
         const colabRow = await query(
-          `SELECT c.cargo_id FROM bluepoint.bt_colaboradores c WHERE c.id = $1`,
+          `SELECT c.cargo_id FROM people.colaboradores c WHERE c.id = $1`,
           [colaboradorId]
         );
         const cargoId = colabRow.rows[0]?.cargo_id ?? null;
@@ -93,8 +95,9 @@ export async function GET(request: NextRequest, { params }: Params) {
         if (cargoId) {
           const tiposCargoResult = await query(
             `SELECT t.id, t.codigo, COALESCE(ct.obrigatorio, t.obrigatorio_padrao) AS obrigatorio
-             FROM bluepoint.bt_tipos_documento_colaborador t
-             LEFT JOIN bluepoint.bt_cargo_tipo_documento ct ON ct.tipo_documento_id = t.id AND ct.cargo_id = $1
+             FROM people.tipos_documento_colaborador t
+             LEFT JOIN people.cargo_tipo_documento ct ON ct.tipo_documento_id = t.id AND ct.cargo_id = $1
+             WHERE t.categoria = 'operacional'
              ORDER BY t.id`,
             [cargoId]
           );
@@ -106,7 +109,10 @@ export async function GET(request: NextRequest, { params }: Params) {
           }));
         } else {
           const todosTiposResult = await query(
-            `SELECT id, codigo, obrigatorio_padrao FROM bluepoint.bt_tipos_documento_colaborador ORDER BY id`
+            `SELECT id, codigo, obrigatorio_padrao
+             FROM people.tipos_documento_colaborador
+             WHERE categoria = 'operacional'
+             ORDER BY id`
           );
           type TipoPadraoRow = { id: number; codigo: string; obrigatorio_padrao: boolean };
           tiposObrigatoriosCargo = (todosTiposResult.rows as TipoPadraoRow[]).map((r) => ({

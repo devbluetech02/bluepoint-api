@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
       const placeholders = colaboradorIds.map((_, i) => `$${i + 3}`).join(',');
       sql = `
         SELECT c.id AS colaborador_id, c.nome, r.status, r.assinado_em
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bluepoint.bt_relatorios_mensais r
+        FROM people.colaboradores c
+        LEFT JOIN people.relatorios_mensais r
           ON r.colaborador_id = c.id AND r.mes = $1 AND r.ano = $2
         WHERE c.id IN (${placeholders})
         ORDER BY c.nome
@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
     } else {
       sql = `
         SELECT c.id AS colaborador_id, c.nome, r.status, r.assinado_em
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bluepoint.bt_relatorios_mensais r
+        FROM people.colaboradores c
+        LEFT JOIN people.relatorios_mensais r
           ON r.colaborador_id = c.id AND r.mes = $1 AND r.ano = $2
         WHERE c.status = 'ativo'
         ORDER BY c.nome

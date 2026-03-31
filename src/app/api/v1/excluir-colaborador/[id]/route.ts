@@ -21,7 +21,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Buscar colaborador
       const result = await query(
-        `SELECT id, nome, email FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome, email FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -33,7 +33,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Soft delete - apenas marcar como inativo
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE people.colaboradores SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
         [colaboradorId]
       );
 

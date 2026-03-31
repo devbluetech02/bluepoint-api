@@ -9,8 +9,8 @@
 set -e
 
 PG_VERSION="${PG_VERSION:-16}"
-DB_NAME="${VECTOR_DB_NAME:-bluepoint_vector}"
-DB_USER="${VECTOR_DB_USER:-bluepoint}"
+DB_NAME="${VECTOR_DB_NAME:-people_vector}"
+DB_USER="${VECTOR_DB_USER:-people}"
 DB_PASSWORD="${VECTOR_DB_PASSWORD:-Bluetech*9090}"
 
 echo ">>> Instalando dependências e repositório PostgreSQL..."

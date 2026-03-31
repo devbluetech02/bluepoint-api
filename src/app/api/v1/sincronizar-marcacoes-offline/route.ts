@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         try {
           // Verificar se colaborador existe
           const colaboradorResult = await client.query(
-            `SELECT id FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo'`,
+            `SELECT id FROM people.colaboradores WHERE id = $1 AND status = 'ativo'`,
             [m.colaboradorId]
           );
 
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
           // Verificar se já existe marcação com mesmo timestamp
           const existeResult = await client.query(
-            `SELECT id FROM bluepoint.bt_marcacoes 
+            `SELECT id FROM people.marcacoes 
              WHERE colaborador_id = $1 AND data_hora = $2`,
             [m.colaboradorId, m.dataHora]
           );
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
           // Inserir marcação
           await client.query(
-            `INSERT INTO bluepoint.bt_marcacoes (
+            `INSERT INTO people.marcacoes (
               colaborador_id, data_hora, tipo, latitude, longitude, metodo
             ) VALUES ($1, $2, $3, $4, $5, $6)`,
             [

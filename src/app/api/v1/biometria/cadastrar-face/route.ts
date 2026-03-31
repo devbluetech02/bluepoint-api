@@ -142,7 +142,7 @@ export async function POST(request: NextRequest) {
       if (colaboradorId) {
         // Modo BluePoint: Buscar colaborador pelo ID
         const colaboradorResult = await query(
-          `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+          `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
           [colaboradorId]
         );
 
@@ -268,7 +268,7 @@ export async function POST(request: NextRequest) {
       if (isExternal && externalData) {
         // Buscar por external_id com o mesmo prefixo E mesmo ID
         const existeResult = await query(
-          `SELECT id FROM bluepoint.bt_biometria_facial 
+          `SELECT id FROM people.biometria_facial 
            WHERE external_id @> $1::jsonb`,
           [JSON.stringify({ [externalData.prefixo]: externalData.id })]
         );
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
         }
       } else {
         const existeResult = await query(
-          `SELECT id FROM bluepoint.bt_biometria_facial WHERE colaborador_id = $1`,
+          `SELECT id FROM people.biometria_facial WHERE colaborador_id = $1`,
           [colaboradorId_final]
         );
         if (existeResult.rows.length > 0) {
@@ -296,7 +296,7 @@ export async function POST(request: NextRequest) {
       // Buscar todos os encodings existentes no banco (exceto o registro atual se existir)
       const allEncodingsResult = await query(
         `SELECT id, colaborador_id, external_id, encoding 
-         FROM bluepoint.bt_biometria_facial 
+         FROM people.biometria_facial 
          WHERE encoding IS NOT NULL ${registroExistenteId ? 'AND id != $1' : ''}`,
         registroExistenteId ? [registroExistenteId] : []
       );
@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
       if (adicional && registroExistenteId) {
         // Verificar quantos encodings extras já existem (máximo 5)
         const countResult = await query(
-          `SELECT total_encodings FROM bluepoint.bt_biometria_facial WHERE id = $1`,
+          `SELECT total_encodings FROM people.biometria_facial WHERE id = $1`,
           [registroExistenteId]
         );
         const totalAtual = countResult.rows[0]?.total_encodings || 1;
@@ -403,7 +403,7 @@ export async function POST(request: NextRequest) {
         }
 
         await query(
-          `UPDATE bluepoint.bt_biometria_facial 
+          `UPDATE people.biometria_facial 
            SET encodings_extras = array_append(encodings_extras, $1),
                qualidades_extras = array_append(qualidades_extras, $2),
                total_encodings = total_encodings + 1,
@@ -458,7 +458,7 @@ export async function POST(request: NextRequest) {
         if (isExternal && externalData) {
           // Adicionar external_id ao registro que pode ter colaborador_id
           await query(
-            `UPDATE bluepoint.bt_biometria_facial 
+            `UPDATE people.biometria_facial 
              SET external_id = jsonb_set(COALESCE(external_id, '{}'::jsonb), $1, $2),
                  encoding = $3, qualidade = $4, foto_referencia_url = $5, atualizado_em = NOW()
              WHERE id = $6`,
@@ -470,12 +470,12 @@ export async function POST(request: NextRequest) {
           // Se já existir outro registro com este colaborador_id (ex.: cadastro anterior só BluePoint),
           // removê-lo antes para não violar UNIQUE(colaborador_id).
           await query(
-            `DELETE FROM bluepoint.bt_biometria_facial 
+            `DELETE FROM people.biometria_facial 
              WHERE colaborador_id = $1 AND id != $2`,
             [colaboradorId_final, registroExistenteId]
           );
           await query(
-            `UPDATE bluepoint.bt_biometria_facial 
+            `UPDATE people.biometria_facial 
              SET colaborador_id = $1, encoding = $2, qualidade = $3, foto_referencia_url = $4, atualizado_em = NOW()
              WHERE id = $5`,
             [colaboradorId_final, encodingBuffer, qualidade, fotoReferenciaUrl, registroExistenteId]
@@ -484,7 +484,7 @@ export async function POST(request: NextRequest) {
           
           // Atualizar flag no colaborador
           await query(
-            `UPDATE bluepoint.bt_colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
+            `UPDATE people.colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
             [colaboradorId_final]
           );
         }
@@ -492,7 +492,7 @@ export async function POST(request: NextRequest) {
         // UPDATE: Atualizar registro existente
         if (isExternal && externalData) {
           await query(
-            `UPDATE bluepoint.bt_biometria_facial 
+            `UPDATE people.biometria_facial 
              SET external_id = jsonb_set(COALESCE(external_id, '{}'::jsonb), $1, $2),
                  encoding = $3, qualidade = $4, foto_referencia_url = $5, atualizado_em = NOW()
              WHERE id = $6`,
@@ -500,7 +500,7 @@ export async function POST(request: NextRequest) {
           );
         } else {
           await query(
-            `UPDATE bluepoint.bt_biometria_facial 
+            `UPDATE people.biometria_facial 
              SET encoding = $1, qualidade = $2, foto_referencia_url = $3, atualizado_em = NOW()
              WHERE id = $4`,
             [encodingBuffer, qualidade, fotoReferenciaUrl, registroExistenteId]
@@ -508,7 +508,7 @@ export async function POST(request: NextRequest) {
           
           // Atualizar flag no colaborador
           await query(
-            `UPDATE bluepoint.bt_colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
+            `UPDATE people.colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
             [colaboradorId_final]
           );
         }
@@ -518,20 +518,20 @@ export async function POST(request: NextRequest) {
           // Construir o JSON no JavaScript e passar como string para o PostgreSQL
           const externalIdJson = JSON.stringify({ [externalData.prefixo]: externalData.id });
           await query(
-            `INSERT INTO bluepoint.bt_biometria_facial (external_id, encoding, qualidade, foto_referencia_url)
+            `INSERT INTO people.biometria_facial (external_id, encoding, qualidade, foto_referencia_url)
              VALUES ($1::jsonb, $2, $3, $4)`,
             [externalIdJson, encodingBuffer, qualidade, fotoReferenciaUrl]
           );
         } else {
           await query(
-            `INSERT INTO bluepoint.bt_biometria_facial (colaborador_id, encoding, qualidade, foto_referencia_url)
+            `INSERT INTO people.biometria_facial (colaborador_id, encoding, qualidade, foto_referencia_url)
              VALUES ($1, $2, $3, $4)`,
             [colaboradorId_final, encodingBuffer, qualidade, fotoReferenciaUrl]
           );
           
           // Atualizar flag no colaborador
           await query(
-            `UPDATE bluepoint.bt_colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
+            `UPDATE people.colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
             [colaboradorId_final]
           );
         }

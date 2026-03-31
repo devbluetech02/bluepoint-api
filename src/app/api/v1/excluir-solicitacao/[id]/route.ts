@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se solicitação existe
       const solicitacaoResult = await query(
-        `SELECT * FROM bt_solicitacoes WHERE id = $1`,
+        `SELECT * FROM solicitacoes WHERE id = $1`,
         [solicitacaoId]
       );
 
@@ -42,13 +42,13 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Atualizar status para cancelada
       await query(
-        `UPDATE bt_solicitacoes SET status = 'cancelada', atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE solicitacoes SET status = 'cancelada', atualizado_em = NOW() WHERE id = $1`,
         [solicitacaoId]
       );
 
       // Registrar histórico
       await query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', 'cancelada', $2, 'Solicitação cancelada')`,
         [solicitacaoId, user.userId]
       );

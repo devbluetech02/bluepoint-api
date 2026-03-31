@@ -30,13 +30,13 @@ export async function PUT(request: NextRequest) {
       const data = validation.data;
 
       const existe = await query(
-        `SELECT id FROM bluepoint.bt_parametros_esportes ORDER BY id DESC LIMIT 1`,
+        `SELECT id FROM people.parametros_esportes ORDER BY id DESC LIMIT 1`,
       );
 
       let result;
       if (existe.rows.length > 0) {
         result = await query(
-          `UPDATE bluepoint.bt_parametros_esportes
+          `UPDATE people.parametros_esportes
            SET dia_semana = $1,
                hora_inicio = $2::time,
                total_jogadores = $3,
@@ -59,7 +59,7 @@ export async function PUT(request: NextRequest) {
         );
       } else {
         result = await query(
-          `INSERT INTO bluepoint.bt_parametros_esportes
+          `INSERT INTO people.parametros_esportes
              (dia_semana, hora_inicio, total_jogadores, horas_jogo, local, ativo, atualizado_por)
            VALUES ($1, $2::time, $3, $4, $5, $6, $7)
            RETURNING id, dia_semana, hora_inicio::text AS hora_inicio, total_jogadores, horas_jogo, local, ativo`,

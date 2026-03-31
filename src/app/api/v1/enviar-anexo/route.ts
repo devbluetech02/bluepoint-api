@@ -46,14 +46,14 @@ export async function POST(request: NextRequest) {
 
       // Salvar no banco
       const result = await query(
-        `INSERT INTO bt_anexos (colaborador_id, tipo, nome, url, tamanho, descricao)
+        `INSERT INTO anexos (colaborador_id, tipo, nome, url, tamanho, descricao)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, nome, tipo, tamanho, url`,
         [user.userId, tipo, arquivo.name, url, arquivo.size, descricao]
       );
 
       const anexo = result.rows[0];
-      embedTableRowAfterInsert('bt_anexos', anexo.id).catch(() => {});
+      embedTableRowAfterInsert('anexos', anexo.id).catch(() => {});
 
       await registrarAuditoria({
         usuarioId: user.userId,

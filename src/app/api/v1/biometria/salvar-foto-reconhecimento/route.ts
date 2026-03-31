@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     // Buscar dados do colaborador
     const colaboradorResult = await query(
-      `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+      `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
       [colaboradorId]
     );
 
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
     let registroId: number | null = null;
     try {
       const insertResult = await query(
-        `INSERT INTO bluepoint.bt_fotos_reconhecimento (
+        `INSERT INTO people.fotos_reconhecimento (
           colaborador_id, url, caminho_storage, tipo, marcacao_id, 
           dispositivo_id, latitude, longitude, tamanho_bytes, criado_em
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
     } catch (dbError) {
       // Se a tabela não existir, apenas loga o erro mas continua
       // A foto foi salva no MinIO de qualquer forma
-      console.warn('[Salvar Foto] Tabela bt_fotos_reconhecimento não existe ou erro ao inserir:', dbError);
+      console.warn('[Salvar Foto] Tabela fotos_reconhecimento não existe ou erro ao inserir:', dbError);
     }
 
     await registrarAuditoria({

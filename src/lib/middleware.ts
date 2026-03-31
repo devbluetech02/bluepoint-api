@@ -182,7 +182,7 @@ export async function withGestor(
 
 /**
  * Middleware que verifica se o usuário tem uma permissão específica.
- * Consulta bt_tipo_usuario_permissoes usando o tipo exato do usuário.
+ * Consulta tipo_usuario_permissoes usando o tipo exato do usuário.
  *
  * Exemplo de uso:
  *   withPermission(request, 'colaboradores:criar', async (req, user) => { ... })
@@ -196,8 +196,8 @@ export async function withPermission(
     const { query: dbQuery } = await import('./db');
 
     const result = await dbQuery(
-      `SELECT 1 FROM bt_tipo_usuario_permissoes tp
-       JOIN bt_permissoes p ON tp.permissao_id = p.id
+      `SELECT 1 FROM tipo_usuario_permissoes tp
+       JOIN permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = $2 AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigoPermissao]
@@ -225,8 +225,8 @@ export async function withAnyPermission(
     const { query: dbQuery } = await import('./db');
 
     const result = await dbQuery(
-      `SELECT 1 FROM bt_tipo_usuario_permissoes tp
-       JOIN bt_permissoes p ON tp.permissao_id = p.id
+      `SELECT 1 FROM tipo_usuario_permissoes tp
+       JOIN permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = ANY($2) AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigosPermissao]

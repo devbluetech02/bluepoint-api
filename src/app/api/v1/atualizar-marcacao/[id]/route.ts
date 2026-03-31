@@ -32,8 +32,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Buscar marcação atual
       const atualResult = await query(
         `SELECT m.*, c.nome as colaborador_nome 
-         FROM bluepoint.bt_marcacoes m
-         JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id
+         FROM people.marcacoes m
+         JOIN people.colaboradores c ON m.colaborador_id = c.id
          WHERE m.id = $1`,
         [marcacaoId]
       );
@@ -61,7 +61,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       valores.push(marcacaoId as unknown as string);
 
       await query(
-        `UPDATE bluepoint.bt_marcacoes SET
+        `UPDATE people.marcacoes SET
           ${campos.join(', ')}
         WHERE id = $${valores.length}`,
         valores

@@ -33,12 +33,12 @@ interface DadosAlerta {
 async function dispararAlerta(alerta: DadosAlerta): Promise<void> {
   try {
     await query(
-      'INSERT INTO bluepoint.bt_alertas_inteligentes (empresa_id, categoria, severidade, titulo, mensagem, dados, origem) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+      'INSERT INTO people.alertas_inteligentes (empresa_id, categoria, severidade, titulo, mensagem, dados, origem) VALUES ($1,$2,$3,$4,$5,$6,$7)',
       [alerta.empresaId, alerta.categoria, alerta.severidade, alerta.titulo, alerta.mensagem, JSON.stringify(alerta.dados), alerta.origem]
     );
 
     const admins = await query(
-      'SELECT id, email, nome FROM bluepoint.bt_colaboradores WHERE tipo = \'admin\' AND status = \'ativo\''
+      'SELECT id, email, nome FROM people.colaboradores WHERE tipo = \'admin\' AND status = \'ativo\''
     );
 
     for (const admin of admins.rows) {
@@ -78,21 +78,21 @@ export async function verificarAlertaAusencias(empresaId: number): Promise<void>
   if (await jaEnviouAlerta(key50) && await jaEnviouAlerta(key30)) return;
 
   const res = await query(
-    'SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE empresa_id = $1 AND status = \'ativo\'',
+    'SELECT COUNT(*) as total FROM people.colaboradores WHERE empresa_id = $1 AND status = \'ativo\'',
     [empresaId]
   );
   const total = parseInt(res.rows[0]?.total || '0');
   if (total === 0) return;
 
   const presRes = await query(
-    'SELECT COUNT(DISTINCT m.colaborador_id) as presentes FROM bluepoint.bt_marcacoes m JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE',
+    'SELECT COUNT(DISTINCT m.colaborador_id) as presentes FROM people.marcacoes m JOIN people.colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE',
     [empresaId]
   );
   const presentes = parseInt(presRes.rows[0]?.presentes || '0');
   const ausentes = total - presentes;
   const pct = Math.round((ausentes / total) * 100);
 
-  const empRes = await query('SELECT nome_fantasia FROM bluepoint.bt_empresas WHERE id = $1', [empresaId]);
+  const empRes = await query('SELECT nome_fantasia FROM people.empresas WHERE id = $1', [empresaId]);
   const nome = empRes.rows[0]?.nome_fantasia || 'Empresa #' + empresaId;
 
   if (ausentes >= 50 && !(await jaEnviouAlerta(key50))) {
@@ -126,12 +126,12 @@ export async function verificarAlertaAtrasos(empresaId: number): Promise<void> {
   if (await jaEnviouAlerta(key5) && await jaEnviouAlerta(key20)) return;
 
   const res = await query(
-    'SELECT COUNT(DISTINCT s.colaborador_id) as total FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE',
+    'SELECT COUNT(DISTINCT s.colaborador_id) as total FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE',
     [empresaId]
   );
   const atrasados = parseInt(res.rows[0]?.total || '0');
 
-  const empRes = await query('SELECT nome_fantasia FROM bluepoint.bt_empresas WHERE id = $1', [empresaId]);
+  const empRes = await query('SELECT nome_fantasia FROM people.empresas WHERE id = $1', [empresaId]);
   const nome = empRes.rows[0]?.nome_fantasia || 'Empresa #' + empresaId;
 
   if (atrasados >= 20 && !(await jaEnviouAlerta(key20))) {
@@ -165,18 +165,18 @@ export async function verificarAlertaHoraExtra(empresaId: number): Promise<void>
 
   if (await jaEnviouAlerta(key100) && await jaEnviouAlerta(key80)) return;
 
-  const limRes = await query('SELECT limite_mensal FROM bluepoint.bt_limites_he_empresas WHERE empresa_id = $1', [empresaId]);
+  const limRes = await query('SELECT limite_mensal FROM people.limites_he_empresas WHERE empresa_id = $1', [empresaId]);
   if (limRes.rows.length === 0) return;
   const limite = parseFloat(limRes.rows[0].limite_mensal);
 
   const heRes = await query(
-    'SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as total FROM bluepoint.bt_banco_horas bh JOIN bluepoint.bt_colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)',
+    'SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as total FROM people.banco_horas bh JOIN people.colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)',
     [empresaId]
   );
   const horasUsadas = parseFloat(heRes.rows[0]?.total || '0');
   const pct = Math.round((horasUsadas / limite) * 100);
 
-  const empRes = await query('SELECT nome_fantasia FROM bluepoint.bt_empresas WHERE id = $1', [empresaId]);
+  const empRes = await query('SELECT nome_fantasia FROM people.empresas WHERE id = $1', [empresaId]);
   const nome = empRes.rows[0]?.nome_fantasia || 'Empresa #' + empresaId;
 
   if (pct >= 100 && !(await jaEnviouAlerta(key100))) {
@@ -211,12 +211,12 @@ export async function verificarAlertaSolicitacoesPendentes(empresaId: number): P
   if (await jaEnviouAlerta(key20) && await jaEnviouAlerta(key50)) return;
 
   const res = await query(
-    'SELECT COUNT(*) as total FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'',
+    'SELECT COUNT(*) as total FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'',
     [empresaId]
   );
   const pendentes = parseInt(res.rows[0]?.total || '0');
 
-  const empRes = await query('SELECT nome_fantasia FROM bluepoint.bt_empresas WHERE id = $1', [empresaId]);
+  const empRes = await query('SELECT nome_fantasia FROM people.empresas WHERE id = $1', [empresaId]);
   const nome = empRes.rows[0]?.nome_fantasia || 'Empresa #' + empresaId;
 
   if (pendentes >= 50 && !(await jaEnviouAlerta(key50))) {
@@ -254,16 +254,16 @@ export async function verificarInsightsIA(empresaId: number): Promise<void> {
   await cacheSet(cooldownKey, true, GEMINI_COOLDOWN);
 
   try {
-    const empRes = await query('SELECT nome_fantasia FROM bluepoint.bt_empresas WHERE id = $1', [empresaId]);
+    const empRes = await query('SELECT nome_fantasia FROM people.empresas WHERE id = $1', [empresaId]);
     const nome = empRes.rows[0]?.nome_fantasia || 'Empresa';
 
     const [totalRes, presRes, atrasoRes, heRes, pendRes, tend7d] = await Promise.all([
-      query('SELECT COUNT(*) as t FROM bluepoint.bt_colaboradores WHERE empresa_id = $1 AND status = \'ativo\'', [empresaId]),
-      query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM bluepoint.bt_marcacoes m JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [empresaId]),
-      query('SELECT COUNT(DISTINCT s.colaborador_id) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE', [empresaId]),
-      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM bluepoint.bt_banco_horas bh JOIN bluepoint.bt_colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [empresaId]),
-      query('SELECT COUNT(*) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'', [empresaId]),
-      query('SELECT d.dia::date as dia, (SELECT COUNT(*) FROM bluepoint.bt_colaboradores c2 WHERE c2.empresa_id = $1 AND c2.status = \'ativo\' AND c2.id NOT IN (SELECT DISTINCT colaborador_id FROM bluepoint.bt_marcacoes WHERE DATE(data_hora) = d.dia::date)) as ausentes FROM generate_series(CURRENT_DATE - INTERVAL \'6 days\', CURRENT_DATE, \'1 day\') d(dia) ORDER BY d.dia', [empresaId]),
+      query('SELECT COUNT(*) as t FROM people.colaboradores WHERE empresa_id = $1 AND status = \'ativo\'', [empresaId]),
+      query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM people.marcacoes m JOIN people.colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [empresaId]),
+      query('SELECT COUNT(DISTINCT s.colaborador_id) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE', [empresaId]),
+      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM people.banco_horas bh JOIN people.colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [empresaId]),
+      query('SELECT COUNT(*) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'', [empresaId]),
+      query('SELECT d.dia::date as dia, (SELECT COUNT(*) FROM people.colaboradores c2 WHERE c2.empresa_id = $1 AND c2.status = \'ativo\' AND c2.id NOT IN (SELECT DISTINCT colaborador_id FROM people.marcacoes WHERE DATE(data_hora) = d.dia::date)) as ausentes FROM generate_series(CURRENT_DATE - INTERVAL \'6 days\', CURRENT_DATE, \'1 day\') d(dia) ORDER BY d.dia', [empresaId]),
     ]);
 
     const total = parseInt(totalRes.rows[0]?.t || '0');
@@ -322,7 +322,7 @@ export async function verificarInsightsIA(empresaId: number): Promise<void> {
 // =====================================================
 
 export async function obterEmpresaDoColaborador(colaboradorId: number): Promise<number | null> {
-  const res = await query('SELECT empresa_id FROM bluepoint.bt_colaboradores WHERE id = $1', [colaboradorId]);
+  const res = await query('SELECT empresa_id FROM people.colaboradores WHERE id = $1', [colaboradorId]);
   return res.rows[0]?.empresa_id || null;
 }
 

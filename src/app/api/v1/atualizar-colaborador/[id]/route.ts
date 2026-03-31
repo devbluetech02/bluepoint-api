@@ -35,7 +35,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Buscar colaborador atual
       const atualResult = await query(
-        `SELECT * FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT * FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -54,7 +54,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
         // Verificar se CPF já existe em outro colaborador
         const cpfExiste = await query(
-          `SELECT id FROM bluepoint.bt_colaboradores WHERE cpf = $1 AND id != $2`,
+          `SELECT id FROM people.colaboradores WHERE cpf = $1 AND id != $2`,
           [data.cpf, colaboradorId]
         );
         if (cpfExiste.rows.length > 0) {
@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       // Verificar se email já existe em outro colaborador
       if (data.email) {
         const emailExiste = await query(
-          `SELECT id FROM bluepoint.bt_colaboradores WHERE email = $1 AND id != $2`,
+          `SELECT id FROM people.colaboradores WHERE email = $1 AND id != $2`,
           [data.email, colaboradorId]
         );
         if (emailExiste.rows.length > 0) {
@@ -159,7 +159,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       } else if (data.cargoId !== undefined) {
         // Sem tipo explícito: recalcular pelo cargo
         const cargoResult = await query(
-          `SELECT nome FROM bluepoint.bt_cargos WHERE id = $1`,
+          `SELECT nome FROM people.cargos WHERE id = $1`,
           [data.cargoId]
         );
         if (cargoResult.rows.length > 0) {
@@ -178,7 +178,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar colaborador
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.colaboradores SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 

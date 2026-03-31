@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bt_localizacoes ${whereClause}`,
+          `SELECT COUNT(*) as total FROM localizacoes ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
         // Buscar dados paginados
         const dataParams = [...params, limite, offset];
         const result = await query(
-          `SELECT * FROM bt_localizacoes ${whereClause} ORDER BY nome LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+          `SELECT * FROM localizacoes ${whereClause} ORDER BY nome LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
           dataParams
         );
 

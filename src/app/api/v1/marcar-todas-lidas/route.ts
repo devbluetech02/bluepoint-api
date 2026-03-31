@@ -8,7 +8,7 @@ export async function PATCH(request: NextRequest) {
   return withAuth(request, async (req, user) => {
     try {
       const result = await query(
-        `UPDATE bt_notificacoes 
+        `UPDATE notificacoes 
          SET lida = true, data_leitura = NOW() 
          WHERE usuario_id = $1 AND lida = false
          RETURNING id`,

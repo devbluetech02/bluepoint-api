@@ -36,7 +36,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se jornada existe
       const jornadaResult = await client.query(
-        `SELECT * FROM bluepoint.bt_jornadas WHERE id = $1`,
+        `SELECT * FROM people.jornadas WHERE id = $1`,
         [jornadaId]
       );
 
@@ -67,11 +67,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
         }
 
         // Remover horários antigos e inserir novos
-        await client.query(`DELETE FROM bluepoint.bt_jornada_horarios WHERE jornada_id = $1`, [jornadaId]);
+        await client.query(`DELETE FROM people.jornada_horarios WHERE jornada_id = $1`, [jornadaId]);
         
         for (const h of data.horarios) {
           await client.query(
-            `INSERT INTO bluepoint.bt_jornada_horarios (jornada_id, dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga)
+            `INSERT INTO people.jornada_horarios (jornada_id, dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga)
              VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
               jornadaId, 
@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar jornada
       await client.query(
-        `UPDATE bluepoint.bt_jornadas SET
+        `UPDATE people.jornadas SET
           nome = COALESCE($1, nome),
           descricao = COALESCE($2, descricao),
           tipo = COALESCE($3, tipo),

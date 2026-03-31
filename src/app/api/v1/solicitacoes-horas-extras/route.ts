@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir solicitação
       const insertResult = await query(
-        `INSERT INTO bluepoint.bt_solicitacoes_horas_extras
+        `INSERT INTO people.solicitacoes_horas_extras
            (solicitante, gestor, data, de, ate, colaborador_id, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pendente')
          RETURNING *`,
@@ -201,11 +201,11 @@ export async function GET(request: NextRequest) {
 
         const result = await query(
           `SELECT s.*, cg.nome AS cargo, e.nome_fantasia AS filial
-           FROM bluepoint.bt_solicitacoes_horas_extras s
-           LEFT JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
-           LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+           FROM people.solicitacoes_horas_extras s
+           LEFT JOIN people.colaboradores c ON s.colaborador_id = c.id
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.empresas e ON c.empresa_id = e.id
+           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
            ${whereClause}
            ORDER BY s.criado_em DESC`,
           params
@@ -216,7 +216,7 @@ export async function GET(request: NextRequest) {
         const ids = result.rows.map((r) => r.id);
         const custosResult = await query(
           `SELECT solicitacao_id, horas_extras, custo_dia, custo_mes, custo_ano
-           FROM bluepoint.bt_custo_horas_extras
+           FROM people.custo_horas_extras
            WHERE solicitacao_id = ANY($1)`,
           [ids]
         );

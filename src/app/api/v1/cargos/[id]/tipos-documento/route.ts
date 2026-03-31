@@ -18,7 +18,7 @@ interface Params {
 /**
  * GET /api/v1/cargos/:id/tipos-documento
  * Para um cargo, retorna todos os tipos de documento com indicador se é obrigatório ou opcional.
- * Se não houver registro em bt_cargo_tipo_documento, usa obrigatorio_padrao do tipo.
+ * Se não houver registro em cargo_tipo_documento, usa obrigatorio_padrao do tipo.
  */
 export async function GET(request: NextRequest, { params }: Params) {
   return withAuth(request, async () => {
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const cargoResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_cargos WHERE id = $1`,
+        `SELECT id, nome FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -40,11 +40,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT t.id, t.codigo, t.nome_exibicao, t.validade_meses, t.obrigatorio_padrao,
+        `SELECT t.id, t.codigo, t.nome_exibicao, t.validade_meses, t.obrigatorio_padrao, t.categoria,
                 COALESCE(c.obrigatorio, t.obrigatorio_padrao) AS obrigatorio
-         FROM bluepoint.bt_tipos_documento_colaborador t
-         LEFT JOIN bluepoint.bt_cargo_tipo_documento c
+         FROM people.tipos_documento_colaborador t
+         LEFT JOIN people.cargo_tipo_documento c
            ON c.tipo_documento_id = t.id AND c.cargo_id = $1
+         WHERE t.categoria = 'operacional'
          ORDER BY t.id ASC`,
         [cargoId]
       );
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         validade_meses: number | null;
         obrigatorio_padrao: boolean;
         obrigatorio: boolean;
+        categoria: 'operacional' | 'admissao';
       };
       const tipos = (result.rows as TipoRow[]).map((row) => ({
         id: row.id,
@@ -64,6 +66,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         validadeMeses: row.validade_meses,
         obrigatorioPadrao: row.obrigatorio_padrao,
         obrigatorio: row.obrigatorio,
+        categoria: row.categoria,
       }));
 
       return successResponse({
@@ -94,7 +97,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_cargos WHERE id = $1`,
+        `SELECT id, nome FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -126,17 +129,36 @@ export async function PUT(request: NextRequest, { params }: Params) {
         return validationErrorResponse(errors);
       }
 
+      if (validTipos.length > 0) {
+        const ids = [...new Set(validTipos.map((t) => t.tipoDocumentoId))];
+        const permitidosResult = await query(
+          `SELECT id
+           FROM people.tipos_documento_colaborador
+           WHERE id = ANY($1::int[])
+             AND categoria = 'operacional'`,
+          [ids]
+        );
+        const idsPermitidos = new Set((permitidosResult.rows as { id: number }[]).map((r) => r.id));
+        const invalidos = ids.filter((idTipo) => !idsPermitidos.has(idTipo));
+        if (invalidos.length > 0) {
+          return errorResponse(
+            `Os tipos ${invalidos.join(', ')} não são do escopo operacional e não podem ser vinculados ao cargo`,
+            400
+          );
+        }
+      }
+
       await query('BEGIN', []);
 
       try {
         await query(
-          `DELETE FROM bluepoint.bt_cargo_tipo_documento WHERE cargo_id = $1`,
+          `DELETE FROM people.cargo_tipo_documento WHERE cargo_id = $1`,
           [cargoId]
         );
 
         for (const t of validTipos) {
           await query(
-            `INSERT INTO bluepoint.bt_cargo_tipo_documento (cargo_id, tipo_documento_id, obrigatorio)
+            `INSERT INTO people.cargo_tipo_documento (cargo_id, tipo_documento_id, obrigatorio)
              VALUES ($1, $2, $3)
              ON CONFLICT (cargo_id, tipo_documento_id) DO UPDATE SET obrigatorio = $3`,
             [cargoId, t.tipoDocumentoId, t.obrigatorio]

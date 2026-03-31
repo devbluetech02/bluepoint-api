@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -53,14 +53,14 @@ export async function GET(request: NextRequest, { params }: Params) {
             SUM(CASE WHEN tipo IN ('credito', 'ajuste') AND horas > 0 THEN horas ELSE 0 END) as horas_extras,
             SUM(CASE WHEN tipo IN ('debito', 'ajuste') AND horas < 0 THEN ABS(horas) ELSE 0 END) as horas_devidas,
             SUM(CASE WHEN tipo = 'compensacao' THEN ABS(horas) ELSE 0 END) as horas_compensadas
-          FROM bt_banco_horas
+          FROM banco_horas
           WHERE colaborador_id = $1 ${dateFilter}`,
           params_query
         );
 
         // Buscar saldo atual
         const saldoResult = await query(
-          `SELECT saldo_atual FROM bt_banco_horas
+          `SELECT saldo_atual FROM banco_horas
            WHERE colaborador_id = $1
            ORDER BY criado_em DESC
            LIMIT 1`,

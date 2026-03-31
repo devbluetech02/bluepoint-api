@@ -13,13 +13,13 @@ interface CriarNotificacaoParams {
 }
 
 /**
- * Cria uma notificação na tabela bt_notificacoes.
+ * Cria uma notificação na tabela notificacoes.
  * Retorna o ID da notificação criada ou null em caso de falha.
  */
 export async function criarNotificacao(params: CriarNotificacaoParams): Promise<number | null> {
   try {
     const result = await query(
-      `INSERT INTO bluepoint.bt_notificacoes (usuario_id, tipo, titulo, mensagem, link, metadados)
+      `INSERT INTO people.notificacoes (usuario_id, tipo, titulo, mensagem, link, metadados)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
       [
@@ -33,7 +33,7 @@ export async function criarNotificacao(params: CriarNotificacaoParams): Promise<
     );
     const id = result.rows[0]?.id ?? null;
     if (id != null) {
-      embedTableRowAfterInsert('bt_notificacoes', id).catch(() => {});
+      embedTableRowAfterInsert('notificacoes', id).catch(() => {});
     }
     return id;
   } catch (error) {

@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
           `SELECT p.id, p.minutos_tolerancia, p.dias_permitidos_por_mes, p.ativo,
                   p.atualizado_em, p.atualizado_por,
                   c.id AS usuario_id, c.nome AS usuario_nome
-           FROM bluepoint.bt_parametros_hora_extra p
-           LEFT JOIN bluepoint.bt_colaboradores c ON p.atualizado_por = c.id
+           FROM people.parametros_hora_extra p
+           LEFT JOIN people.colaboradores c ON p.atualizado_por = c.id
            ORDER BY p.id DESC
            LIMIT 1`
         );
@@ -72,7 +72,7 @@ export async function PUT(request: NextRequest) {
 
       // Verificar se já existe um registro de parâmetros
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_parametros_hora_extra ORDER BY id DESC LIMIT 1`
+        `SELECT id FROM people.parametros_hora_extra ORDER BY id DESC LIMIT 1`
       );
 
       let result;
@@ -84,7 +84,7 @@ export async function PUT(request: NextRequest) {
         acao = 'editar';
 
         result = await query(
-          `UPDATE bluepoint.bt_parametros_hora_extra
+          `UPDATE people.parametros_hora_extra
            SET minutos_tolerancia = $1,
                dias_permitidos_por_mes = $2,
                ativo = $3,
@@ -98,7 +98,7 @@ export async function PUT(request: NextRequest) {
         acao = 'criar';
 
         result = await query(
-          `INSERT INTO bluepoint.bt_parametros_hora_extra
+          `INSERT INTO people.parametros_hora_extra
              (minutos_tolerancia, dias_permitidos_por_mes, ativo, atualizado_por)
            VALUES ($1, $2, $3, $4)
            RETURNING id, minutos_tolerancia, dias_permitidos_por_mes, ativo, atualizado_em`,

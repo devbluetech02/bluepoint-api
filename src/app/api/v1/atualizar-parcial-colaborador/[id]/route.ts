@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const atualResult = await query(
-        `SELECT * FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT * FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -60,7 +60,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         body.cpf = cleanCPF(body.cpf);
 
         const cpfExiste = await query(
-          `SELECT id FROM bluepoint.bt_colaboradores WHERE cpf = $1 AND id != $2`,
+          `SELECT id FROM people.colaboradores WHERE cpf = $1 AND id != $2`,
           [body.cpf, colaboradorId]
         );
         if (cpfExiste.rows.length > 0) {
@@ -70,7 +70,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       if (body.email) {
         const emailExiste = await query(
-          `SELECT id FROM bluepoint.bt_colaboradores WHERE email = $1 AND id != $2`,
+          `SELECT id FROM people.colaboradores WHERE email = $1 AND id != $2`,
           [body.email, colaboradorId]
         );
         if (emailExiste.rows.length > 0) {
@@ -130,7 +130,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         paramIndex++;
       } else if (body.cargoId !== undefined) {
         const cargoResult = await query(
-          `SELECT nome FROM bluepoint.bt_cargos WHERE id = $1`,
+          `SELECT nome FROM people.cargos WHERE id = $1`,
           [body.cargoId]
         );
         if (cargoResult.rows.length > 0) {
@@ -150,7 +150,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       values.push(colaboradorId);
 
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.colaboradores SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 

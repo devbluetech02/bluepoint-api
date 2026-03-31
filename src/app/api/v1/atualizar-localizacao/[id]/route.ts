@@ -30,7 +30,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const atualResult = await query(
-        `SELECT * FROM bt_localizacoes WHERE id = $1`,
+        `SELECT * FROM localizacoes WHERE id = $1`,
         [localizacaoId]
       );
 
@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar
       await query(
-        `UPDATE bt_localizacoes SET
+        `UPDATE localizacoes SET
           nome = COALESCE($1, nome),
           tipo = COALESCE($2, tipo),
           endereco_cep = COALESCE($3, endereco_cep),

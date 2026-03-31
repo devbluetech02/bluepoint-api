@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
           `SELECT id, valor_vale_transporte, valor_vale_alimentacao_colaborador,
                   valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
                   horas_minimas_para_vale_alimentacao, dias_uteis_mes
-           FROM bluepoint.bt_parametros_beneficios
+           FROM people.parametros_beneficios
            ORDER BY id DESC
            LIMIT 1`
         );
@@ -76,7 +76,7 @@ export async function PUT(request: NextRequest) {
       const data = validation.data;
 
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_parametros_beneficios ORDER BY id DESC LIMIT 1`
+        `SELECT id FROM people.parametros_beneficios ORDER BY id DESC LIMIT 1`
       );
 
       let result;
@@ -85,7 +85,7 @@ export async function PUT(request: NextRequest) {
       if (existeResult.rows.length > 0) {
         const parametroId = existeResult.rows[0].id;
         result = await query(
-          `UPDATE bluepoint.bt_parametros_beneficios
+          `UPDATE people.parametros_beneficios
            SET valor_vale_transporte = $1,
                valor_vale_alimentacao_colaborador = $2,
                valor_vale_alimentacao_supervisor = $3,
@@ -110,7 +110,7 @@ export async function PUT(request: NextRequest) {
         );
       } else {
         result = await query(
-          `INSERT INTO bluepoint.bt_parametros_beneficios (
+          `INSERT INTO people.parametros_beneficios (
              valor_vale_transporte, valor_vale_alimentacao_colaborador,
              valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
              horas_minimas_para_vale_alimentacao, dias_uteis_mes, atualizado_por

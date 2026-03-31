@@ -5,7 +5,7 @@ Este guia descreve como criar uma cópia do banco atual do BluePoint em um Postg
 ## Visão geral
 
 1. **No servidor**: instalar PostgreSQL, extensão pgvector, criar o banco e o usuário.
-2. **Clone dos dados**: fazer dump do banco atual (schema `bluepoint`) e restaurar no novo banco.
+2. **Clone dos dados**: fazer dump do banco atual (schema `people`) e restaurar no novo banco.
 
 ## Pré-requisitos
 
@@ -20,7 +20,7 @@ Conecte no servidor e rode o script de setup (como root ou com `sudo`):
 
 ```bash
 ssh bluserverco@10.1.3.216
-cd /caminho/para/bluepoint_api   # ou clone o repositório
+cd /caminho/para/people_api   # ou clone o repositório
 
 # Senha do usuário do banco (padrão no script: Bluetech*9090; pode sobrescrever)
 # export VECTOR_DB_PASSWORD="Bluetech*9090"
@@ -29,19 +29,19 @@ cd /caminho/para/bluepoint_api   # ou clone o repositório
 export PG_VERSION=16
 
 # Nome do banco e usuário (opcional)
-export VECTOR_DB_NAME=bluepoint_vector
-export VECTOR_DB_USER=bluepoint
+export VECTOR_DB_NAME=people_vector
+export VECTOR_DB_USER=people
 
 sudo bash scripts/setup-pgvector-server.sh
 ```
 
-Se aparecer `command not found`, confira se o arquivo existe: `ls scripts/setup-pgvector-server.sh`. Use o caminho completo se precisar: `sudo bash /home/bluserverco/bluepoint_api/scripts/setup-pgvector-server.sh`.
+Se aparecer `command not found`, confira se o arquivo existe: `ls scripts/setup-pgvector-server.sh`. Use o caminho completo se precisar: `sudo bash /home/bluserverco/people_api/scripts/setup-pgvector-server.sh`.
 
 O script:
 
 - Instala PostgreSQL e o pacote `postgresql-{version}-pgvector`.
-- Cria o usuário `bluepoint` (ou o valor de `DB_USER`).
-- Cria o banco `bluepoint_vector` (ou o valor de `DB_NAME`).
+- Cria o usuário `people` (ou o valor de `DB_USER`).
+- Cria o banco `people_vector` (ou o valor de `DB_NAME`).
 - Cria a extensão `vector` no banco.
 
 **Se o pacote pgvector não existir no repositório padrão**, use o repositório oficial:
@@ -56,7 +56,7 @@ sudo apt install -y postgresql-16 postgresql-16-pgvector
 
 ## Passo 2: Clonar dados do banco atual para o vetorizado
 
-O script `clone-db-to-vector.sh` faz **dump** do schema `bluepoint` do banco atual (usando `DB_*` do `.env`) e **restore** no banco vetorizado (usando `VECTOR_DB_*`).
+O script `clone-db-to-vector.sh` faz **dump** do schema `people` do banco atual (usando `DB_*` do `.env`) e **restore** no banco vetorizado (usando `VECTOR_DB_*`).
 
 ### Rodar no próprio servidor (recomendado)
 
@@ -64,13 +64,13 @@ Se no servidor você tiver acesso ao banco de origem (por exemplo, host do PgBou
 
 ```bash
 ssh bluserverco@10.1.3.216
-cd /caminho/para/bluepoint_api
+cd /caminho/para/people_api
 
 # .env já contém DB_* (origem)
 export VECTOR_DB_HOST=localhost
 export VECTOR_DB_PORT=5432
-export VECTOR_DB_NAME=bluepoint_vector
-export VECTOR_DB_USER=bluepoint
+export VECTOR_DB_NAME=people_vector
+export VECTOR_DB_USER=people
 export VECTOR_DB_PASSWORD="Bluetech*9090"
 
 ./scripts/clone-db-to-vector.sh
@@ -81,14 +81,14 @@ export VECTOR_DB_PASSWORD="Bluetech*9090"
 Se você rodar de outro PC que tenha acesso aos dois bancos (origem e 10.1.3.216):
 
 ```bash
-cd bluepoint_api
+cd people_api
 
 # Origem: já vem do .env (DB_HOST, DB_PORT, DB_USERNAME, DB_PASSWORD, DB_DATABASE)
 # Destino: banco no servidor
 export VECTOR_DB_HOST=10.1.3.216
 export VECTOR_DB_PORT=5432
-export VECTOR_DB_NAME=bluepoint_vector
-export VECTOR_DB_USER=bluepoint
+export VECTOR_DB_NAME=people_vector
+export VECTOR_DB_USER=people
 export VECTOR_DB_PASSWORD="Bluetech*9090"
 
 ./scripts/clone-db-to-vector.sh
@@ -116,8 +116,8 @@ No servidor, o PostgreSQL precisa aceitar conexões remotas (`listen_addresses`,
 |----------------------|--------------------|------------------------|
 | `VECTOR_DB_HOST`     | `localhost`        | Host do Postgres       |
 | `VECTOR_DB_PORT`     | `5432`             | Porta                  |
-| `VECTOR_DB_NAME`     | `bluepoint_vector` | Nome do banco         |
-| `VECTOR_DB_USER`     | `bluepoint`       | Usuário                |
+| `VECTOR_DB_NAME`     | `people_vector` | Nome do banco         |
+| `VECTOR_DB_USER`     | `people`       | Usuário                |
 | `VECTOR_DB_PASSWORD` | —                  | Senha (recomendado)    |
 
 ---
@@ -129,8 +129,8 @@ Para apontar a API para o banco vetorizado, altere o `.env`:
 ```env
 DB_HOST=10.1.3.216
 DB_PORT=5432
-DB_DATABASE=bluepoint_vector
-DB_USERNAME=bluepoint
+DB_DATABASE=people_vector
+DB_USERNAME=people
 DB_PASSWORD=Bluetech*9090
 ```
 
@@ -139,8 +139,8 @@ Ou, se a API rodar no mesmo servidor:
 ```env
 DB_HOST=localhost
 DB_PORT=5432
-DB_DATABASE=bluepoint_vector
-DB_USERNAME=bluepoint
+DB_DATABASE=people_vector
+DB_USERNAME=people
 DB_PASSWORD=Bluetech*9090
 ```
 
@@ -150,7 +150,7 @@ Reinicie a aplicação após alterar o `.env`.
 
 ## Popular embeddings (vetorizar todas as tabelas)
 
-As colunas `embedding` (vector 1536) já existem em todas as tabelas do schema `bluepoint` (migration 007). Para preenchê-las com vetores reais (OpenAI text-embedding-3-small):
+As colunas `embedding` (vector 1536) já existem em todas as tabelas do schema `people` (migration 007). Para preenchê-las com vetores reais (OpenAI text-embedding-3-small):
 
 1. **Chave da OpenAI** no `.env`:
    ```env
@@ -175,11 +175,11 @@ Com a extensão instalada, você pode criar colunas do tipo `vector` e índices 
 
 ```sql
 -- Exemplo: coluna de embedding em uma tabela
-ALTER TABLE bluepoint.bt_colaboradores
+ALTER TABLE people.colaboradores
 ADD COLUMN IF NOT EXISTS embedding vector(1536);
 
 -- Índice IVFFlat (ajuste lists conforme volume de dados)
-CREATE INDEX ON bluepoint.bt_colaboradores
+CREATE INDEX ON people.colaboradores
 USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);
 ```
@@ -193,6 +193,6 @@ Consulte a documentação do [pgvector](https://github.com/pgvector/pgvector) pa
 | Arquivo | Descrição |
 |---------|-----------|
 | `scripts/setup-pgvector-server.sh` | Instala Postgres + pgvector no servidor e cria banco/usuário. |
-| `scripts/clone-db-to-vector.sh`    | Dump do schema `bluepoint` da origem e restore no banco vetorizado. |
+| `scripts/clone-db-to-vector.sh`    | Dump do schema `people` da origem e restore no banco vetorizado. |
 | `scripts/populate-embeddings.mjs`   | Popula a coluna `embedding` em todas as tabelas (OpenAI text-embedding-3-small). |
 | `docs/PGVECTOR_SETUP.md`           | Este guia. |

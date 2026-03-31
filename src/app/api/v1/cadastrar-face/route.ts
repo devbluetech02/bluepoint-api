@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [data.colaboradorId]
       );
 
@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
 
       // Salvar biometria (ou atualizar se já existe)
       await query(
-        `INSERT INTO bt_biometria_facial (colaborador_id, qualidade, foto_referencia_url)
+        `INSERT INTO biometria_facial (colaborador_id, qualidade, foto_referencia_url)
          VALUES ($1, $2, $3)
          ON CONFLICT (colaborador_id) 
          DO UPDATE SET qualidade = $2, foto_referencia_url = $3, atualizado_em = NOW()`,
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
       // Atualizar flag no colaborador
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE people.colaboradores SET face_registrada = true, atualizado_em = NOW() WHERE id = $1`,
         [data.colaboradorId]
       );
 

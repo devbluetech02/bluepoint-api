@@ -59,10 +59,10 @@ export async function GET(request: NextRequest) {
            ca.nome AS cargo_nome,
            d.nome AS departamento_nome,
            e.razao_social AS empresa_nome
-         FROM bt_colaboradores c
-         LEFT JOIN bt_cargos ca ON c.cargo_id = ca.id
-         LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
-         LEFT JOIN bt_empresas e ON c.empresa_id = e.id
+         FROM colaboradores c
+         LEFT JOIN cargos ca ON c.cargo_id = ca.id
+         LEFT JOIN departamentos d ON c.departamento_id = d.id
+         LEFT JOIN empresas e ON c.empresa_id = e.id
          WHERE c.id = $1`,
         [colabIdNum]
       );
@@ -88,8 +88,8 @@ export async function GET(request: NextRequest) {
            a.modulo,
            a.descricao,
            a.ip
-         FROM bt_auditoria a
-         LEFT JOIN bt_colaboradores c ON a.usuario_id = c.id
+         FROM auditoria a
+         LEFT JOIN colaboradores c ON a.usuario_id = c.id
          WHERE a.colaborador_id = $1
            AND a.data_hora >= $2::date
            AND a.data_hora < ($3::date + interval '1 day')

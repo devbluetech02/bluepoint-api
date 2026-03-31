@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores c ${whereClause}`,
+        `SELECT COUNT(*) as total FROM people.colaboradores c ${whereClause}`,
         params
       );
       const total = parseInt(countResult.rows[0].total);
@@ -56,9 +56,9 @@ export async function GET(request: NextRequest) {
         `SELECT c.id, c.nome, c.cpf, c.tipo, c.vale_alimentacao, c.vale_transporte,
                 d.id as departamento_id, d.nome as departamento_nome,
                 cg.id as cargo_id, cg.nome as cargo_nome
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
+         FROM people.colaboradores c
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
          ${whereClause}
          ORDER BY c.nome
          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
         `SELECT valor_vale_transporte, valor_vale_alimentacao_colaborador,
                 valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
                 horas_minimas_para_vale_alimentacao, dias_uteis_mes
-         FROM bluepoint.bt_parametros_beneficios ORDER BY id DESC LIMIT 1`
+         FROM people.parametros_beneficios ORDER BY id DESC LIMIT 1`
       );
       if (paramRes.rows.length > 0) {
         const r = paramRes.rows[0];

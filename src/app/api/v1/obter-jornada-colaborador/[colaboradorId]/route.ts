@@ -33,8 +33,8 @@ export async function GET(request: NextRequest, { params }: Params) {
           j.carga_horaria_semanal,
           j.tolerancia_entrada,
           j.tolerancia_saida
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bt_jornadas j ON c.jornada_id = j.id
+        FROM people.colaboradores c
+        LEFT JOIN jornadas j ON c.jornada_id = j.id
         WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar todos os horários da jornada
       const horariosResult = await query(
         `SELECT dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga
-         FROM bluepoint.bt_jornada_horarios
+         FROM people.jornada_horarios
          WHERE jornada_id = $1
          ORDER BY sequencia NULLS LAST, dia_semana NULLS LAST`,
         [row.jornada_id]
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Para jornada simples: busca pelo dia_semana
       // Para jornada circular: busca pelo dias_semana que contenha o dia atual
       const horarioHojeResult = await query(
-        `SELECT * FROM bluepoint.bt_jornada_horarios
+        `SELECT * FROM people.jornada_horarios
          WHERE jornada_id = $1 
          AND (dia_semana = $2 OR dias_semana @> $3::jsonb)`,
         [row.jornada_id, diaSemana, JSON.stringify([diaSemana])]

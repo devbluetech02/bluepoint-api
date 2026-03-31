@@ -18,7 +18,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const sessaoResult = await query(
-        `SELECT id, data_sessao FROM bluepoint.bt_esportes_sessoes WHERE id = $1`,
+        `SELECT id, data_sessao FROM people.esportes_sessoes WHERE id = $1`,
         [sessaoId],
       );
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const updateResult = await query(
-        `UPDATE bluepoint.bt_esportes_inscricoes
+        `UPDATE people.esportes_inscricoes
          SET confirmado = true,
              confirmado_em = NOW()
          WHERE sessao_id = $1 AND colaborador_id = $2
@@ -49,8 +49,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       const colaboradorResult = await query(
         `SELECT c.nome, d.nome AS departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_departamentos d ON d.id = c.departamento_id
+         FROM people.colaboradores c
+         LEFT JOIN people.departamentos d ON d.id = c.departamento_id
          WHERE c.id = $1`,
         [user.userId],
       );

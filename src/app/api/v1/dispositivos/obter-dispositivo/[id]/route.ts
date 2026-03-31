@@ -42,10 +42,10 @@ export async function GET(request: NextRequest, { params }: Params) {
           e.id as empresa_id, e.nome_fantasia as empresa_nome,
           l.id as localizacao_id, l.nome as localizacao_nome,
           c.nome as criado_por_nome
-        FROM bluepoint.bt_dispositivos d
-        LEFT JOIN bluepoint.bt_empresas e ON d.empresa_id = e.id
-        LEFT JOIN bluepoint.bt_localizacoes l ON d.localizacao_id = l.id
-        LEFT JOIN bluepoint.bt_colaboradores c ON d.criado_por = c.id
+        FROM people.dispositivos d
+        LEFT JOIN people.empresas e ON d.empresa_id = e.id
+        LEFT JOIN people.localizacoes l ON d.localizacao_id = l.id
+        LEFT JOIN people.colaboradores c ON d.criado_por = c.id
         WHERE d.id = $1`,
         [dispositivoId]
       );

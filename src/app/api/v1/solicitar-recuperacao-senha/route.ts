@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     // Buscar usuário
     const result = await query(
       `SELECT id, nome, email, status
-       FROM bluepoint.bt_colaboradores 
+       FROM people.colaboradores 
        WHERE email = $1`,
       [email]
     );

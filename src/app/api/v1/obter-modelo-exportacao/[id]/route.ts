@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const modeloResult = await query(
         `SELECT id, nome, descricao, ativo, criado_em, atualizado_em
-         FROM bluepoint.bt_modelos_exportacao
+         FROM people.modelos_exportacao
          WHERE id = $1`,
         [modeloId]
       );
@@ -32,7 +32,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const codigosResult = await query(
         `SELECT id, codigo, descricao, status_arquivo, status_econtador
-         FROM bluepoint.bt_codigos_exportacao
+         FROM people.codigos_exportacao
          WHERE modelo_id = $1
          ORDER BY id`,
         [modeloId]

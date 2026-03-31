@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     // Buscar usuário
     const result = await query(
       `SELECT id, nome, email, cpf, senha_hash, tipo, status, foto_url, permite_ponto_mobile
-       FROM bluepoint.bt_colaboradores 
+       FROM people.colaboradores 
        WHERE email = $1`,
       [email]
     );
@@ -61,8 +61,8 @@ export async function POST(request: NextRequest) {
     // Buscar permissões concedidas ao tipo do usuário
     const permResult = await query(
       `SELECT p.codigo
-       FROM bt_tipo_usuario_permissoes tp
-       JOIN bt_permissoes p ON tp.permissao_id = p.id
+       FROM tipo_usuario_permissoes tp
+       JOIN permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND tp.concedido = true
        ORDER BY p.codigo`,
       [user.tipo]

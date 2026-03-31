@@ -43,7 +43,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, valor_hora_extra_75 FROM bluepoint.bt_cargos WHERE id = $1`,
+        `SELECT id, nome, cbo, descricao, salario_medio, valor_hora_extra_75 FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -88,7 +88,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(cargoId);
 
       const result = await query(
-        `UPDATE bluepoint.bt_cargos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+        `UPDATE people.cargos SET ${updates.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
         values
       );
 

@@ -24,7 +24,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (isNaN(registroId)) return notFoundResponse('Registro não encontrado');
 
       const gpResult = await query(
-        `SELECT id FROM bluepoint.bt_gestao_pessoas WHERE id = $1`,
+        `SELECT id FROM people.gestao_pessoas WHERE id = $1`,
         [registroId]
       );
       if (gpResult.rows.length === 0) return notFoundResponse('Registro não encontrado');
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
         const url = gerarUrlPublica(storagePath);
         const result = await query(
-          `INSERT INTO bluepoint.bt_gestao_pessoas_anexos
+          `INSERT INTO people.gestao_pessoas_anexos
              (gestao_pessoa_id, nome, tipo, tamanho, url, caminho_storage)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, gestao_pessoa_id, nome, tipo, tamanho, url, criado_em`,

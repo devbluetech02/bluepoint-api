@@ -21,8 +21,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       const result = await query(
         `SELECT n.id, n.numero, n.prestador_id, n.valor, n.status, p.nome_fantasia as prestador_nome
-         FROM bluepoint.bt_nfes_prestador n
-         JOIN bluepoint.bt_prestadores p ON n.prestador_id = p.id
+         FROM people.nfes_prestador n
+         JOIN people.prestadores p ON n.prestador_id = p.id
          WHERE n.id = $1`,
         [nfeId]
       );
@@ -34,7 +34,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const nfe = result.rows[0];
 
       await query(
-        `DELETE FROM bluepoint.bt_nfes_prestador WHERE id = $1`,
+        `DELETE FROM people.nfes_prestador WHERE id = $1`,
         [nfeId]
       );
 

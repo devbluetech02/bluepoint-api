@@ -95,13 +95,13 @@ export async function getDiasDescontoPorColaborador(
 
   const [feriadosRes, marcacoesRes, solicitacoesRes, colabJornadaRes] = await Promise.all([
     query(
-      `SELECT data::text as data FROM bluepoint.bt_feriados
+      `SELECT data::text as data FROM people.feriados
        WHERE data >= $1::date AND data <= $2::date`,
       [dataInicio, dataFim]
     ),
     query(
       `SELECT colaborador_id, data_hora::text as data_hora, tipo
-       FROM bluepoint.bt_marcacoes
+       FROM people.marcacoes
        WHERE colaborador_id = ANY($1::int[])
          AND data_hora >= $2 AND data_hora < ($3::date + interval '1 day')`,
       [colaboradorIds, dataInicio, dataFim]
@@ -109,7 +109,7 @@ export async function getDiasDescontoPorColaborador(
     query(
       `SELECT colaborador_id, data_evento::text as data_evento,
               data_evento_fim::text as data_evento_fim
-       FROM bluepoint.bt_solicitacoes
+       FROM people.solicitacoes
        WHERE colaborador_id = ANY($1::int[])
          AND tipo IN ('atestado', 'ausencia')
          AND status = 'aprovada'
@@ -119,7 +119,7 @@ export async function getDiasDescontoPorColaborador(
       [colaboradorIds, dataInicio, dataFim]
     ),
     query(
-      `SELECT id, jornada_id FROM bluepoint.bt_colaboradores WHERE id = ANY($1::int[])`,
+      `SELECT id, jornada_id FROM people.colaboradores WHERE id = ANY($1::int[])`,
       [colaboradorIds]
     ),
   ]);
@@ -154,7 +154,7 @@ export async function getDiasDescontoPorColaborador(
   if (jornadaIds.length > 0) {
     const jhRes = await query(
       `SELECT jornada_id, dia_semana, dias_semana, folga, periodos
-       FROM bluepoint.bt_jornada_horarios
+       FROM people.jornada_horarios
        WHERE jornada_id = ANY($1::int[])
        ORDER BY jornada_id, COALESCE(dia_semana, 0)`,
       [jornadaIds]

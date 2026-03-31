@@ -24,7 +24,7 @@ function getMinioClient(): Minio.Client {
 }
 
 function getBucketName(): string {
-  return process.env.MINIO_BUCKET || 'bluepoint';
+  return process.env.MINIO_BUCKET || 'people';
 }
 
 // =====================================================
@@ -411,7 +411,7 @@ export async function deletarApk(nomeApp: string): Promise<void> {
 }
 
 // =====================================================
-// OPERAÇÕES DE PRESTADORES (contratos e NFes no bucket bluepoint)
+// OPERAÇÕES DE PRESTADORES (contratos e NFes no bucket people)
 // =====================================================
 
 const PASTA_PRESTADORES = 'prestadores';

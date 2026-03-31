@@ -73,7 +73,7 @@ export async function generateTokenPair(user: {
 
   // Salvar refresh token no banco
   await query(
-    `INSERT INTO bt_refresh_tokens (usuario_id, token, data_expiracao) 
+    `INSERT INTO refresh_tokens (usuario_id, token, data_expiracao) 
      VALUES ($1, $2, $3)`,
     [user.id, refreshToken, expiresAt]
   );
@@ -85,8 +85,8 @@ export async function generateTokenPair(user: {
 export async function validateRefreshToken(refreshToken: string) {
   const result = await query(
     `SELECT rt.*, c.id, c.email, c.nome, c.tipo, c.status
-     FROM bt_refresh_tokens rt
-     JOIN bt_colaboradores c ON rt.usuario_id = c.id
+     FROM refresh_tokens rt
+     JOIN colaboradores c ON rt.usuario_id = c.id
      WHERE rt.token = $1 
        AND rt.revogado = false 
        AND rt.data_expiracao > NOW()
@@ -104,7 +104,7 @@ export async function validateRefreshToken(refreshToken: string) {
 // Revogar refresh token
 export async function revokeRefreshToken(refreshToken: string): Promise<void> {
   await query(
-    `UPDATE bt_refresh_tokens 
+    `UPDATE refresh_tokens 
      SET revogado = true, revogado_em = NOW() 
      WHERE token = $1`,
     [refreshToken]
@@ -114,7 +114,7 @@ export async function revokeRefreshToken(refreshToken: string): Promise<void> {
 // Revogar todos os tokens de um usuário
 export async function revokeAllUserTokens(userId: number): Promise<void> {
   await query(
-    `UPDATE bt_refresh_tokens 
+    `UPDATE refresh_tokens 
      SET revogado = true, revogado_em = NOW() 
      WHERE usuario_id = $1 AND revogado = false`,
     [userId]
@@ -128,7 +128,7 @@ export async function generatePasswordResetToken(userId: number): Promise<string
   expiresAt.setHours(expiresAt.getHours() + 1); // Expira em 1 hora
 
   await query(
-    `INSERT INTO bt_tokens_recuperacao (usuario_id, token, data_expiracao) 
+    `INSERT INTO tokens_recuperacao (usuario_id, token, data_expiracao) 
      VALUES ($1, $2, $3)`,
     [userId, token, expiresAt]
   );
@@ -140,8 +140,8 @@ export async function generatePasswordResetToken(userId: number): Promise<string
 export async function validatePasswordResetToken(token: string) {
   const result = await query(
     `SELECT tr.*, c.id as usuario_id, c.email, c.nome
-     FROM bt_tokens_recuperacao tr
-     JOIN bt_colaboradores c ON tr.usuario_id = c.id
+     FROM tokens_recuperacao tr
+     JOIN colaboradores c ON tr.usuario_id = c.id
      WHERE tr.token = $1 
        AND tr.usado = false 
        AND tr.data_expiracao > NOW()`,
@@ -154,7 +154,7 @@ export async function validatePasswordResetToken(token: string) {
 // Marcar token de recuperação como usado
 export async function markPasswordResetTokenAsUsed(token: string): Promise<void> {
   await query(
-    `UPDATE bt_tokens_recuperacao 
+    `UPDATE tokens_recuperacao 
      SET usado = true, usado_em = NOW() 
      WHERE token = $1`,
     [token]

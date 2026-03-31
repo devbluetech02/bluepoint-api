@@ -14,7 +14,7 @@ import { invalidateLiderancasDepartamentoCache, cacheAside, CACHE_KEYS, CACHE_TT
 async function buscarColaboradoresPorIds(ids: number[]): Promise<{ id: number; nome: string }[]> {
   if (!ids || ids.length === 0) return [];
   const result = await query(
-    `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = ANY($1) ORDER BY nome ASC`,
+    `SELECT id, nome FROM people.colaboradores WHERE id = ANY($1) ORDER BY nome ASC`,
     [ids]
   );
   return result.rows.map((r) => ({ id: r.id, nome: r.nome }));
@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
                     d.nome AS departamento_nome,
                     ld.supervisor_ids, ld.coordenador_ids, ld.gerente_ids,
                     ld.created_at, ld.updated_at
-             FROM bluepoint.bt_liderancas_departamento ld
-             JOIN bluepoint.bt_departamentos d ON ld.departamento_id = d.id
+             FROM people.liderancas_departamento ld
+             JOIN people.departamentos d ON ld.departamento_id = d.id
              WHERE ld.empresa_id = $1
              ORDER BY d.nome ASC`,
             [empresaId]
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       const { empresa_id, departamento_id, supervisor_ids, coordenador_ids, gerente_ids } = validation.data;
 
       const empresaResult = await query(
-        `SELECT id FROM bluepoint.bt_empresas WHERE id = $1`,
+        `SELECT id FROM people.empresas WHERE id = $1`,
         [empresa_id]
       );
       if (empresaResult.rows.length === 0) {
@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       }
 
       const deptResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_departamentos WHERE id = $1`,
+        `SELECT id, nome FROM people.departamentos WHERE id = $1`,
         [departamento_id]
       );
       if (deptResult.rows.length === 0) {
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
       const departamentoNome = deptResult.rows[0].nome;
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_liderancas_departamento
+        `INSERT INTO people.liderancas_departamento
            (empresa_id, departamento_id, supervisor_ids, coordenador_ids, gerente_ids)
          VALUES ($1, $2, $3, $4, $5)
          ON CONFLICT (empresa_id, departamento_id) DO UPDATE SET

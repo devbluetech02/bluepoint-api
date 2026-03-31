@@ -31,7 +31,7 @@ export async function PUT(request: NextRequest) {
 
       for (const [chave, valor] of configs) {
         await client.query(
-          `INSERT INTO bt_configuracoes (categoria, chave, valor)
+          `INSERT INTO configuracoes (categoria, chave, valor)
            VALUES ('ponto', $1, $2)
            ON CONFLICT (categoria, chave) 
            DO UPDATE SET valor = $2, atualizado_em = NOW()`,

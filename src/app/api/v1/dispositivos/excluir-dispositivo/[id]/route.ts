@@ -30,7 +30,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, codigo FROM bluepoint.bt_dispositivos WHERE id = $1`,
+        `SELECT id, nome, codigo FROM people.dispositivos WHERE id = $1`,
         [dispositivoId]
       );
 
@@ -46,7 +46,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se tem marcações vinculadas
       const marcacoesResult = await query(
-        `SELECT COUNT(*) FROM bluepoint.bt_marcacoes WHERE dispositivo_id = $1`,
+        `SELECT COUNT(*) FROM people.marcacoes WHERE dispositivo_id = $1`,
         [dispositivoId]
       );
 
@@ -55,7 +55,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       if (totalMarcacoes > 0) {
         // Apenas inativar ao invés de excluir
         await query(
-          `UPDATE bluepoint.bt_dispositivos SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
+          `UPDATE people.dispositivos SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
           [dispositivoId]
         );
 
@@ -81,7 +81,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Excluir
       await query(
-        `DELETE FROM bluepoint.bt_dispositivos WHERE id = $1`,
+        `DELETE FROM people.dispositivos WHERE id = $1`,
         [dispositivoId]
       );
 

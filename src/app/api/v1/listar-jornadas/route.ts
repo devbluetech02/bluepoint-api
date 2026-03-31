@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bluepoint.bt_jornadas j ${whereClause}`,
+          `SELECT COUNT(*) as total FROM people.jornadas j ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
         // Buscar jornadas
         const dataParams = [...params, limite, offset];
         const result = await query(
-          `SELECT j.* FROM bluepoint.bt_jornadas j
+          `SELECT j.* FROM people.jornadas j
            ${whereClause}
            ORDER BY j.nome ASC
            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
         const jornadaIds = result.rows.map(j => j.id);
         const horariosResult = jornadaIds.length > 0 ? await query(
           `SELECT jornada_id, dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga
-           FROM bluepoint.bt_jornada_horarios
+           FROM people.jornada_horarios
            WHERE jornada_id = ANY($1)
            ORDER BY jornada_id, sequencia NULLS LAST, dia_semana NULLS LAST`,
           [jornadaIds]

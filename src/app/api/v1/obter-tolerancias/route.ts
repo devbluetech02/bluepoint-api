@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   return withAuth(request, async () => {
     try {
       const result = await query(
-        `SELECT chave, valor FROM bt_configuracoes WHERE categoria = 'ponto'`
+        `SELECT chave, valor FROM configuracoes WHERE categoria = 'ponto'`
       );
 
       const config: Record<string, string> = {};

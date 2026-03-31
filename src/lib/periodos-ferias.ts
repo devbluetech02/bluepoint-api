@@ -11,7 +11,7 @@ export async function getDiasEmFeriasNoPeriodo(
 ): Promise<Set<string>> {
   const result = await query(
     `SELECT data_inicio, data_fim
-     FROM bluepoint.bt_periodos_ferias
+     FROM people.periodos_ferias
      WHERE colaborador_id = $1
        AND data_fim >= $2::date
        AND data_inicio <= $3::date`,

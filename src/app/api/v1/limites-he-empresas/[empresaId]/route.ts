@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `DELETE FROM bluepoint.bt_limites_he_empresas WHERE empresa_id = $1 RETURNING *`,
+        `DELETE FROM people.limites_he_empresas WHERE empresa_id = $1 RETURNING *`,
         [empresaId]
       );
 

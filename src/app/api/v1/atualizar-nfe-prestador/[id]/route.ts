@@ -60,9 +60,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       const atualResult = await query(
         `SELECT n.*, p.nome_fantasia as prestador_nome, c.numero as contrato_numero
-         FROM bluepoint.bt_nfes_prestador n
-         JOIN bluepoint.bt_prestadores p ON n.prestador_id = p.id
-         LEFT JOIN bluepoint.bt_contratos_prestador c ON n.contrato_id = c.id
+         FROM people.nfes_prestador n
+         JOIN people.prestadores p ON n.prestador_id = p.id
+         LEFT JOIN people.contratos_prestador c ON n.contrato_id = c.id
          WHERE n.id = $1`,
         [nfeId]
       );
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       if (data.prestadorId) {
         const prestadorExiste = await query(
-          `SELECT id, nome_fantasia FROM bluepoint.bt_prestadores WHERE id = $1`,
+          `SELECT id, nome_fantasia FROM people.prestadores WHERE id = $1`,
           [data.prestadorId]
         );
         if (prestadorExiste.rows.length === 0) {
@@ -90,7 +90,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       if (data.contratoId) {
         const prestId = data.prestadorId || dadosAnteriores.prestador_id;
         const contratoExiste = await query(
-          `SELECT id FROM bluepoint.bt_contratos_prestador WHERE id = $1 AND prestador_id = $2`,
+          `SELECT id FROM people.contratos_prestador WHERE id = $1 AND prestador_id = $2`,
           [data.contratoId, prestId]
         );
         if (contratoExiste.rows.length === 0) {
@@ -149,15 +149,15 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(nfeId);
 
       await query(
-        `UPDATE bluepoint.bt_nfes_prestador SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.nfes_prestador SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 
       const updatedResult = await query(
         `SELECT n.*, p.nome_fantasia as prestador_nome, c.numero as contrato_numero
-         FROM bluepoint.bt_nfes_prestador n
-         JOIN bluepoint.bt_prestadores p ON n.prestador_id = p.id
-         LEFT JOIN bluepoint.bt_contratos_prestador c ON n.contrato_id = c.id
+         FROM people.nfes_prestador n
+         JOIN people.prestadores p ON n.prestador_id = p.id
+         LEFT JOIN people.contratos_prestador c ON n.contrato_id = c.id
          WHERE n.id = $1`,
         [nfeId]
       );

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se email ou CPF já existe
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_colaboradores WHERE email = $1 OR cpf = $2`,
+        `SELECT id FROM people.colaboradores WHERE email = $1 OR cpf = $2`,
         [data.email, cpfLimpo]
       );
 
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       let tipoUsuario = 'colaborador';
       if (data.cargoId) {
         const cargoResult = await query(
-          `SELECT nome FROM bluepoint.bt_cargos WHERE id = $1`,
+          `SELECT nome FROM people.cargos WHERE id = $1`,
           [data.cargoId]
         );
         if (cargoResult.rows.length > 0) {
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir colaborador
       const result = await query(
-        `INSERT INTO bluepoint.bt_colaboradores (
+        `INSERT INTO people.colaboradores (
           nome, email, senha_hash, cpf, rg, telefone, pis, categoria, observacao, cargo_id,
           tipo, empresa_id, departamento_id, jornada_id, data_admissao, data_nascimento, data_desligamento,
           endereco_cep, endereco_logradouro, endereco_numero, 
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       await invalidateColaboradorCache();
 
       // Gerar embedding para busca vetorial
-      await embedTableRowAfterInsert('bt_colaboradores', novoColaborador.id);
+      await embedTableRowAfterInsert('colaboradores', novoColaborador.id);
 
       // Registrar auditoria
       await registrarAuditoria(buildAuditParams(request, user, {

@@ -22,9 +22,9 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const colabResult = await query(
         `SELECT c.id, c.nome, cg.nome AS cargo, d.nome AS departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -42,11 +42,11 @@ export async function GET(request: NextRequest, { params }: Params) {
            cg.nome AS colaborador_cargo,
            d.nome AS colaborador_departamento,
            r.nome AS responsavel_nome
-         FROM bluepoint.bt_gestao_pessoas gp
-         JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-         JOIN bluepoint.bt_colaboradores r ON gp.responsavel_id = r.id
+         FROM people.gestao_pessoas gp
+         JOIN people.colaboradores c ON gp.colaborador_id = c.id
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+         JOIN people.colaboradores r ON gp.responsavel_id = r.id
          WHERE gp.colaborador_id = $1
          ORDER BY gp.data_registro DESC, gp.id DESC`,
         [colaboradorId]
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest, { params }: Params) {
            COUNT(*) FILTER (WHERE tipo = 'feedback_positivo') AS feedbacks_positivos,
            COUNT(*) FILTER (WHERE tipo = 'feedback_negativo') AS feedbacks_negativos,
            COUNT(*) FILTER (WHERE tipo = 'demissao') AS demissoes
-         FROM bluepoint.bt_gestao_pessoas
+         FROM people.gestao_pessoas
          WHERE colaborador_id = $1`,
         [colaboradorId]
       );

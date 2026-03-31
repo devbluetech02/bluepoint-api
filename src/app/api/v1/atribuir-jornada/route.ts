@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se jornada existe
       const jornadaResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_jornadas WHERE id = $1 AND status = 'ativo'`,
+        `SELECT id, nome FROM people.jornadas WHERE id = $1 AND status = 'ativo'`,
         [jornadaId]
       );
 
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       for (const colaboradorId of colaboradorIds) {
         // Verificar se colaborador existe
         const colaboradorResult = await client.query(
-          `SELECT id, jornada_id FROM bluepoint.bt_colaboradores WHERE id = $1`,
+          `SELECT id, jornada_id FROM people.colaboradores WHERE id = $1`,
           [colaboradorId]
         );
 
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         // Se já tinha jornada, criar histórico
         if (colaborador.jornada_id) {
           await client.query(
-            `UPDATE bt_colaborador_jornadas_historico 
+            `UPDATE colaborador_jornadas_historico 
              SET data_fim = $1 
              WHERE colaborador_id = $2 AND data_fim IS NULL`,
             [dataInicio, colaboradorId]
@@ -58,14 +58,14 @@ export async function POST(request: NextRequest) {
 
         // Criar novo registro no histórico
         await client.query(
-          `INSERT INTO bt_colaborador_jornadas_historico (colaborador_id, jornada_id, data_inicio, criado_por)
+          `INSERT INTO colaborador_jornadas_historico (colaborador_id, jornada_id, data_inicio, criado_por)
            VALUES ($1, $2, $3, $4)`,
           [colaboradorId, jornadaId, dataInicio, user.userId]
         );
 
         // Atualizar colaborador
         await client.query(
-          `UPDATE bluepoint.bt_colaboradores SET jornada_id = $1, atualizado_em = NOW() WHERE id = $2`,
+          `UPDATE people.colaboradores SET jornada_id = $1, atualizado_em = NOW() WHERE id = $2`,
           [jornadaId, colaboradorId]
         );
 

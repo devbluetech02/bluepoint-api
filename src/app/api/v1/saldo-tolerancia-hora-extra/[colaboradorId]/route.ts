@@ -44,7 +44,7 @@ export async function GET(
       const resultado = await cacheAside(cacheKey, async () => {
         // Verificar se colaborador existe
         const colaboradorResult = await query(
-          `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo'`,
+          `SELECT id, nome FROM people.colaboradores WHERE id = $1 AND status = 'ativo'`,
           [colaboradorId]
         );
 
@@ -55,7 +55,7 @@ export async function GET(
         // Buscar parâmetros ativos
         const parametroResult = await query(
           `SELECT id, minutos_tolerancia, dias_permitidos_por_mes, ativo
-           FROM bluepoint.bt_parametros_hora_extra
+           FROM people.parametros_hora_extra
            WHERE ativo = TRUE
            ORDER BY id DESC
            LIMIT 1`
@@ -77,7 +77,7 @@ export async function GET(
         // Buscar histórico de tolerância do colaborador no mês
         const historicoResult = await query(
           `SELECT data::text AS data, minutos_hora_extra, consumiu_tolerancia
-           FROM bluepoint.bt_historico_tolerancia_hora_extra
+           FROM people.historico_tolerancia_hora_extra
            WHERE colaborador_id = $1
              AND data BETWEEN $2::date AND $3::date
              AND consumiu_tolerancia = TRUE

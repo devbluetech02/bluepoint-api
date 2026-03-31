@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const dados = await cacheAside(cacheKey, async () => {
         const result = await query(
-          `SELECT * FROM bt_notificacoes WHERE id = $1 AND usuario_id = $2`,
+          `SELECT * FROM notificacoes WHERE id = $1 AND usuario_id = $2`,
           [notificacaoId, user.userId]
         );
 

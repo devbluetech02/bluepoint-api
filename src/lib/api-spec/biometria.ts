@@ -184,7 +184,7 @@ const res = await fetch('/api/v1/biometria/cadastrar-face-cpf', {
           imagem: { type: 'string', required: true, description: 'Imagem em base64 (jpeg/png)' },
           dispositivoCodigo: { type: 'string', description: 'Código do dispositivo (6 chars)' },
           registrarPonto: { type: 'boolean', description: 'Registrar ponto automaticamente (apenas BluePoint)' },
-          tipoPonto: { type: 'string', description: 'Tipo de ponto (auto-detectado se não informado)', enum: ['entrada', 'saida', 'almoco', 'retorno'] },
+          tipoPonto: { type: 'string', description: 'Tipo de ponto; use "auto" ou omita para detecção automática', enum: ['auto', 'entrada', 'saida', 'almoco', 'retorno'] },
           latitude: { type: 'number', description: 'Latitude GPS' },
           longitude: { type: 'number', description: 'Longitude GPS' },
         },
@@ -198,7 +198,7 @@ const res = await fetch('/api/v1/biometria/cadastrar-face-cpf', {
             success: true,
             data: {
               identificado: true,
-              tipo: 'bluepoint',
+              tipo: 'people',
               colaboradorId: 45,
               externalIds: { portal: '918', vendas: '119' },
               colaborador: {
@@ -233,7 +233,7 @@ A resposta sempre inclui \`externalIds\` — um objeto JSONB com os IDs de **tod
 \`\`\`json
 {
   "identificado": true,
-  "tipo": "bluepoint",
+  "tipo": "people",
   "colaboradorId": 45,
   "externalIds": { "portal": "918", "vendas": "119" },
   "colaborador": {
@@ -293,7 +293,7 @@ A resposta sempre inclui \`externalIds\` — um objeto JSONB com os IDs de **tod
 \`\`\`json
 {
   "identificado": true,
-  "tipo": "bluepoint",
+  "tipo": "people",
   "colaboradorId": 45,
   "externalIds": { "portal": "918" },
   "colaborador": { "..." : "..." },

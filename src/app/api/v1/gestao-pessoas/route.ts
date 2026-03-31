@@ -70,9 +70,9 @@ export async function GET(request: NextRequest) {
 
         const countResult = await query(
           `SELECT COUNT(*) AS total
-           FROM bluepoint.bt_gestao_pessoas gp
-           JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
-           LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+           FROM people.gestao_pessoas gp
+           JOIN people.colaboradores c ON gp.colaborador_id = c.id
+           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
            ${whereClause}`,
           params
         );
@@ -87,11 +87,11 @@ export async function GET(request: NextRequest) {
              cg.nome AS colaborador_cargo,
              d.nome AS colaborador_departamento,
              r.nome AS responsavel_nome
-           FROM bluepoint.bt_gestao_pessoas gp
-           JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-           JOIN bluepoint.bt_colaboradores r ON gp.responsavel_id = r.id
+           FROM people.gestao_pessoas gp
+           JOIN people.colaboradores c ON gp.colaborador_id = c.id
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+           JOIN people.colaboradores r ON gp.responsavel_id = r.id
            ${whereClause}
            ORDER BY gp.data_registro DESC, gp.id DESC
            LIMIT $${idx} OFFSET $${idx + 1}`,
@@ -115,8 +115,8 @@ export async function GET(request: NextRequest) {
              COUNT(*) FILTER (WHERE gp.status = 'pendente') AS pendentes,
              COUNT(*) FILTER (WHERE gp.tipo = 'advertencia') AS advertencias,
              COUNT(*) FILTER (WHERE gp.tipo IN ('feedback_positivo','feedback_negativo')) AS feedbacks,
-             (SELECT COUNT(*) FROM bluepoint.bt_gestao_pessoas_reunioes WHERE status = 'agendada') AS reunioes_agendadas
-           FROM bluepoint.bt_gestao_pessoas gp`
+             (SELECT COUNT(*) FROM people.gestao_pessoas_reunioes WHERE status = 'agendada') AS reunioes_agendadas
+           FROM people.gestao_pessoas gp`
         );
         const sr = resumoResult.rows[0];
         const resumo = {
@@ -196,9 +196,9 @@ export async function POST(request: NextRequest) {
 
       const colabResult = await query(
         `SELECT c.id, c.nome, cg.nome AS cargo, d.nome AS departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -219,7 +219,7 @@ export async function POST(request: NextRequest) {
       await client.query('BEGIN');
 
       const gpResult = await client.query(
-        `INSERT INTO bluepoint.bt_gestao_pessoas
+        `INSERT INTO people.gestao_pessoas
            (colaborador_id, tipo, titulo, descricao, responsavel_id, data_registro)
          VALUES ($1, $2, $3, $4, $5, CURRENT_DATE)
          RETURNING id, data_registro`,
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest) {
       const gpId = gpResult.rows[0].id;
 
       const reuniaoResult = await client.query(
-        `INSERT INTO bluepoint.bt_gestao_pessoas_reunioes
+        `INSERT INTO people.gestao_pessoas_reunioes
            (gestao_pessoa_id, data, hora)
          VALUES ($1, $2, $3)
          RETURNING id`,
@@ -238,7 +238,7 @@ export async function POST(request: NextRequest) {
 
       for (const pId of participantesIds) {
         await client.query(
-          `INSERT INTO bluepoint.bt_gestao_pessoas_participantes (reuniao_id, colaborador_id)
+          `INSERT INTO people.gestao_pessoas_participantes (reuniao_id, colaborador_id)
            VALUES ($1, $2) ON CONFLICT DO NOTHING`,
           [reuniaoId, pId]
         );
@@ -263,7 +263,7 @@ export async function POST(request: NextRequest) {
 
         const url = gerarUrlPublica(storagePath);
         const anexoResult = await client.query(
-          `INSERT INTO bluepoint.bt_gestao_pessoas_anexos
+          `INSERT INTO people.gestao_pessoas_anexos
              (gestao_pessoa_id, nome, tipo, tamanho, url, caminho_storage)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id, nome, tipo, tamanho, url, criado_em`,

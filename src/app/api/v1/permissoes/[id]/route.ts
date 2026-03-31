@@ -26,7 +26,7 @@ export async function GET(
 
       const result = await query(
         `SELECT id, codigo, nome, descricao, modulo, acao, criado_em
-         FROM bt_permissoes WHERE id = $1`,
+         FROM permissoes WHERE id = $1`,
         [permissaoId]
       );
 
@@ -57,7 +57,7 @@ export async function PUT(
       }
 
       const existente = await query(
-        `SELECT id FROM bt_permissoes WHERE id = $1`,
+        `SELECT id FROM permissoes WHERE id = $1`,
         [permissaoId]
       );
       if (existente.rows.length === 0) {
@@ -90,7 +90,7 @@ export async function PUT(
       values.push(permissaoId);
 
       const result = await query(
-        `UPDATE bt_permissoes SET ${setClauses.join(', ')} WHERE id = $${idx}
+        `UPDATE permissoes SET ${setClauses.join(', ')} WHERE id = $${idx}
          RETURNING id, codigo, nome, descricao, modulo, acao, criado_em`,
         values
       );
@@ -121,14 +121,14 @@ export async function DELETE(
       }
 
       const existente = await query(
-        `SELECT id, codigo FROM bt_permissoes WHERE id = $1`,
+        `SELECT id, codigo FROM permissoes WHERE id = $1`,
         [permissaoId]
       );
       if (existente.rows.length === 0) {
         return notFoundResponse('Permissão não encontrada');
       }
 
-      await query(`DELETE FROM bt_permissoes WHERE id = $1`, [permissaoId]);
+      await query(`DELETE FROM permissoes WHERE id = $1`, [permissaoId]);
 
       await cacheDelPattern(`${CACHE_KEYS.PERMISSOES}*`);
       await cacheDelPattern(`${CACHE_KEYS.PAPEL_PERMISSOES}*`);

@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
           `SELECT 
             COUNT(*) as total,
             SUM(CASE WHEN status = 'ativo' THEN 1 ELSE 0 END) as ativos
-          FROM bluepoint.bt_colaboradores`
+          FROM people.colaboradores`
         );
 
         // Marcações de hoje
@@ -24,18 +24,18 @@ export async function GET(request: NextRequest) {
             SUM(CASE WHEN tipo = 'saida' THEN 1 ELSE 0 END) as saidas,
             SUM(CASE WHEN tipo = 'almoco' THEN 1 ELSE 0 END) as almocos,
             SUM(CASE WHEN tipo = 'retorno' THEN 1 ELSE 0 END) as retornos
-          FROM bluepoint.bt_marcacoes
+          FROM people.marcacoes
           WHERE DATE(data_hora) = CURRENT_DATE`
         );
 
         // Colaboradores ativos que não registraram entrada hoje
         const ausentesResult = await query(
           `SELECT COUNT(*) as ausentes
-          FROM bluepoint.bt_colaboradores c
+          FROM people.colaboradores c
           WHERE c.status = 'ativo'
           AND c.id NOT IN (
             SELECT DISTINCT colaborador_id 
-            FROM bluepoint.bt_marcacoes 
+            FROM people.marcacoes 
             WHERE DATE(data_hora) = CURRENT_DATE
           )`
         );
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
         // Horas extras do mês
         const horasExtrasResult = await query(
           `SELECT COALESCE(SUM(CASE WHEN horas > 0 THEN horas ELSE 0 END), 0) as total
-          FROM bt_banco_horas
+          FROM banco_horas
           WHERE EXTRACT(MONTH FROM data) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND EXTRACT(YEAR FROM data) = EXTRACT(YEAR FROM CURRENT_DATE)`
         );
@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
           `SELECT 
             DATE(data_hora) as data,
             COUNT(DISTINCT colaborador_id) as presentes
-          FROM bluepoint.bt_marcacoes
+          FROM people.marcacoes
           WHERE data_hora >= CURRENT_DATE - INTERVAL '7 days'
           GROUP BY DATE(data_hora)
           ORDER BY data`
@@ -64,8 +64,8 @@ export async function GET(request: NextRequest) {
           `SELECT 
             d.nome,
             COUNT(c.id) as total
-          FROM bt_departamentos d
-          LEFT JOIN bluepoint.bt_colaboradores c ON d.id = c.departamento_id AND c.status = 'ativo'
+          FROM departamentos d
+          LEFT JOIN people.colaboradores c ON d.id = c.departamento_id AND c.status = 'ativo'
           WHERE d.status = 'ativo'
           GROUP BY d.id, d.nome
           ORDER BY total DESC

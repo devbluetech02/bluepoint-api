@@ -19,7 +19,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome, face_registrada FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome, face_registrada FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar dados da biometria
       const biometriaResult = await query(
         `SELECT qualidade, foto_referencia_url, data_cadastro, atualizado_em
-         FROM bluepoint.bt_biometria_facial
+         FROM people.biometria_facial
          WHERE colaborador_id = $1`,
         [colaboradorId]
       );

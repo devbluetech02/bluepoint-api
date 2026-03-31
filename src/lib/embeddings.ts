@@ -1,9 +1,9 @@
 /**
- * Geração de embeddings para novas linhas (coluna embedding em tabelas do schema bluepoint).
+ * Geração de embeddings para novas linhas (coluna embedding em tabelas do schema people).
  * Usa OPENAI_API_KEY e opcionalmente OPENAI_API_BASE_URL (ex.: OpenRouter).
  *
- * Para qualquer rota ou lib que faça INSERT em tabela do schema bluepoint com coluna embedding,
- * chame embedTableRowAfterInsert('bt_nome_tabela', idRetornado) após o INSERT (ou em background
+ * Para qualquer rota ou lib que faça INSERT em tabela do schema people com coluna embedding,
+ * chame embedTableRowAfterInsert('nome_tabela', idRetornado) após o INSERT (ou em background
  * com .catch(() => {}) para não atrasar a resposta).
  */
 
@@ -61,22 +61,22 @@ async function generateEmbedding(text: string): Promise<number[]> {
   return Array.isArray(first) ? first : (first as { embedding?: number[] }).embedding ?? [];
 }
 
-/** Tabelas do schema bluepoint que possuem coluna embedding (para não consultar info_schema em todo request) */
+/** Tabelas do schema people que possuem coluna embedding (para não consultar info_schema em todo request) */
 const TABLES_WITH_EMBEDDING = new Set([
-  'bt_alertas_inteligentes', 'bt_anexos', 'bt_api_keys', 'bt_api_keys_log', 'bt_atrasos_tolerados',
-  'bt_auditoria', 'bt_banco_horas', 'bt_biometria_facial', 'bt_cargos', 'bt_codigos_exportacao',
-  'bt_colaborador_jornadas_historico', 'bt_colaboradores', 'bt_config_relatorio_personalizado',
-  'bt_config_sistema', 'bt_configuracoes', 'bt_configuracoes_empresa', 'bt_contratos_prestador',
-  'bt_custo_horas_extras', 'bt_departamentos', 'bt_dispositivos', 'bt_documentos_colaborador',
-  'bt_empresas', 'bt_feriados', 'bt_fotos_reconhecimento', 'bt_historico_assiduidade',
-  'bt_historico_tolerancia_hora_extra', 'bt_horas_extras_consolidado', 'bt_jornada_horarios',
-  'bt_jornadas', 'bt_liderancas_departamento', 'bt_limites_he_departamentos', 'bt_limites_he_empresas',
-  'bt_limites_he_gestores', 'bt_localizacao_departamentos', 'bt_localizacoes', 'bt_marcacoes',
-  'bt_mapeamento_tabelas_colunas', 'bt_modelos_exportacao', 'bt_nfes_prestador', 'bt_notificacoes',
-  'bt_parametros_assiduidade', 'bt_parametros_beneficios', 'bt_parametros_hora_extra', 'bt_parametros_tolerancia_atraso',
-  'bt_periodos_ferias', 'bt_permissoes', 'bt_prestadores', 'bt_refresh_tokens', 'bt_relatorios_mensais',
-  'bt_solicitacoes', 'bt_solicitacoes_historico', 'bt_solicitacoes_horas_extras', 'bt_tipo_usuario_permissoes',
-  'bt_tipos_solicitacao', 'bt_tokens_recuperacao',
+  'alertas_inteligentes', 'anexos', 'api_keys', 'api_keys_log', 'atrasos_tolerados',
+  'auditoria', 'banco_horas', 'biometria_facial', 'cargos', 'codigos_exportacao',
+  'colaborador_jornadas_historico', 'colaboradores', 'config_relatorio_personalizado',
+  'config_sistema', 'configuracoes', 'configuracoes_empresa', 'contratos_prestador',
+  'custo_horas_extras', 'departamentos', 'dispositivos', 'documentos_colaborador',
+  'empresas', 'feriados', 'fotos_reconhecimento', 'historico_assiduidade',
+  'historico_tolerancia_hora_extra', 'horas_extras_consolidado', 'jornada_horarios',
+  'jornadas', 'liderancas_departamento', 'limites_he_departamentos', 'limites_he_empresas',
+  'limites_he_gestores', 'localizacao_departamentos', 'localizacoes', 'marcacoes',
+  'mapeamento_tabelas_colunas', 'modelos_exportacao', 'nfes_prestador', 'notificacoes',
+  'parametros_assiduidade', 'parametros_beneficios', 'parametros_hora_extra', 'parametros_tolerancia_atraso',
+  'periodos_ferias', 'permissoes', 'prestadores', 'refresh_tokens', 'relatorios_mensais',
+  'solicitacoes', 'solicitacoes_historico', 'solicitacoes_horas_extras', 'tipo_usuario_permissoes',
+  'tipos_solicitacao', 'tokens_recuperacao',
 ]);
 
 /**
@@ -89,17 +89,17 @@ export async function embedTableRowAfterInsert(
   idColumn: string = 'id'
 ): Promise<void> {
   if (!process.env.OPENAI_API_KEY) return;
-  const table = tableName.startsWith('bt_') ? tableName : `bt_${tableName}`;
+  const table = tableName.startsWith('') ? tableName : `${tableName}`;
   if (!TABLES_WITH_EMBEDDING.has(table)) return;
 
   let client;
   try {
     client = await getClient();
-    await client.query('SET search_path TO bluepoint, public');
+    await client.query('SET search_path TO people, public');
 
     const colsResult = await client.query(
       `SELECT column_name FROM information_schema.columns
-       WHERE table_schema = 'bluepoint' AND table_name = $1
+       WHERE table_schema = 'people' AND table_name = $1
          AND column_name <> 'embedding' AND data_type NOT IN ('bytea', 'USER-DEFINED')
        ORDER BY ordinal_position`,
       [table]
@@ -109,7 +109,7 @@ export async function embedTableRowAfterInsert(
 
     const colList = columns.map((c) => `"${c}"`).join(', ');
     const rowResult = await client.query(
-      `SELECT ${colList} FROM bluepoint."${table}" WHERE "${idColumn}" = $1`,
+      `SELECT ${colList} FROM people."${table}" WHERE "${idColumn}" = $1`,
       [id]
     );
     if (rowResult.rows.length === 0) return;
@@ -120,7 +120,7 @@ export async function embedTableRowAfterInsert(
     const vecStr = `[${embedding.join(',')}]`;
 
     await client.query(
-      `UPDATE bluepoint."${table}" SET embedding = $1::vector WHERE "${idColumn}" = $2`,
+      `UPDATE people."${table}" SET embedding = $1::vector WHERE "${idColumn}" = $2`,
       [vecStr, id]
     );
   } catch (err) {

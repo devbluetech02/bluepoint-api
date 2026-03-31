@@ -15,7 +15,7 @@ const APP_TYPES: Record<string, { titulo: string; descricao: string; tipo: strin
     descricao: 'App para registro de ponto em dispositivos compartilhados',
     tipo: 'station',
   },
-  'bluepoint-station': {
+  'people-station': {
     titulo: 'BluePoint Station',
     descricao: 'App para registro de ponto em dispositivos compartilhados',
     tipo: 'station',
@@ -25,7 +25,7 @@ const APP_TYPES: Record<string, { titulo: string; descricao: string; tipo: strin
     descricao: 'App para acompanhamento individual do colaborador',
     tipo: 'mobile',
   },
-  'bluepoint-mobile': {
+  'people-mobile': {
     titulo: 'BluePoint Mobile',
     descricao: 'App para acompanhamento individual do colaborador',
     tipo: 'mobile',
@@ -94,9 +94,9 @@ export async function GET(request: NextRequest) {
       // Criar lista completa incluindo apps não cadastrados ainda
       const tiposBase = ['station', 'mobile'];
       const appsCompletos = tiposBase.map(tipo => {
-        // Verificar se já existe (pode ser 'station' ou 'bluepoint-station')
+        // Verificar se já existe (pode ser 'station' ou 'people-station')
         const existente = appsComDetalhes.find(a => 
-          a.tipo === tipo || a.nome === tipo || a.nome === `bluepoint-${tipo}`
+          a.tipo === tipo || a.nome === tipo || a.nome === `people-${tipo}`
         );
         
         if (existente) {

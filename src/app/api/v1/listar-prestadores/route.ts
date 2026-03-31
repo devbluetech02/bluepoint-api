@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bluepoint.bt_prestadores p ${whereClause}`,
+          `SELECT COUNT(*) as total FROM people.prestadores p ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
             p.observacoes,
             p.criado_em,
             p.atualizado_em
-          FROM bluepoint.bt_prestadores p
+          FROM people.prestadores p
           ${whereClause}
           ORDER BY p.${orderBy} ${orderDir}
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

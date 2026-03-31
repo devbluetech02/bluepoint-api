@@ -38,8 +38,8 @@ export async function GET(request: NextRequest) {
             `SELECT l.id, l.empresa_id, l.departamento_id,
                     d.nome AS departamento_nome,
                     l.limite_mensal, l.created_at, l.updated_at
-             FROM bluepoint.bt_limites_he_departamentos l
-             JOIN bluepoint.bt_departamentos d ON l.departamento_id = d.id
+             FROM people.limites_he_departamentos l
+             JOIN people.departamentos d ON l.departamento_id = d.id
              WHERE l.empresa_id = $1
              ORDER BY d.nome ASC`,
             [empresaId]
@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
               `SELECT
                  COALESCE(SUM((s.dados_adicionais->>'custo_aprovado')::numeric), 0) AS total,
                  COUNT(*)::int AS qtd
-               FROM bluepoint.bt_solicitacoes s
-               JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+               FROM people.solicitacoes s
+               JOIN people.colaboradores c ON s.colaborador_id = c.id
                WHERE s.tipo = 'hora_extra'
                  AND s.status = 'aprovada'
                  AND c.departamento_id = $1
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
       const { empresa_id, departamento_id, limite_mensal } = validation.data;
 
       const empresaResult = await query(
-        `SELECT id FROM bluepoint.bt_empresas WHERE id = $1`,
+        `SELECT id FROM people.empresas WHERE id = $1`,
         [empresa_id]
       );
       if (empresaResult.rows.length === 0) {
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
       }
 
       const deptResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_departamentos WHERE id = $1`,
+        `SELECT id, nome FROM people.departamentos WHERE id = $1`,
         [departamento_id]
       );
       if (deptResult.rows.length === 0) {
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
       const departamentoNome = deptResult.rows[0].nome;
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_limites_he_departamentos (empresa_id, departamento_id, limite_mensal)
+        `INSERT INTO people.limites_he_departamentos (empresa_id, departamento_id, limite_mensal)
          VALUES ($1, $2, $3)
          ON CONFLICT (empresa_id, departamento_id) DO UPDATE SET
            limite_mensal = $3,

@@ -37,9 +37,9 @@ export async function POST(request: NextRequest) {
       const colResult = await query(
         `SELECT c.id, c.nome, c.data_admissao, c.bloqueado_assiduidade,
                 cg.nome AS cargo_nome, d.nome AS departamento_nome
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
          WHERE c.id = $1`,
         [colaboradorId],
       );
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
         const clientQuery = client.query.bind(client);
 
         await clientQuery(
-          `DELETE FROM bluepoint.bt_historico_assiduidade
+          `DELETE FROM people.historico_assiduidade
            WHERE colaborador_id = $1
              AND (ano > $3 OR (ano = $3 AND mes >= $2))`,
           [colaboradorId, mes, ano],

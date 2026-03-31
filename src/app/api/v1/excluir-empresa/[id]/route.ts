@@ -19,7 +19,7 @@ export async function DELETE(
 
       // Verificar se empresa existe
       const empresaAtual = await query(
-        `SELECT * FROM bluepoint.bt_empresas WHERE id = $1`,
+        `SELECT * FROM people.empresas WHERE id = $1`,
         [empresaId]
       );
 
@@ -31,7 +31,7 @@ export async function DELETE(
 
       // Excluir empresa
       await query(
-        `DELETE FROM bluepoint.bt_empresas WHERE id = $1`,
+        `DELETE FROM people.empresas WHERE id = $1`,
         [empresaId]
       );
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Popula a coluna embedding (vector 1536) em todas as tabelas do schema bluepoint.
+ * Popula a coluna embedding (vector 1536) em todas as tabelas do schema people.
  * Usa API de embeddings (OpenAI ou OpenRouter). Requer OPENAI_API_KEY no .env.
  * Se usar OpenRouter: OPENAI_API_BASE_URL=https://openrouter.ai/api/v1
  *
@@ -35,9 +35,9 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_API_BASE_URL = (process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
 const DB_HOST = process.env.DB_HOST || 'localhost';
 const DB_PORT = parseInt(process.env.DB_PORT || '5432');
-const DB_USER = process.env.DB_USERNAME || 'bluepoint';
+const DB_USER = process.env.DB_USERNAME || 'people';
 const DB_PASS = process.env.DB_PASSWORD;
-const DB_NAME = process.env.DB_DATABASE || 'bluepoint_vector';
+const DB_NAME = process.env.DB_DATABASE || 'people_vector';
 
 const BATCH_SIZE = 50;
 const BASE_IS_OPENROUTER = (process.env.OPENAI_API_BASE_URL || '').includes('openrouter');
@@ -66,7 +66,7 @@ async function getTablesWithEmbedding(client) {
   const r = await client.query(`
     SELECT table_name
     FROM information_schema.columns
-    WHERE table_schema = 'bluepoint' AND column_name = 'embedding'
+    WHERE table_schema = 'people' AND column_name = 'embedding'
     ORDER BY table_name
   `);
   return r.rows.map((x) => x.table_name);
@@ -77,7 +77,7 @@ async function getTablePk(client, table) {
     SELECT a.attname
     FROM pg_index i
     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-    WHERE i.indrelid = ('bluepoint.' || quote_ident($1))::regclass AND a.attnum > 0 AND NOT a.attisdropped
+    WHERE i.indrelid = ('people.' || quote_ident($1))::regclass AND a.attnum > 0 AND NOT a.attisdropped
     ORDER BY array_position(i.indkey, a.attnum)
   `, [table]);
   return r.rows.map((x) => x.attname);
@@ -87,7 +87,7 @@ async function getTextColumns(client, table) {
   const r = await client.query(`
     SELECT column_name, data_type
     FROM information_schema.columns
-    WHERE table_schema = 'bluepoint' AND table_name = $1
+    WHERE table_schema = 'people' AND table_name = $1
       AND column_name NOT IN ('embedding')
       AND data_type NOT IN ('bytea', 'USER-DEFINED')
     ORDER BY ordinal_position
@@ -175,7 +175,7 @@ async function processTable(client, table) {
 
   while (true) {
     const rows = await client.query(
-      `SELECT ${colList} FROM bluepoint."${table}" WHERE embedding IS NULL ORDER BY "${idCol}" LIMIT $1 OFFSET $2`,
+      `SELECT ${colList} FROM people."${table}" WHERE embedding IS NULL ORDER BY "${idCol}" LIMIT $1 OFFSET $2`,
       [BATCH_SIZE, offset]
     );
     if (rows.rows.length === 0) break;
@@ -188,7 +188,7 @@ async function processTable(client, table) {
       const vec = embeddings[i];
       const vecStr = `[${vec.join(',')}]`;
       await client.query(
-        `UPDATE bluepoint."${table}" SET embedding = $1::vector WHERE "${idCol}" = $2`,
+        `UPDATE people."${table}" SET embedding = $1::vector WHERE "${idCol}" = $2`,
         [vecStr, id]
       );
       totalUpdated++;
@@ -205,7 +205,7 @@ async function main() {
   console.log('Conectando ao banco...');
   const client = await pool.connect();
   try {
-    await client.query("SET search_path TO bluepoint, public");
+    await client.query("SET search_path TO people, public");
     const tables = await getTablesWithEmbedding(client);
     console.log(`Tabelas com coluna embedding: ${tables.length}\n`);
 

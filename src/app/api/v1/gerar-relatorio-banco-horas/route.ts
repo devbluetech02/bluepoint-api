@@ -44,13 +44,13 @@ export async function GET(request: NextRequest) {
           SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END) as horas_extras,
           SUM(CASE WHEN bh.horas < 0 THEN ABS(bh.horas) ELSE 0 END) as horas_devidas,
           (
-            SELECT saldo_atual FROM bt_banco_horas 
+            SELECT saldo_atual FROM banco_horas 
             WHERE colaborador_id = c.id 
             ORDER BY criado_em DESC LIMIT 1
           ) as saldo_final
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
-        LEFT JOIN bt_banco_horas bh ON c.id = bh.colaborador_id
+        FROM people.colaboradores c
+        LEFT JOIN departamentos d ON c.departamento_id = d.id
+        LEFT JOIN banco_horas bh ON c.id = bh.colaborador_id
         ${whereClause}
         GROUP BY c.id, c.nome, d.nome
         HAVING COUNT(bh.id) > 0 OR $${paramIndex - 2}::int IS NOT NULL

@@ -546,9 +546,9 @@ export async function GET(request: NextRequest) {
           c.id, c.nome, c.cpf, c.cargo_id, cg.nome as cargo_nome, c.data_admissao, c.empresa_id, c.jornada_id,
           e.razao_social AS empresa_razao_social,
           e.cnpj AS empresa_cnpj
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-        LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+        FROM people.colaboradores c
+        LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+        LEFT JOIN people.empresas e ON c.empresa_id = e.id
         WHERE c.id = $1`,
         [parseInt(colaboradorId)]
       );
@@ -565,7 +565,7 @@ export async function GET(request: NextRequest) {
       if (colab.jornada_id) {
         const jornadaResult = await query(
           `SELECT dia_semana, dias_semana, folga, periodos
-           FROM bluepoint.bt_jornada_horarios
+           FROM people.jornada_horarios
            WHERE jornada_id = $1
            ORDER BY COALESCE(dia_semana, sequencia, id)`,
           [colab.jornada_id]
@@ -584,7 +584,7 @@ export async function GET(request: NextRequest) {
 
       const marcacoesResult = await query(
         `SELECT data_hora, tipo
-         FROM bluepoint.bt_marcacoes
+         FROM people.marcacoes
          WHERE colaborador_id = $1
            AND data_hora >= $2
            AND data_hora < ($3::date + interval '1 day')

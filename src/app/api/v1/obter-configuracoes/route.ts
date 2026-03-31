@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
       const configuracoes = await cacheAside(`${CACHE_KEYS.CONFIGURACOES}all`, async () => {
         // Buscar configurações por categoria
         const result = await query(
-          `SELECT categoria, chave, valor FROM bt_configuracoes ORDER BY categoria, chave`
+          `SELECT categoria, chave, valor FROM configuracoes ORDER BY categoria, chave`
         );
 
         // Agrupar por categoria
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
 
         // Buscar dados da empresa
         const empresaResult = await query(
-          `SELECT * FROM bt_configuracoes_empresa LIMIT 1`
+          `SELECT * FROM configuracoes_empresa LIMIT 1`
         );
 
         const empresa = empresaResult.rows[0] || {};

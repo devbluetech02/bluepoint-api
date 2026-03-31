@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Contar total
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bt_solicitacoes s ${whereClause}`,
+        `SELECT COUNT(*) as total FROM solicitacoes s ${whereClause}`,
         params_query
       );
       const total = parseInt(countResult.rows[0].total);
@@ -80,9 +80,9 @@ export async function GET(request: NextRequest, { params }: Params) {
           a.nome as aprovador_nome,
           g.id as gestor_id,
           g.nome as gestor_nome
-        FROM bt_solicitacoes s
-        LEFT JOIN bluepoint.bt_colaboradores a ON s.aprovador_id = a.id
-        LEFT JOIN bluepoint.bt_colaboradores g ON s.gestor_id = g.id
+        FROM solicitacoes s
+        LEFT JOIN people.colaboradores a ON s.aprovador_id = a.id
+        LEFT JOIN people.colaboradores g ON s.gestor_id = g.id
         ${whereClause}
         ORDER BY s.data_solicitacao DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -107,7 +107,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           SUM(CASE WHEN status = 'pendente' THEN 1 ELSE 0 END) as pendentes,
           SUM(CASE WHEN status = 'aprovada' THEN 1 ELSE 0 END) as aprovadas,
           SUM(CASE WHEN status = 'rejeitada' THEN 1 ELSE 0 END) as rejeitadas
-        FROM bt_solicitacoes
+        FROM solicitacoes
         WHERE colaborador_id = $1`,
         [colaboradorId]
       );

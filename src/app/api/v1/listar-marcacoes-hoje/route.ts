@@ -43,9 +43,9 @@ export async function GET(request: NextRequest) {
             c.id as colaborador_id,
             c.nome as colaborador_nome,
             d.nome as departamento_nome
-          FROM bluepoint.bt_marcacoes m
-          JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id
-          LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
+          FROM people.marcacoes m
+          JOIN people.colaboradores c ON m.colaborador_id = c.id
+          LEFT JOIN departamentos d ON c.departamento_id = d.id
           ${whereClause}
           ORDER BY m.data_hora DESC`,
           params

@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       const existeResult = await query(
-        `SELECT id, nome, descricao FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `SELECT id, nome, descricao FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 
@@ -31,7 +31,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const modelo = existeResult.rows[0];
 
       await query(
-        `DELETE FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `DELETE FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 

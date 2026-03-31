@@ -61,8 +61,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       const atualResult = await query(
         `SELECT c.*, p.nome_fantasia as prestador_nome
-         FROM bluepoint.bt_contratos_prestador c
-         JOIN bluepoint.bt_prestadores p ON c.prestador_id = p.id
+         FROM people.contratos_prestador c
+         JOIN people.prestadores p ON c.prestador_id = p.id
          WHERE c.id = $1`,
         [contratoId]
       );
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       if (data.prestadorId) {
         const prestadorExiste = await query(
-          `SELECT id, nome_fantasia FROM bluepoint.bt_prestadores WHERE id = $1`,
+          `SELECT id, nome_fantasia FROM people.prestadores WHERE id = $1`,
           [data.prestadorId]
         );
         if (prestadorExiste.rows.length === 0) {
@@ -139,14 +139,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(contratoId);
 
       await query(
-        `UPDATE bluepoint.bt_contratos_prestador SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.contratos_prestador SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 
       const updatedResult = await query(
         `SELECT c.*, p.nome_fantasia as prestador_nome
-         FROM bluepoint.bt_contratos_prestador c
-         JOIN bluepoint.bt_prestadores p ON c.prestador_id = p.id
+         FROM people.contratos_prestador c
+         JOIN people.prestadores p ON c.prestador_id = p.id
          WHERE c.id = $1`,
         [contratoId]
       );

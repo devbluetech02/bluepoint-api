@@ -53,7 +53,7 @@ export async function POST(
 
       const relatorioResult = await query(
         `SELECT id, colaborador_id, mes, ano, status
-         FROM bluepoint.bt_relatorios_mensais
+         FROM people.relatorios_mensais
          WHERE id = $1`,
         [relatorioId]
       );
@@ -84,7 +84,7 @@ export async function POST(
       await client.query('BEGIN');
 
       const updateResult = await client.query(
-        `UPDATE bluepoint.bt_relatorios_mensais
+        `UPDATE people.relatorios_mensais
          SET status = 'assinado',
              assinado_em = NOW(),
              dispositivo = $1,

@@ -36,10 +36,10 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Buscar dados da solicitação
         const solResult = await query(
           `SELECT s.*, cg.nome AS cargo, e.nome_fantasia AS filial
-           FROM bluepoint.bt_solicitacoes_horas_extras s
-           LEFT JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+           FROM people.solicitacoes_horas_extras s
+           LEFT JOIN people.colaboradores c ON s.colaborador_id = c.id
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.empresas e ON c.empresa_id = e.id
            WHERE s.id = $1`,
           [solicitacaoId]
         );
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         const custoResult = await query(
           `SELECT horas_extras, valor_he_base, valor_dsr, valor_13, valor_ferias,
                   um_terco_ferias, valor_fgts, valor_inss, custo_dia, custo_mes, custo_ano
-           FROM bluepoint.bt_custo_horas_extras
+           FROM people.custo_horas_extras
            WHERE solicitacao_id = $1 OR solicitacao_original_id = $1
            LIMIT 1`,
           [solicitacaoId]

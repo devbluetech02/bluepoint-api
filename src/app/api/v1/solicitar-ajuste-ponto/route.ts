@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       // Verificar se todas as marcações existem e pertencem ao usuário
       const marcacaoIds = data.ajustes.map(a => a.marcacaoId);
       const marcacoesResult = await query(
-        `SELECT id, data_hora FROM bluepoint.bt_marcacoes WHERE id = ANY($1) AND colaborador_id = $2`,
+        `SELECT id, data_hora FROM people.marcacoes WHERE id = ANY($1) AND colaborador_id = $2`,
         [marcacaoIds, user.userId]
       );
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       await client.query('BEGIN');
 
       const result = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'ajuste_ponto', $2, $3, $4, $5)
         RETURNING id`,
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       const solicitacaoId = result.rows[0].id;
 
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, $3)`,
         [solicitacaoId, user.userId, `Solicitação de ajuste de ponto criada (${data.ajustes.length} marcação(ões))`]
       );

@@ -69,7 +69,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_dispositivos WHERE id = $1`,
+        `SELECT id, nome FROM people.dispositivos WHERE id = $1`,
         [dispositivoId]
       );
 
@@ -121,7 +121,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(dispositivoId);
 
       await query(
-        `UPDATE bluepoint.bt_dispositivos SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.dispositivos SET ${updates.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 

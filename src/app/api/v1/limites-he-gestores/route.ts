@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
         `SELECT c.id as gestor_id, c.nome as gestor_nome, c.email,
                 l.id as limite_id, l.limite_mensal, l.pode_extrapolar,
                 l.created_at, l.updated_at
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_limites_he_gestores l ON c.id = l.gestor_id
+         FROM people.colaboradores c
+         LEFT JOIN people.limites_he_gestores l ON c.id = l.gestor_id
          WHERE c.tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')
            AND c.status = 'ativo'
          ORDER BY c.nome ASC`
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       const { gestor_id, limite_mensal, pode_extrapolar } = validation.data;
 
       const gestorResult = await query(
-        `SELECT id, nome, tipo FROM bluepoint.bt_colaboradores
+        `SELECT id, nome, tipo FROM people.colaboradores
          WHERE id = $1 AND status = 'ativo'
            AND tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')`,
         [gestor_id]
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
 
       if (limite_mensal === null || limite_mensal === '' || limite_mensal === undefined) {
         await query(
-          `DELETE FROM bluepoint.bt_limites_he_gestores WHERE gestor_id = $1`,
+          `DELETE FROM people.limites_he_gestores WHERE gestor_id = $1`,
           [gestor_id]
         );
 
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
       const podeExtrapolarValor = pode_extrapolar !== undefined ? pode_extrapolar : true;
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_limites_he_gestores (gestor_id, limite_mensal, pode_extrapolar)
+        `INSERT INTO people.limites_he_gestores (gestor_id, limite_mensal, pode_extrapolar)
          VALUES ($1, $2, $3)
          ON CONFLICT (gestor_id) DO UPDATE SET
            limite_mensal = $2,

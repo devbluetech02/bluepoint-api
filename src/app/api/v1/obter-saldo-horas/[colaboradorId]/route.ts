@@ -29,11 +29,11 @@ export async function GET(request: NextRequest, { params }: Params) {
             c.nome,
             bh.saldo_atual,
             bh.criado_em as ultima_atualizacao
-          FROM bluepoint.bt_colaboradores c
+          FROM people.colaboradores c
           LEFT JOIN (
             SELECT DISTINCT ON (colaborador_id) 
               colaborador_id, saldo_atual, criado_em
-            FROM bt_banco_horas
+            FROM banco_horas
             ORDER BY colaborador_id, criado_em DESC
           ) bh ON c.id = bh.colaborador_id
           WHERE c.id = $1`,

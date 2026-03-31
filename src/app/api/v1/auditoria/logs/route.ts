@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
 
       const countResult = await query<{ total: string }>(
         `SELECT COUNT(*) as total
-         FROM bt_auditoria a
-         LEFT JOIN bt_colaboradores c ON a.usuario_id = c.id
+         FROM auditoria a
+         LEFT JOIN colaboradores c ON a.usuario_id = c.id
          ${whereClause}`,
         values
       );
@@ -96,8 +96,8 @@ export async function GET(request: NextRequest) {
            a.entidade_tipo  AS "entidadeTipo",
            a.colaborador_id   AS "colaboradorId",
            a.colaborador_nome AS "colaboradorNome"
-         FROM bt_auditoria a
-         LEFT JOIN bt_colaboradores c ON a.usuario_id = c.id
+         FROM auditoria a
+         LEFT JOIN colaboradores c ON a.usuario_id = c.id
          ${whereClause}
          ORDER BY a.data_hora DESC
          LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,

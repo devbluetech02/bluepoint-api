@@ -31,9 +31,9 @@ export async function GET(request: NextRequest, { params }: Params) {
           d.nome as designado_por_nome,
           pf.criado_em,
           (pf.data_fim::date - pf.data_inicio::date + 1) as dias
-        FROM bluepoint.bt_periodos_ferias pf
-        JOIN bluepoint.bt_colaboradores c ON pf.colaborador_id = c.id
-        LEFT JOIN bluepoint.bt_colaboradores d ON pf.designado_por = d.id
+        FROM people.periodos_ferias pf
+        JOIN people.colaboradores c ON pf.colaborador_id = c.id
+        LEFT JOIN people.colaboradores d ON pf.designado_por = d.id
         WHERE pf.id = $1`,
         [feriasId]
       );

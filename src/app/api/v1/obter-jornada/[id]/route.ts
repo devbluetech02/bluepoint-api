@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dados = await cacheAside(cacheKey, async () => {
 
       const result = await query(
-        `SELECT * FROM bluepoint.bt_jornadas WHERE id = $1`,
+        `SELECT * FROM people.jornadas WHERE id = $1`,
         [jornadaId]
       );
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar horários
       const horariosResult = await query(
         `SELECT dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga
-         FROM bluepoint.bt_jornada_horarios
+         FROM people.jornada_horarios
          WHERE jornada_id = $1
          ORDER BY sequencia NULLS LAST, dia_semana NULLS LAST`,
         [jornadaId]
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Contar colaboradores vinculados
       const colaboradoresResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE jornada_id = $1 AND status = 'ativo'`,
+        `SELECT COUNT(*) as total FROM people.colaboradores WHERE jornada_id = $1 AND status = 'ativo'`,
         [jornadaId]
       );
 

@@ -240,6 +240,22 @@ export const rejeitarSolicitacaoSchema = z.object({
   motivo: z.string().min(1, 'Motivo é obrigatório'),
 });
 
+export const criarPendenciaSchema = z.object({
+  titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255),
+  descricao: z.string().min(3, 'Descrição deve ter no mínimo 3 caracteres'),
+  tipo: z.string().min(2, 'Tipo é obrigatório').max(50),
+  prioridade: z.enum(['baixa', 'media', 'alta', 'critica']).default('media'),
+  destinatarioId: z.number().int().positive().optional().nullable(),
+  departamentoId: z.number().int().positive().optional().nullable(),
+  dataLimite: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data limite inválida').optional().nullable(),
+  dadosAdicionais: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const resolverPendenciaSchema = z.object({
+  status: z.enum(['aprovada', 'rejeitada', 'cancelada']),
+  observacao: z.string().optional(),
+});
+
 const ajustePontoItemSchema = z.object({
   marcacaoId: z.number().int().positive(),
   dataHoraCorreta: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data/hora inválida'),
@@ -516,6 +532,25 @@ export const cadastrarFaceSchema = z.object({
   qualidade: z.enum(['baixa', 'media', 'alta']).optional(),
 });
 
+/** Tipos de marcação aceitos no POST biometria/verificar-face (tipoPonto). */
+const TIPO_MARCACAO_BIOMETRIA = ['entrada', 'saida', 'almoco', 'retorno'] as const;
+
+/**
+ * Campo tipoPonto: aceita maiúsculas, acentos (saída, almoço), string vazia/null (vira omitido),
+ * "auto" (detecção automática, igual a omitir) e sufixo após "." (ex.: serialização de enum Dart).
+ */
+export const tipoPontoBiometriaSchema = z.preprocess((val: unknown) => {
+  if (val === undefined || val === null) return undefined;
+  if (typeof val !== 'string') return val;
+  let s = val.trim().toLowerCase();
+  if (s === '') return undefined;
+  const dot = s.lastIndexOf('.');
+  if (dot >= 0) s = s.slice(dot + 1);
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (s === '' || s === 'auto') return undefined;
+  return s;
+}, z.enum(TIPO_MARCACAO_BIOMETRIA).optional());
+
 export const verificarFaceSchema = z.object({
   foto: z.string().min(1, 'Foto é obrigatória'),
   localizacao: z.object({
@@ -716,4 +751,48 @@ export const atualizarGestaoPessoasSchema = z.object({
   reuniaoStatus: z.enum(['agendada', 'realizada', 'cancelada']).optional(),
   reuniaoObservacoes: z.string().optional().nullable(),
   participantesIds: z.array(z.number().int().positive()).min(1, 'Pelo menos 1 participante').optional(),
+});
+
+// =====================================================
+// SCHEMAS DE REUNIÕES (Jitsi)
+// =====================================================
+
+export const agendarReuniaoSchema = z.object({
+  titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255),
+  descricao: z.string().optional(),
+  dataInicio: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data de início inválida'),
+  dataFim: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data de fim inválida'),
+  participantesIds: z.array(z.number().int().positive()).min(1, 'Pelo menos 1 participante'),
+});
+
+// =====================================================
+// SCHEMAS DE FORMULÁRIO DE ADMISSÃO
+// =====================================================
+
+export const formularioAdmissaoCampoSchema = z.object({
+  id: z.string().optional().nullable(),
+  label: z.string().min(1, 'Label é obrigatório').max(255),
+  tipo: z.string().min(1, 'Tipo é obrigatório').max(50),
+  obrigatorio: z.boolean().default(false),
+  ativo: z.boolean().default(true),
+  ordem: z.number().int().min(1, 'Ordem deve ser maior que 0'),
+  opcoes: z.array(z.string()).default([]),
+  secaoNome: z.string().max(255).optional().nullable(),
+});
+
+export const formularioAdmissaoDocumentoRequeridoSchema = z.object({
+  tipoDocumentoId: z.number().int().positive('tipoDocumentoId inválido'),
+  obrigatorio: z.boolean().default(false),
+});
+
+export const salvarFormularioAdmissaoSchema = z.object({
+  id: z.string().uuid('ID inválido').optional(),
+  titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255),
+  descricao: z.string().max(2000).optional().nullable(),
+  campos: z.array(formularioAdmissaoCampoSchema).min(1, 'Pelo menos 1 campo é obrigatório'),
+  documentosRequeridos: z.array(formularioAdmissaoDocumentoRequeridoSchema).optional().default([]),
+});
+
+export const gerarLinkFormularioAdmissaoSchema = z.object({
+  id: z.string().uuid('ID inválido').optional(),
 });

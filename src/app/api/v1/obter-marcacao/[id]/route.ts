@@ -33,10 +33,10 @@ export async function GET(request: NextRequest, { params }: Params) {
           j.tolerancia_saida,
           aj.id as ajustada_por_id,
           aj.nome as ajustada_por_nome
-        FROM bluepoint.bt_marcacoes m
-        JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id
-        LEFT JOIN bt_jornadas j ON c.jornada_id = j.id
-        LEFT JOIN bluepoint.bt_colaboradores aj ON m.ajustada_por = aj.id
+        FROM people.marcacoes m
+        JOIN people.colaboradores c ON m.colaborador_id = c.id
+        LEFT JOIN jornadas j ON c.jornada_id = j.id
+        LEFT JOIN people.colaboradores aj ON m.ajustada_por = aj.id
         WHERE m.id = $1`,
         [marcacaoId]
       );
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       if (row.jornada_id) {
         const horarioResult = await query(
-          `SELECT * FROM bluepoint.bt_jornada_horarios 
+          `SELECT * FROM people.jornada_horarios 
            WHERE jornada_id = $1 AND dia_semana = $2`,
           [row.jornada_id, diaSemana]
         );

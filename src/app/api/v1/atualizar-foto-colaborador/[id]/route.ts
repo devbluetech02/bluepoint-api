@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const result = await query(
-        `SELECT id, nome, foto_url FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome, foto_url FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -91,7 +91,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar colaborador no banco
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET foto_url = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.colaboradores SET foto_url = $1, atualizado_em = NOW() WHERE id = $2`,
         [fotoUrl, colaboradorId]
       );
 
@@ -133,7 +133,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const result = await query(
-        `SELECT id, nome, foto_url FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome, foto_url FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -155,7 +155,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Atualizar colaborador no banco
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET foto_url = NULL, atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE people.colaboradores SET foto_url = NULL, atualizado_em = NOW() WHERE id = $1`,
         [colaboradorId]
       );
 

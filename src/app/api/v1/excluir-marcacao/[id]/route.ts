@@ -29,8 +29,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Buscar marcação
       const result = await query(
         `SELECT m.*, c.nome as colaborador_nome 
-         FROM bluepoint.bt_marcacoes m
-         JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id
+         FROM people.marcacoes m
+         JOIN people.colaboradores c ON m.colaborador_id = c.id
          WHERE m.id = $1`,
         [marcacaoId]
       );
@@ -42,7 +42,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const marcacao = result.rows[0];
 
       // Excluir marcação
-      await query(`DELETE FROM bluepoint.bt_marcacoes WHERE id = $1`, [marcacaoId]);
+      await query(`DELETE FROM people.marcacoes WHERE id = $1`, [marcacaoId]);
 
       // Invalidar cache de marcações
       await invalidateMarcacaoCache(marcacao.colaborador_id);

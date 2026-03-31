@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Contar total
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_marcacoes m ${whereClause}`,
+        `SELECT COUNT(*) as total FROM people.marcacoes m ${whereClause}`,
         params_query
       );
       const total = parseInt(countResult.rows[0].total);
@@ -83,8 +83,8 @@ export async function GET(request: NextRequest, { params }: Params) {
           m.ajustada_em,
           aj.id as ajustada_por_id,
           aj.nome as ajustada_por_nome
-        FROM bluepoint.bt_marcacoes m
-        LEFT JOIN bluepoint.bt_colaboradores aj ON m.ajustada_por = aj.id
+        FROM people.marcacoes m
+        LEFT JOIN people.colaboradores aj ON m.ajustada_por = aj.id
         ${whereClause}
         ORDER BY m.data_hora DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -118,7 +118,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           `SELECT 
             COUNT(DISTINCT DATE(data_hora)) as total_dias,
             COUNT(*) as total_marcacoes
-          FROM bluepoint.bt_marcacoes
+          FROM people.marcacoes
           WHERE colaborador_id = $1 AND data_hora >= $2 AND data_hora <= $3::date + interval '1 day'`,
           [colaboradorId, dataInicio, dataFim]
         );

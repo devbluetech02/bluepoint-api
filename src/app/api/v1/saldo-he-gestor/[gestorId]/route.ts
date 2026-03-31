@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const gestorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores
+        `SELECT id, nome FROM people.colaboradores
          WHERE id = $1 AND status = 'ativo'
            AND tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')`,
         [gestorId]

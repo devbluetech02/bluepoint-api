@@ -5,9 +5,9 @@
 BEGIN;
 
 -- Tabela principal de registros
-CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas (
+CREATE TABLE IF NOT EXISTS people.gestao_pessoas (
   id SERIAL PRIMARY KEY,
-  colaborador_id INTEGER NOT NULL REFERENCES bluepoint.bt_colaboradores(id),
+  colaborador_id INTEGER NOT NULL REFERENCES people.colaboradores(id),
   tipo VARCHAR(50) NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'pendente',
   titulo VARCHAR(255) NOT NULL,
@@ -22,9 +22,9 @@ CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas (
 );
 
 -- Tabela de reuniões (1:1 com gestao_pessoas)
-CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas_reunioes (
+CREATE TABLE IF NOT EXISTS people.gestao_pessoas_reunioes (
   id SERIAL PRIMARY KEY,
-  gestao_pessoa_id INTEGER NOT NULL UNIQUE REFERENCES bluepoint.bt_gestao_pessoas(id) ON DELETE CASCADE,
+  gestao_pessoa_id INTEGER NOT NULL UNIQUE REFERENCES people.gestao_pessoas(id) ON DELETE CASCADE,
   data DATE NOT NULL,
   hora VARCHAR(5) NOT NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'agendada',
@@ -35,17 +35,17 @@ CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas_reunioes (
 );
 
 -- Participantes da reunião
-CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas_participantes (
+CREATE TABLE IF NOT EXISTS people.gestao_pessoas_participantes (
   id SERIAL PRIMARY KEY,
-  reuniao_id INTEGER NOT NULL REFERENCES bluepoint.bt_gestao_pessoas_reunioes(id) ON DELETE CASCADE,
-  colaborador_id INTEGER NOT NULL REFERENCES bluepoint.bt_colaboradores(id),
+  reuniao_id INTEGER NOT NULL REFERENCES people.gestao_pessoas_reunioes(id) ON DELETE CASCADE,
+  colaborador_id INTEGER NOT NULL REFERENCES people.colaboradores(id),
   UNIQUE (reuniao_id, colaborador_id)
 );
 
 -- Anexos dos registros
-CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas_anexos (
+CREATE TABLE IF NOT EXISTS people.gestao_pessoas_anexos (
   id SERIAL PRIMARY KEY,
-  gestao_pessoa_id INTEGER NOT NULL REFERENCES bluepoint.bt_gestao_pessoas(id) ON DELETE CASCADE,
+  gestao_pessoa_id INTEGER NOT NULL REFERENCES people.gestao_pessoas(id) ON DELETE CASCADE,
   nome VARCHAR(255) NOT NULL,
   tipo VARCHAR(20) NOT NULL,
   tamanho BIGINT NOT NULL,
@@ -55,12 +55,12 @@ CREATE TABLE IF NOT EXISTS bluepoint.bt_gestao_pessoas_anexos (
 );
 
 -- Índices
-CREATE INDEX IF NOT EXISTS idx_gp_colaborador ON bluepoint.bt_gestao_pessoas(colaborador_id);
-CREATE INDEX IF NOT EXISTS idx_gp_tipo ON bluepoint.bt_gestao_pessoas(tipo);
-CREATE INDEX IF NOT EXISTS idx_gp_status ON bluepoint.bt_gestao_pessoas(status);
-CREATE INDEX IF NOT EXISTS idx_gp_data_registro ON bluepoint.bt_gestao_pessoas(data_registro DESC);
-CREATE INDEX IF NOT EXISTS idx_gp_responsavel ON bluepoint.bt_gestao_pessoas(responsavel_id);
-CREATE INDEX IF NOT EXISTS idx_gp_anexos_registro ON bluepoint.bt_gestao_pessoas_anexos(gestao_pessoa_id);
-CREATE INDEX IF NOT EXISTS idx_gp_participantes_reuniao ON bluepoint.bt_gestao_pessoas_participantes(reuniao_id);
+CREATE INDEX IF NOT EXISTS idx_gp_colaborador ON people.gestao_pessoas(colaborador_id);
+CREATE INDEX IF NOT EXISTS idx_gp_tipo ON people.gestao_pessoas(tipo);
+CREATE INDEX IF NOT EXISTS idx_gp_status ON people.gestao_pessoas(status);
+CREATE INDEX IF NOT EXISTS idx_gp_data_registro ON people.gestao_pessoas(data_registro DESC);
+CREATE INDEX IF NOT EXISTS idx_gp_responsavel ON people.gestao_pessoas(responsavel_id);
+CREATE INDEX IF NOT EXISTS idx_gp_anexos_registro ON people.gestao_pessoas_anexos(gestao_pessoa_id);
+CREATE INDEX IF NOT EXISTS idx_gp_participantes_reuniao ON people.gestao_pessoas_participantes(reuniao_id);
 
 COMMIT;

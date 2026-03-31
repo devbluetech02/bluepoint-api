@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
                   p.valor_inicial, p.incremento_mensal, p.valor_maximo,
                   p.cargos_excluidos, p.ativo, p.atualizado_em, p.atualizado_por,
                   c.id AS usuario_id, c.nome AS usuario_nome
-           FROM bluepoint.bt_parametros_assiduidade p
-           LEFT JOIN bluepoint.bt_colaboradores c ON p.atualizado_por = c.id
+           FROM people.parametros_assiduidade p
+           LEFT JOIN people.colaboradores c ON p.atualizado_por = c.id
            ORDER BY p.id DESC
            LIMIT 1`,
         );
@@ -82,7 +82,7 @@ export async function PUT(request: NextRequest) {
       const data = validation.data;
 
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_parametros_assiduidade ORDER BY id DESC LIMIT 1`,
+        `SELECT id FROM people.parametros_assiduidade ORDER BY id DESC LIMIT 1`,
       );
 
       let result;
@@ -93,7 +93,7 @@ export async function PUT(request: NextRequest) {
         acao = 'editar';
 
         result = await query(
-          `UPDATE bluepoint.bt_parametros_assiduidade
+          `UPDATE people.parametros_assiduidade
            SET limite_pontos_zerar = $1,
                min_dias_admissao_mes = $2,
                valor_inicial = $3,
@@ -122,7 +122,7 @@ export async function PUT(request: NextRequest) {
         acao = 'criar';
 
         result = await query(
-          `INSERT INTO bluepoint.bt_parametros_assiduidade
+          `INSERT INTO people.parametros_assiduidade
              (limite_pontos_zerar, min_dias_admissao_mes,
               valor_inicial, incremento_mensal, valor_maximo,
               cargos_excluidos, ativo, atualizado_por)

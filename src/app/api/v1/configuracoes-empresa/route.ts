@@ -64,7 +64,7 @@ const DEFAULTS = {
 
 async function getEmpresaId(userId: number): Promise<number | null> {
   const result = await query<{ empresa_id: number }>(
-    `SELECT empresa_id FROM bluepoint.bt_colaboradores WHERE id = $1`,
+    `SELECT empresa_id FROM people.colaboradores WHERE id = $1`,
     [userId]
   );
   return result.rows[0]?.empresa_id ?? null;
@@ -80,8 +80,8 @@ async function getOrCreateConfig(empresaId: number) {
     `SELECT cs.id, cs.empresa_id, cs.geral, cs.ponto, cs.notificacoes, cs.seguranca, cs.aparencia,
             cs.atualizado_em, cs.atualizado_por,
             c.nome as atualizado_por_nome
-     FROM bluepoint.bt_config_sistema cs
-     LEFT JOIN bluepoint.bt_colaboradores c ON cs.atualizado_por = c.id
+     FROM people.config_sistema cs
+     LEFT JOIN people.colaboradores c ON cs.atualizado_por = c.id
      WHERE cs.empresa_id = $1`,
     [empresaId]
   );
@@ -92,7 +92,7 @@ async function getOrCreateConfig(empresaId: number) {
 
   // Criar com defaults se não existir
   const inserted = await query(
-    `INSERT INTO bluepoint.bt_config_sistema (empresa_id, geral, ponto, notificacoes, seguranca, aparencia)
+    `INSERT INTO people.config_sistema (empresa_id, geral, ponto, notificacoes, seguranca, aparencia)
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING id, empresa_id, geral, ponto, notificacoes, seguranca, aparencia, atualizado_em, atualizado_por`,
     [
@@ -218,7 +218,7 @@ export async function PUT(request: NextRequest) {
       values.push(empresaId);
 
       const updateResult = await query(
-        `UPDATE bluepoint.bt_config_sistema
+        `UPDATE people.config_sistema
          SET ${setClauses.join(', ')}
          WHERE empresa_id = $${paramIndex}
          RETURNING id, empresa_id, geral, ponto, notificacoes, seguranca, aparencia, atualizado_em, atualizado_por`,
@@ -233,7 +233,7 @@ export async function PUT(request: NextRequest) {
 
       // Buscar nome do atualizador
       const userResult = await query<{ nome: string }>(
-        `SELECT nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT nome FROM people.colaboradores WHERE id = $1`,
         [user.userId]
       );
 

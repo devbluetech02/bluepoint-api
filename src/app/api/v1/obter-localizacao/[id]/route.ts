@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const dados = await cacheAside(cacheKey, async () => {
         const result = await query(
-          `SELECT * FROM bt_localizacoes WHERE id = $1`,
+          `SELECT * FROM localizacoes WHERE id = $1`,
           [localizacaoId]
         );
 
@@ -35,8 +35,8 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Buscar departamentos vinculados
         const deptResult = await query(
           `SELECT d.id, d.nome 
-           FROM bt_localizacao_departamentos ld
-           JOIN bt_departamentos d ON ld.departamento_id = d.id
+           FROM localizacao_departamentos ld
+           JOIN departamentos d ON ld.departamento_id = d.id
            WHERE ld.localizacao_id = $1`,
           [localizacaoId]
         );

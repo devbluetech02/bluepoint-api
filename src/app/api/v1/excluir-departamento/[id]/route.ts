@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const result = await query(
-        `SELECT id, nome FROM bt_departamentos WHERE id = $1`,
+        `SELECT id, nome FROM departamentos WHERE id = $1`,
         [departamentoId]
       );
 
@@ -32,7 +32,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se há colaboradores vinculados
       const colaboradoresResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE departamento_id = $1`,
+        `SELECT COUNT(*) as total FROM people.colaboradores WHERE departamento_id = $1`,
         [departamentoId]
       );
 
@@ -42,7 +42,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Soft delete
       await query(
-        `UPDATE bt_departamentos SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE departamentos SET status = 'inativo', atualizado_em = NOW() WHERE id = $1`,
         [departamentoId]
       );
 

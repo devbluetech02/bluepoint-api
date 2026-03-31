@@ -28,7 +28,7 @@ const COLUNAS_PADRAO_DEFAULT = ['data', 'previsto', 'realizado', 'h_trab', 'h_ex
 export async function GET(request: NextRequest) {
   return withAuth(request, async (_req: NextRequest, user: JWTPayload) => {
     const result = await query(
-      `SELECT colunas FROM bt_config_relatorio_personalizado WHERE usuario_id = $1`,
+      `SELECT colunas FROM config_relatorio_personalizado WHERE usuario_id = $1`,
       [user.userId]
     );
 
@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest) {
       }
 
       await query(
-        `INSERT INTO bt_config_relatorio_personalizado (usuario_id, colunas, atualizado_em)
+        `INSERT INTO config_relatorio_personalizado (usuario_id, colunas, atualizado_em)
          VALUES ($1, $2, NOW())
          ON CONFLICT (usuario_id)
          DO UPDATE SET colunas = $2, atualizado_em = NOW()`,

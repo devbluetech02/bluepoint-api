@@ -1,6 +1,6 @@
 # Estrutura MinIO – Documentos de Colaboradores
 
-Use o **mesmo bucket** já configurado (`MINIO_BUCKET`, padrão `bluepoint`).
+Use o **mesmo bucket** já configurado (`MINIO_BUCKET`, padrão `people`).
 
 No MinIO não é obrigatório criar pastas manualmente: o prefixo do objeto funciona como “pasta”. Ao fazer o primeiro upload em um caminho, o caminho passa a existir. Se quiser deixar a estrutura explícita, você pode criar um objeto placeholder (ex.: `.keep`) em cada prefixo abaixo.
 
@@ -43,7 +43,7 @@ colaboradores/456/documentos/epi/1773691955480-xyz789.pdf
 
 ## Resumo para criar no MinIO (se quiser criar “pastas” vazias)
 
-- **Bucket:** o mesmo que você já usa (ex.: `bluepoint`).
+- **Bucket:** o mesmo que você já usa (ex.: `people`).
 - **Prefixos** (podem ser criados com um objeto vazio como `colaboradores/.keep` ou apenas usados no primeiro upload):
 
   - `colaboradores/`  

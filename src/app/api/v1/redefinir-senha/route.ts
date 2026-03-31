@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Atualizar senha
     await query(
-      `UPDATE bluepoint.bt_colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+      `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
       [senhaHash, tokenData.usuario_id]
     );
 

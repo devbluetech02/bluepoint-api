@@ -30,7 +30,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const atualResult = await query(
-        `SELECT * FROM bt_feriados WHERE id = $1`,
+        `SELECT * FROM feriados WHERE id = $1`,
         [feriadoId]
       );
 
@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar
       await query(
-        `UPDATE bt_feriados SET
+        `UPDATE feriados SET
           nome = COALESCE($1, nome),
           data = COALESCE($2, data),
           tipo = COALESCE($3, tipo),

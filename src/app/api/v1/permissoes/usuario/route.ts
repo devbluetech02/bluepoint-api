@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
         async () => {
           const result = await query(
             `SELECT p.id, p.codigo, p.nome, p.modulo, p.acao
-             FROM bt_tipo_usuario_permissoes tp
-             JOIN bt_permissoes p ON tp.permissao_id = p.id
+             FROM tipo_usuario_permissoes tp
+             JOIN permissoes p ON tp.permissao_id = p.id
              WHERE tp.tipo_usuario = $1 AND tp.concedido = true
              ORDER BY p.modulo, p.acao`,
             [tipoUsuario]

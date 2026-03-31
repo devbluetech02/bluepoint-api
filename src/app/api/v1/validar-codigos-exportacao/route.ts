@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       const { modeloId } = validation.data;
 
       const modeloResult = await query(
-        `SELECT id FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `SELECT id FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
       const codigosResult = await query(
         `SELECT id, codigo, descricao, status_arquivo, status_econtador
-         FROM bluepoint.bt_codigos_exportacao
+         FROM people.codigos_exportacao
          WHERE modelo_id = $1
          ORDER BY id`,
         [modeloId]
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
         if (statusArquivo !== row.status_arquivo || statusEContador !== row.status_econtador) {
           updatePromises.push(
             query(
-              `UPDATE bluepoint.bt_codigos_exportacao
+              `UPDATE people.codigos_exportacao
                SET status_arquivo = $1, status_econtador = $2, atualizado_em = NOW()
                WHERE id = $3`,
               [statusArquivo, statusEContador, row.id]

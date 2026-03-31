@@ -36,21 +36,21 @@ interface AnaliseResultado {
 
 async function coletarMetricasPorEmpresa(): Promise<MetricasEmpresa[]> {
   const empresasResult = await query(
-    'SELECT id, nome_fantasia FROM bluepoint.bt_empresas ORDER BY nome_fantasia'
+    'SELECT id, nome_fantasia FROM people.empresas ORDER BY nome_fantasia'
   );
   const metricas: MetricasEmpresa[] = [];
 
   for (const empresa of empresasResult.rows) {
     const eid = empresa.id;
     const [totalColab, presentesHoje, atrasadosHoje, horasExtrasMes, limiteHE, pendentes, tendencia7d, deptAusencias] = await Promise.all([
-      query('SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE empresa_id = $1 AND status = \'ativo\'', [eid]),
-      query('SELECT COUNT(DISTINCT m.colaborador_id) as presentes FROM bluepoint.bt_marcacoes m JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [eid]),
-      query('SELECT COUNT(DISTINCT s.colaborador_id) as atrasados FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE', [eid]),
-      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as total FROM bluepoint.bt_banco_horas bh JOIN bluepoint.bt_colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [eid]),
-      query('SELECT limite_mensal FROM bluepoint.bt_limites_he_empresas WHERE empresa_id = $1', [eid]),
-      query('SELECT COUNT(*) as total FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'', [eid]),
-      query('SELECT d.dia::date as dia, (SELECT COUNT(*) FROM bluepoint.bt_colaboradores c2 WHERE c2.empresa_id = $1 AND c2.status = \'ativo\' AND c2.id NOT IN (SELECT DISTINCT colaborador_id FROM bluepoint.bt_marcacoes WHERE DATE(data_hora) = d.dia::date)) as ausentes FROM generate_series(CURRENT_DATE - INTERVAL \'6 days\', CURRENT_DATE, \'1 day\') d(dia) ORDER BY d.dia', [eid]),
-      query('SELECT d.nome, COUNT(c.id) as ausentes FROM bluepoint.bt_departamentos d JOIN bluepoint.bt_colaboradores c ON c.departamento_id = d.id WHERE c.empresa_id = $1 AND c.status = \'ativo\' AND c.id NOT IN (SELECT DISTINCT colaborador_id FROM bluepoint.bt_marcacoes WHERE DATE(data_hora) = CURRENT_DATE) GROUP BY d.id, d.nome ORDER BY ausentes DESC LIMIT 1', [eid]),
+      query('SELECT COUNT(*) as total FROM people.colaboradores WHERE empresa_id = $1 AND status = \'ativo\'', [eid]),
+      query('SELECT COUNT(DISTINCT m.colaborador_id) as presentes FROM people.marcacoes m JOIN people.colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [eid]),
+      query('SELECT COUNT(DISTINCT s.colaborador_id) as atrasados FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = \'atraso\' AND DATE(s.data_evento) = CURRENT_DATE', [eid]),
+      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as total FROM people.banco_horas bh JOIN people.colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [eid]),
+      query('SELECT limite_mensal FROM people.limites_he_empresas WHERE empresa_id = $1', [eid]),
+      query('SELECT COUNT(*) as total FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = \'pendente\'', [eid]),
+      query('SELECT d.dia::date as dia, (SELECT COUNT(*) FROM people.colaboradores c2 WHERE c2.empresa_id = $1 AND c2.status = \'ativo\' AND c2.id NOT IN (SELECT DISTINCT colaborador_id FROM people.marcacoes WHERE DATE(data_hora) = d.dia::date)) as ausentes FROM generate_series(CURRENT_DATE - INTERVAL \'6 days\', CURRENT_DATE, \'1 day\') d(dia) ORDER BY d.dia', [eid]),
+      query('SELECT d.nome, COUNT(c.id) as ausentes FROM people.departamentos d JOIN people.colaboradores c ON c.departamento_id = d.id WHERE c.empresa_id = $1 AND c.status = \'ativo\' AND c.id NOT IN (SELECT DISTINCT colaborador_id FROM people.marcacoes WHERE DATE(data_hora) = CURRENT_DATE) GROUP BY d.id, d.nome ORDER BY ausentes DESC LIMIT 1', [eid]),
     ]);
 
     const total = parseInt(totalColab.rows[0]?.total || '0');
@@ -172,7 +172,7 @@ async function persistirAlertas(alertas: AlertaGerado[]): Promise<number[]> {
   for (const a of alertas) {
     try {
       const r = await query(
-        'INSERT INTO bluepoint.bt_alertas_inteligentes (empresa_id, categoria, severidade, titulo, mensagem, dados, origem) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
+        'INSERT INTO people.alertas_inteligentes (empresa_id, categoria, severidade, titulo, mensagem, dados, origem) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id',
         [a.empresaId, a.categoria, a.severidade, a.titulo, a.mensagem, JSON.stringify(a.dados), a.origem]
       );
       if (r.rows[0]) ids.push(r.rows[0].id);
@@ -185,7 +185,7 @@ async function persistirAlertas(alertas: AlertaGerado[]): Promise<number[]> {
 
 async function notificarAdmins(alertas: AlertaGerado[]): Promise<void> {
   if (alertas.length === 0) return;
-  const admins = await query('SELECT id, email, nome FROM bluepoint.bt_colaboradores WHERE tipo = \'admin\' AND status = \'ativo\'');
+  const admins = await query('SELECT id, email, nome FROM people.colaboradores WHERE tipo = \'admin\' AND status = \'ativo\'');
   const criticos = alertas.filter(a => a.severidade === 'critico');
   const atencao = alertas.filter(a => a.severidade === 'atencao');
   const info = alertas.filter(a => a.severidade === 'info');
@@ -254,8 +254,8 @@ export async function listarAlertasInteligentes(params: {
   const offIdx = idx;
 
   const [res, cnt] = await Promise.all([
-    query('SELECT ai.*, e.nome_fantasia as empresa_nome FROM bluepoint.bt_alertas_inteligentes ai LEFT JOIN bluepoint.bt_empresas e ON ai.empresa_id = e.id ' + where + ' ORDER BY ai.criado_em DESC LIMIT $' + limIdx + ' OFFSET $' + offIdx, [...vals, lim, off]),
-    query('SELECT COUNT(*) as total FROM bluepoint.bt_alertas_inteligentes ai ' + where, vals),
+    query('SELECT ai.*, e.nome_fantasia as empresa_nome FROM people.alertas_inteligentes ai LEFT JOIN people.empresas e ON ai.empresa_id = e.id ' + where + ' ORDER BY ai.criado_em DESC LIMIT $' + limIdx + ' OFFSET $' + offIdx, [...vals, lim, off]),
+    query('SELECT COUNT(*) as total FROM people.alertas_inteligentes ai ' + where, vals),
   ]);
 
   return {
@@ -265,11 +265,11 @@ export async function listarAlertasInteligentes(params: {
 }
 
 export async function marcarAlertaLido(id: number): Promise<boolean> {
-  const r = await query('UPDATE bluepoint.bt_alertas_inteligentes SET lido = TRUE WHERE id = $1', [id]);
+  const r = await query('UPDATE people.alertas_inteligentes SET lido = TRUE WHERE id = $1', [id]);
   return (r.rowCount ?? 0) > 0;
 }
 
 export async function arquivarAlerta(id: number): Promise<boolean> {
-  const r = await query('UPDATE bluepoint.bt_alertas_inteligentes SET arquivado = TRUE WHERE id = $1', [id]);
+  const r = await query('UPDATE people.alertas_inteligentes SET arquivado = TRUE WHERE id = $1', [id]);
   return (r.rowCount ?? 0) > 0;
 }

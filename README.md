@@ -20,7 +20,7 @@ API REST para sistema de gestão de ponto eletrônico.
 
 | Ambiente | URL |
 |----------|-----|
-| Produção | https://bluepoint-api.bluetechfilms.com.br |
+| Produção | https://people-api.bluetechfilms.com.br |
 | Local | http://localhost:3003 |
 
 ## Instalação
@@ -54,9 +54,9 @@ docker compose up -d --build
 | `API_PORT` | Porta da API | `3003` |
 | `DB_HOST` | Host do PostgreSQL/PgBouncer | `pgbouncer` ou `localhost` |
 | `DB_PORT` | Porta do PostgreSQL | `6432` ou `5432` |
-| `DB_USERNAME` | Usuário do banco | `bluepoint` |
+| `DB_USERNAME` | Usuário do banco | `people` |
 | `DB_PASSWORD` | Senha do banco | `***` |
-| `DB_DATABASE` | Nome do banco | `bluepoint` |
+| `DB_DATABASE` | Nome do banco | `people` |
 | `DB_SSLMODE` | SSL do banco | `disable` |
 | `REDIS_HOST` | Host do Redis (cache) | `redis` ou `localhost` |
 | `REDIS_PORT` | Porta do Redis | `6379` |
@@ -65,7 +65,10 @@ docker compose up -d --build
 | `JWT_EXPIRES_IN` | Expiração do token | `24h` |
 | `JWT_REFRESH_EXPIRES_IN` | Expiração do refresh | `7d` |
 | `SMTP_*`, `EMAIL_FROM` | Email (recuperação de senha, alertas) | - |
-| `BASE_URL` | URL base da aplicação | `http://localhost:3003` |
+| `BASE_URL` | URL base da API | `http://localhost:3003` |
+| `FRONTEND_URL` | URL base do frontend (links públicos) | `http://localhost:3000` |
+| `FORMULARIO_ADMISSAO_FRONTEND_URL` | URL base do frontend para link de admissão | `https://app.seudominio.com` |
+| `FORMULARIO_ADMISSAO_FRONTEND_PATH` | Rota SPA do formulário de admissão | `/form` |
 | `MINIO_*` | MinIO (endpoint, porta, chaves, bucket) | - |
 | `BIOMETRIA_API_TOKEN` | Token fixo para biometria (sistemas externos) | `bp_bio_...` |
 | `PORTAL_COLABORADOR_URL`, `PORTAL_COLABORADOR_API_KEY` | Integração Portal do Colaborador | - |
@@ -143,12 +146,12 @@ Para acesso autenticado por usuários logados. Obtido via `/autenticar`.
 
 ```bash
 # 1. Obter token
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/autenticar \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/autenticar \
   -H "Content-Type: application/json" \
   -d '{"email": "usuario@empresa.com", "senha": "senha123"}'
 
 # 2. Usar o token JWT
-curl -X GET https://bluepoint-api.bluetechfilms.com.br/api/v1/listar-colaboradores \
+curl -X GET https://people-api.bluetechfilms.com.br/api/v1/listar-colaboradores \
   -H "Authorization: Bearer eyJhbGciOi..."
 ```
 
@@ -158,7 +161,7 @@ Para integrações externas e dispositivos. Não expira. Gerenciada via painel a
 
 ```bash
 # Usar API Key no mesmo header Authorization
-curl -X GET https://bluepoint-api.bluetechfilms.com.br/api/v1/listar-colaboradores \
+curl -X GET https://people-api.bluetechfilms.com.br/api/v1/listar-colaboradores \
   -H "Authorization: Bearer app_vendedores_803b18debadb56f85294014115e21d06"
 ```
 
@@ -212,7 +215,7 @@ A chave de dados de sucesso é sempre **`data`** (não `dados`). Use `data` ao c
 
 ### Base URL
 ```
-https://bluepoint-api.bluetechfilms.com.br/api/v1
+https://people-api.bluetechfilms.com.br/api/v1
 ```
 
 **Queries SQL:** Os scripts SQL executados no banco por cada endpoint estão documentados em **[docs/SQL-QUERIES.md](docs/SQL-QUERIES.md)**.
@@ -227,7 +230,7 @@ Login - retorna token JWT e refresh token
 **Request:**
 ```json
 {
-  "email": "admin@bluepoint.com",
+  "email": "admin@people.com",
   "senha": "Admin@123"
 }
 ```
@@ -240,7 +243,7 @@ Login - retorna token JWT e refresh token
   "usuario": {
     "id": 1,
     "nome": "Administrador",
-    "email": "admin@bluepoint.com",
+    "email": "admin@people.com",
     "tipo": "admin",
     "foto": null
   }
@@ -1067,7 +1070,7 @@ curl -X POST .../api/v1/autenticar -d '{"email":"admin@empresa.com","senha":"...
 # Retorna: {"token": "eyJ..."}
 
 # 2. Cadastrar face com o token
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face-cpf \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face-cpf \
   -H "Authorization: Bearer eyJ..." \
   -H "Content-Type: application/json" \
   -d '{"cpf": "123.456.789-00", "imagem": "data:image/jpeg;base64,..."}'
@@ -1089,7 +1092,7 @@ curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastr
 ### Cadastrar Face (Sistema Externo)
 
 ```bash
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face \
   -H "Authorization: Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c" \
   -H "Content-Type: application/json" \
   -d '{"externalId": "user_123", "imagem": "data:image/jpeg;base64,..."}'
@@ -1098,7 +1101,7 @@ curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastr
 ### Verificar Face
 
 ```bash
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/verificar-face \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/verificar-face \
   -H "Content-Type: application/json" \
   -d '{"imagem": "data:image/jpeg;base64,..."}'
 ```
@@ -1122,7 +1125,7 @@ curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/verific
   "success": true,
   "data": {
     "identificado": true,
-    "tipo": "bluepoint",
+    "tipo": "people",
     "colaborador": {"id": 1, "nome": "João"},
     "token": "eyJ...",
     "refreshToken": "..."
@@ -1186,19 +1189,19 @@ docker compose restart api
 
 Documentação completa das tabelas, colunas, índices, FKs e views: **[docs/DATABASE.md](docs/DATABASE.md)**.
 
-**Resumo — Schema `bluepoint`:**
+**Resumo — Schema `people`:**
 
 | Área | Tabelas principais |
 |------|--------------------|
-| **Cadastros** | `bt_empresas`, `bt_cargos`, `bt_colaboradores`, `bt_departamentos`, `bt_documentos_colaborador` |
-| **Jornada e ponto** | `bt_jornadas`, `bt_jornada_horarios`, `bt_marcacoes`, `bt_colaborador_jornadas_historico` |
-| **Banco de horas / HE** | `bt_banco_horas`, `bt_parametros_hora_extra`, `bt_historico_tolerancia_hora_extra`, `bt_limites_he_*`, `bt_solicitacoes_horas_extras` |
-| **Solicitações** | `bt_solicitacoes`, `bt_solicitacoes_historico`, `bt_tipos_solicitacao`, `bt_anexos` |
-| **Local e feriados** | `bt_localizacoes`, `bt_localizacao_departamentos`, `bt_feriados` |
-| **Auth e segurança** | `bt_refresh_tokens`, `bt_tokens_recuperacao`, `bt_permissoes`, `bt_tipo_usuario_permissoes`, `bt_api_keys` |
-| **Config e sistema** | `bt_configuracoes`, `bt_configuracoes_empresa`, `bt_config_sistema` |
-| **Biometria e auditoria** | `bt_biometria_facial`, `bt_auditoria`, `bt_notificacoes` |
-| **Módulos** | `bt_gestao_pessoas*`, `bt_prestadores`, `bt_contratos_prestador`, `bt_nfes_prestador`, `bt_dispositivos`, `bt_alertas_inteligentes`, `bt_modelos_exportacao`, `bt_codigos_exportacao`, `bt_relatorios_mensais` |
+| **Cadastros** | `empresas`, `cargos`, `colaboradores`, `departamentos`, `documentos_colaborador` |
+| **Jornada e ponto** | `jornadas`, `jornada_horarios`, `marcacoes`, `colaborador_jornadas_historico` |
+| **Banco de horas / HE** | `banco_horas`, `parametros_hora_extra`, `historico_tolerancia_hora_extra`, `limites_he_*`, `solicitacoes_horas_extras` |
+| **Solicitações** | `solicitacoes`, `solicitacoes_historico`, `tipos_solicitacao`, `anexos` |
+| **Local e feriados** | `localizacoes`, `localizacao_departamentos`, `feriados` |
+| **Auth e segurança** | `refresh_tokens`, `tokens_recuperacao`, `permissoes`, `tipo_usuario_permissoes`, `api_keys` |
+| **Config e sistema** | `configuracoes`, `configuracoes_empresa`, `config_sistema` |
+| **Biometria e auditoria** | `biometria_facial`, `auditoria`, `notificacoes` |
+| **Módulos** | `gestao_pessoas*`, `prestadores`, `contratos_prestador`, `nfes_prestador`, `dispositivos`, `alertas_inteligentes`, `modelos_exportacao`, `codigos_exportacao`, `relatorios_mensais` |
 
 Views: `vw_colaboradores_completo`, `vw_marcacoes_hoje`, `vw_solicitacoes_pendentes`, `vw_saldo_banco_horas`. Scripts SQL por endpoint: [docs/SQL-QUERIES.md](docs/SQL-QUERIES.md).
 
@@ -1208,7 +1211,7 @@ Views: `vw_colaboradores_completo`, `vw_marcacoes_hoje`, `vw_solicitacoes_penden
 
 | Campo | Valor |
 |-------|-------|
-| Email | `admin@bluepoint.com` |
+| Email | `admin@people.com` |
 | Senha | `Admin@123` |
 | Tipo | `admin` |
 
@@ -1225,7 +1228,7 @@ As rotas estão em `src/app/api/v1/`. Cada recurso pode expor GET, POST, PUT, PA
 ## Estrutura do Projeto
 
 ```
-bluepoint_api/
+people_api/
 ├── src/
 │   ├── app/
 │   │   └── api/v1/          # Rotas da API (uma pasta por endpoint)

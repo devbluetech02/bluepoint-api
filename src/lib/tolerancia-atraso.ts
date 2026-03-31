@@ -49,13 +49,13 @@ function horaParaMinutos(hora: string): number {
 }
 
 /**
- * Busca os parâmetros GLOBAIS de tolerância de atraso (bt_parametros_tolerancia_atraso).
+ * Busca os parâmetros GLOBAIS de tolerância de atraso (parametros_tolerancia_atraso).
  * Configurados pelo RH/DP, independentes de jornada.
  */
 export async function obterParametrosTolerancia(): Promise<ParametrosTolerancia> {
   const result = await query(
     `SELECT tolerancia_periodo_min, tolerancia_diario_max_min, ativo
-     FROM bluepoint.bt_parametros_tolerancia_atraso
+     FROM people.parametros_tolerancia_atraso
      ORDER BY id DESC
      LIMIT 1`
   );
@@ -86,9 +86,9 @@ export async function obterJornadaDoDia(
     `SELECT c.jornada_id,
             jh.periodos,
             jh.folga
-     FROM bluepoint.bt_colaboradores c
-     JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
-     LEFT JOIN bluepoint.bt_jornada_horarios jh
+     FROM people.colaboradores c
+     JOIN people.jornadas j ON c.jornada_id = j.id
+     LEFT JOIN people.jornada_horarios jh
        ON jh.jornada_id = j.id
        AND jh.folga = false
        AND (jh.dia_semana = $2 OR jh.dias_semana @> $3::jsonb)
@@ -127,7 +127,7 @@ export async function determinarProximoEvento(
   marcacoesHoje: Array<{ id: number; tipo: string; data_hora: string }>;
 }> {
   const marcacoesResult = await query<{ id: number; tipo: string; data_hora: string }>(
-    `SELECT id, tipo, data_hora FROM bluepoint.bt_marcacoes
+    `SELECT id, tipo, data_hora FROM people.marcacoes
      WHERE colaborador_id = $1
        AND DATE(data_hora) = CURRENT_DATE
      ORDER BY data_hora ASC`,
@@ -223,7 +223,7 @@ export async function obterAtrasosToleradorNoDia(
 
   const result = await query(
     `SELECT COALESCE(SUM(atraso_minutos), 0) as total
-     FROM bluepoint.bt_atrasos_tolerados
+     FROM people.atrasos_tolerados
      WHERE colaborador_id = $1
        AND data = $2
        AND tolerado = true`,
@@ -365,7 +365,7 @@ export async function registrarAtrasoTolerado(
   const executor = clientDb || { query: (text: string, params?: unknown[]) => query(text, params) };
 
   await executor.query(
-    `INSERT INTO bluepoint.bt_atrasos_tolerados
+    `INSERT INTO people.atrasos_tolerados
        (colaborador_id, data, tipo_marcacao, horario_previsto, horario_real, atraso_minutos, tolerado, marcacao_id)
      VALUES ($1, $2, $3, $4, $5, $6, true, $7)`,
     [colaboradorId, dataStr, tipoMarcacao, horarioPrevisto, horarioReal, atrasoMinutos, marcacaoId]
@@ -384,9 +384,9 @@ export async function obterGestorDoColaborador(
   // Gestor do departamento (nunca retorna o próprio colaborador como gestor de si mesmo)
   const result = await query<GestorRow>(
     `SELECT g.id, g.nome, g.email
-     FROM bluepoint.bt_colaboradores c
-     JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-     JOIN bluepoint.bt_colaboradores g ON d.gestor_id = g.id
+     FROM people.colaboradores c
+     JOIN people.departamentos d ON c.departamento_id = d.id
+     JOIN people.colaboradores g ON d.gestor_id = g.id
      WHERE c.id = $1 AND g.status = 'ativo' AND g.id != $1
      LIMIT 1`,
     [colaboradorId]
@@ -399,7 +399,7 @@ export async function obterGestorDoColaborador(
   // Fallback: busca qualquer gestor/admin ativo, excluindo o próprio colaborador
   const fallback = await query<GestorRow>(
     `SELECT id, nome, email
-     FROM bluepoint.bt_colaboradores
+     FROM people.colaboradores
      WHERE tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')
        AND status = 'ativo'
        AND id != $1
@@ -451,7 +451,7 @@ export async function criarSolicitacaoAtraso(params: {
     };
 
     const result = await client.query(
-      `INSERT INTO bluepoint.bt_solicitacoes
+      `INSERT INTO people.solicitacoes
          (colaborador_id, tipo, status, data_solicitacao, data_evento,
           descricao, justificativa, dados_adicionais, gestor_id, origem)
        VALUES ($1, 'atraso', 'pendente', NOW(), $2,
@@ -471,7 +471,7 @@ export async function criarSolicitacaoAtraso(params: {
 
     // Registrar histórico
     await client.query(
-      `INSERT INTO bluepoint.bt_solicitacoes_historico
+      `INSERT INTO people.solicitacoes_historico
          (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
        VALUES ($1, NULL, 'pendente', $2, 'Solicitação de registro de ponto com atraso criada pelo colaborador')`,
       [solicitacaoId, params.colaboradorId]

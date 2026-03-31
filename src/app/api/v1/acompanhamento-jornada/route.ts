@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
       if (apenasComMarcacao) {
         conditions.push(`c.id IN (
           SELECT DISTINCT colaborador_id
-          FROM bluepoint.bt_marcacoes
+          FROM people.marcacoes
           WHERE data_hora::date = CURRENT_DATE
         )`);
       }
@@ -179,7 +179,7 @@ export async function GET(request: NextRequest) {
 
       // ---------- Contar total ----------
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores c ${where}`,
+        `SELECT COUNT(*) as total FROM people.colaboradores c ${where}`,
         params
       );
       const total = parseInt(countResult.rows[0].total);
@@ -194,10 +194,10 @@ export async function GET(request: NextRequest) {
            c.id, c.nome, c.cpf, c.foto_url, c.cargo_id, cg.nome AS cargo_nome, c.jornada_id,
            c.departamento_id, d.nome   AS departamento_nome,
            c.empresa_id,       e.nome_fantasia AS empresa_nome
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg       ON c.cargo_id        = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-         LEFT JOIN bluepoint.bt_empresas e      ON c.empresa_id      = e.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg       ON c.cargo_id        = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+         LEFT JOIN people.empresas e      ON c.empresa_id      = e.id
          ${where}
          ORDER BY c.nome ASC
          LIMIT $${pi} OFFSET $${pi + 1}`,
@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
       // ---------- Buscar marcações ----------
       const marcResult = await query(
         `SELECT colaborador_id, data_hora, tipo, data_hora::date::text AS data
-         FROM bluepoint.bt_marcacoes
+         FROM people.marcacoes
          WHERE colaborador_id = ANY($1)
            AND data_hora::date BETWEEN $2::date AND $3::date
          ORDER BY data_hora ASC`,
@@ -252,7 +252,7 @@ export async function GET(request: NextRequest) {
       if (jornadaIds.length > 0) {
         const horResult = await query(
           `SELECT jornada_id, dia_semana, dias_semana, folga, periodos
-           FROM bluepoint.bt_jornada_horarios
+           FROM people.jornada_horarios
            WHERE jornada_id = ANY($1)`,
           [jornadaIds]
         );
@@ -279,7 +279,7 @@ export async function GET(request: NextRequest) {
       // ---------- Buscar feriados (exatos na semana + recorrentes) ----------
       const feriadosResult = await query(
         `SELECT data::text AS data, recorrente
-         FROM bluepoint.bt_feriados
+         FROM people.feriados
          WHERE (recorrente = false AND data BETWEEN $1::date AND $2::date)
             OR recorrente = true`,
         [dataInicio, dataFim]
@@ -292,7 +292,7 @@ export async function GET(request: NextRequest) {
       // ---------- Buscar parâmetros de tolerância de hora extra ----------
       const parametroHEResult = await query(
         `SELECT id, minutos_tolerancia, dias_permitidos_por_mes, ativo
-         FROM bluepoint.bt_parametros_hora_extra
+         FROM people.parametros_hora_extra
          WHERE ativo = TRUE
          ORDER BY id DESC
          LIMIT 1`
@@ -311,7 +311,7 @@ export async function GET(request: NextRequest) {
 
         const toleranciaResult = await query(
           `SELECT colaborador_id, COUNT(*) AS dias_utilizados
-           FROM bluepoint.bt_historico_tolerancia_hora_extra
+           FROM people.historico_tolerancia_hora_extra
            WHERE colaborador_id = ANY($1)
              AND data BETWEEN $2::date AND $3::date
              AND consumiu_tolerancia = TRUE

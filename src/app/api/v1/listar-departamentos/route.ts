@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bt_departamentos d ${whereClause}`,
+          `SELECT COUNT(*) as total FROM departamentos d ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -44,9 +44,9 @@ export async function GET(request: NextRequest) {
             d.status,
             g.id as gestor_id,
             g.nome as gestor_nome,
-            (SELECT COUNT(*) FROM bluepoint.bt_colaboradores WHERE departamento_id = d.id AND status = 'ativo') as total_colaboradores
-          FROM bt_departamentos d
-          LEFT JOIN bluepoint.bt_colaboradores g ON d.gestor_id = g.id
+            (SELECT COUNT(*) FROM people.colaboradores WHERE departamento_id = d.id AND status = 'ativo') as total_colaboradores
+          FROM departamentos d
+          LEFT JOIN people.colaboradores g ON d.gestor_id = g.id
           ${whereClause}
           ORDER BY d.nome ASC
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

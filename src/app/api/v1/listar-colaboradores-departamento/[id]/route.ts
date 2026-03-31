@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se departamento existe
       const deptResult = await query(
-        `SELECT id, nome FROM bt_departamentos WHERE id = $1`,
+        `SELECT id, nome FROM departamentos WHERE id = $1`,
         [departamentoId]
       );
 
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Contar total
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores ${whereClause}`,
+        `SELECT COUNT(*) as total FROM people.colaboradores ${whereClause}`,
         params_query
       );
       const total = parseInt(countResult.rows[0].total);
@@ -64,8 +64,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dataParams = [...params_query, limite, offset];
       const result = await query(
         `SELECT c.id, c.nome, c.email, c.cargo_id, cg.nome as cargo_nome, c.status, c.foto_url
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
          ${whereClause.replace(/departamento_id/g, 'c.departamento_id').replace(/status/g, 'c.status')}
          ORDER BY c.nome ASC
          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

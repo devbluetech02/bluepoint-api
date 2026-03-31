@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       await client.query('BEGIN');
 
       const colabResult = await client.query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo'`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1 AND status = 'ativo'`,
         [colaboradorId]
       );
 
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
       const colaborador = colabResult.rows[0];
 
       const sobreposicao = await client.query(
-        `SELECT id FROM bluepoint.bt_periodos_ferias
+        `SELECT id FROM people.periodos_ferias
          WHERE colaborador_id = $1
            AND data_inicio <= $2::date
            AND data_fim >= $3::date`,
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
 
       // Criar registro de solicitação já aprovada (origem: designação do gestor)
       const solicitacaoResult = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, status, data_evento, data_evento_fim, descricao, justificativa, dados_adicionais, aprovador_id, data_aprovacao, origem
         ) VALUES ($1, 'ferias', 'aprovada', $2, $3, $4, $5, $6, $7, NOW(), 'manual')
         RETURNING id`,
@@ -76,14 +76,14 @@ export async function POST(request: NextRequest) {
 
       // Registrar histórico da solicitação já como aprovada
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'aprovada', $2, 'Férias designadas manualmente pelo gestor')`,
         [solicitacaoId, user.userId]
       );
 
       // Criar período de férias vinculado à solicitação
       const result = await client.query(
-        `INSERT INTO bluepoint.bt_periodos_ferias (colaborador_id, data_inicio, data_fim, observacao, designado_por, solicitacao_id)
+        `INSERT INTO people.periodos_ferias (colaborador_id, data_inicio, data_fim, observacao, designado_por, solicitacao_id)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, data_inicio, data_fim`,
         [colaboradorId, dataInicio, dataFim, observacao || null, user.userId, solicitacaoId]

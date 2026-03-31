@@ -1,6 +1,6 @@
 # Documentação do Banco de Dados — BluePoint
 
-Sistema de gestão de ponto eletrônico. Schema principal: **`bluepoint`**.
+Sistema de gestão de ponto eletrônico. Schema principal: **`people`**.
 
 ---
 
@@ -35,7 +35,7 @@ Sistema de gestão de ponto eletrônico. Schema principal: **`bluepoint`**.
 
 ## Tabelas principais
 
-### bt_departamentos
+### departamentos
 
 Departamentos da empresa.
 
@@ -44,7 +44,7 @@ Departamentos da empresa.
 | id | SERIAL | PK | Identificador |
 | nome | VARCHAR(100) | NOT NULL | Nome do departamento |
 | descricao | TEXT | | Descrição |
-| gestor_id | INTEGER | FK → bt_colaboradores(id) | Gestor responsável |
+| gestor_id | INTEGER | FK → colaboradores(id) | Gestor responsável |
 | status | status_registro | DEFAULT 'ativo' | ativo/inativo |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 | atualizado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
@@ -53,7 +53,7 @@ Departamentos da empresa.
 
 ---
 
-### bt_jornadas
+### jornadas
 
 Jornadas de trabalho (simples por dia da semana ou circular, ex.: 12x36).
 
@@ -74,14 +74,14 @@ Jornadas de trabalho (simples por dia da semana ou circular, ex.: 12x36).
 
 ---
 
-### bt_jornada_horarios
+### jornada_horarios
 
 Horários de cada dia (ou sequência) da jornada.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| jornada_id | INTEGER | NOT NULL, FK → bt_jornadas(id) ON DELETE CASCADE | Jornada |
+| jornada_id | INTEGER | NOT NULL, FK → jornadas(id) ON DELETE CASCADE | Jornada |
 | dia_semana | SMALLINT | CHECK (0–6) | 0=domingo, 6=sábado (jornada simples) |
 | sequencia | SMALLINT | | Ordem no ciclo (jornada circular) |
 | quantidade_dias | SMALLINT | DEFAULT 1 | Dias do bloco (circular) |
@@ -94,7 +94,7 @@ Horários de cada dia (ou sequência) da jornada.
 
 ---
 
-### bt_colaboradores
+### colaboradores
 
 Colaboradores/usuários do sistema.
 
@@ -107,10 +107,10 @@ Colaboradores/usuários do sistema.
 | cpf | VARCHAR(14) | NOT NULL UNIQUE | CPF |
 | rg | VARCHAR(20) | | RG |
 | telefone | VARCHAR(20) | | Telefone |
-| cargo_id | INTEGER | FK → bt_cargos(id) | Cargo |
+| cargo_id | INTEGER | FK → cargos(id) | Cargo |
 | tipo | tipo_usuario | DEFAULT 'colaborador' | Papel no sistema |
-| departamento_id | INTEGER | FK → bt_departamentos(id) | Departamento |
-| jornada_id | INTEGER | FK → bt_jornadas(id) | Jornada de trabalho |
+| departamento_id | INTEGER | FK → departamentos(id) | Departamento |
+| jornada_id | INTEGER | FK → jornadas(id) | Jornada de trabalho |
 | data_admissao | DATE | NOT NULL | Data de admissão |
 | data_nascimento | DATE | | Data de nascimento |
 | status | status_registro | DEFAULT 'ativo' | ativo/inativo |
@@ -131,14 +131,14 @@ Colaboradores/usuários do sistema.
 
 ---
 
-### bt_documentos_colaborador
+### documentos_colaborador
 
 Documentos anexados ao colaborador.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
 | tipo | VARCHAR(50) | NOT NULL | Tipo do documento |
 | nome | VARCHAR(255) | NOT NULL | Nome do arquivo |
 | url | TEXT | NOT NULL | URL do arquivo |
@@ -149,14 +149,14 @@ Documentos anexados ao colaborador.
 
 ---
 
-### bt_marcacoes
+### marcacoes
 
 Marcações de ponto.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
 | data_hora | TIMESTAMP | NOT NULL | Data/hora da marcação |
 | tipo | tipo_marcacao | NOT NULL | entrada, saida, almoco, retorno |
 | latitude | DECIMAL(10,8) | | Latitude |
@@ -166,7 +166,7 @@ Marcações de ponto.
 | foto_url | TEXT | | URL da foto (se houver) |
 | observacao | TEXT | | Observação |
 | justificativa | TEXT | | Justificativa (ajustes) |
-| criado_por | INTEGER | FK → bt_colaboradores(id) | Quem criou (marcação manual) |
+| criado_por | INTEGER | FK → colaboradores(id) | Quem criou (marcação manual) |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 | atualizado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 
@@ -175,14 +175,14 @@ Marcações de ponto.
 
 ---
 
-### bt_banco_horas
+### banco_horas
 
 Movimentações do banco de horas (crédito/débito/compensação/ajuste).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
 | data | DATE | NOT NULL | Data da movimentação |
 | tipo | tipo_movimentacao_horas | NOT NULL | credito, debito, compensacao, ajuste |
 | descricao | TEXT | | Descrição |
@@ -190,21 +190,21 @@ Movimentações do banco de horas (crédito/débito/compensação/ajuste).
 | saldo_anterior | DECIMAL(6,2) | NOT NULL DEFAULT 0 | Saldo antes |
 | saldo_atual | DECIMAL(6,2) | NOT NULL DEFAULT 0 | Saldo depois |
 | observacao | TEXT | | Observação |
-| criado_por | INTEGER | FK → bt_colaboradores(id) | Quem registrou |
+| criado_por | INTEGER | FK → colaboradores(id) | Quem registrou |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 
 **Índices:** `colaborador_id`, `data`, `tipo`.
 
 ---
 
-### bt_solicitacoes
+### solicitacoes
 
 Solicitações (ajuste de ponto, férias, atestado, ausência, etc.).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Solicitante |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Solicitante |
 | tipo | tipo_solicitacao | NOT NULL | Tipo da solicitação |
 | status | status_solicitacao | DEFAULT 'pendente' | pendente, aprovada, rejeitada, cancelada |
 | data_solicitacao | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
@@ -213,8 +213,8 @@ Solicitações (ajuste de ponto, férias, atestado, ausência, etc.).
 | descricao | TEXT | | Descrição |
 | justificativa | TEXT | | Justificativa |
 | dados_adicionais | JSONB | | Dados específicos por tipo |
-| gestor_id | INTEGER | FK → bt_colaboradores(id) | Gestor responsável (ex.: HE) |
-| aprovador_id | INTEGER | FK → bt_colaboradores(id) | Quem aprovou/rejeitou |
+| gestor_id | INTEGER | FK → colaboradores(id) | Gestor responsável (ex.: HE) |
+| aprovador_id | INTEGER | FK → colaboradores(id) | Quem aprovou/rejeitou |
 | data_aprovacao | TIMESTAMP | | Data da aprovação/rejeição |
 | motivo_rejeicao | TEXT | | Motivo da rejeição |
 | origem | VARCHAR(20) | DEFAULT 'manual' | Origem da solicitação |
@@ -225,17 +225,17 @@ Solicitações (ajuste de ponto, férias, atestado, ausência, etc.).
 
 ---
 
-### bt_solicitacoes_historico
+### solicitacoes_historico
 
 Histórico de alteração de status das solicitações.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| solicitacao_id | INTEGER | NOT NULL, FK → bt_solicitacoes(id) ON DELETE CASCADE | Solicitação |
+| solicitacao_id | INTEGER | NOT NULL, FK → solicitacoes(id) ON DELETE CASCADE | Solicitação |
 | status_anterior | status_solicitacao | | Status anterior |
 | status_novo | status_solicitacao | NOT NULL | Novo status |
-| usuario_id | INTEGER | FK → bt_colaboradores(id) | Quem alterou |
+| usuario_id | INTEGER | FK → colaboradores(id) | Quem alterou |
 | observacao | TEXT | | Observação |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 
@@ -243,15 +243,15 @@ Histórico de alteração de status das solicitações.
 
 ---
 
-### bt_anexos
+### anexos
 
 Arquivos anexados (solicitações ou colaborador).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador (opcional) |
-| solicitacao_id | INTEGER | FK → bt_solicitacoes(id) ON DELETE CASCADE | Solicitação (opcional) |
+| colaborador_id | INTEGER | FK → colaboradores(id) ON DELETE CASCADE | Colaborador (opcional) |
+| solicitacao_id | INTEGER | FK → solicitacoes(id) ON DELETE CASCADE | Solicitação (opcional) |
 | tipo | tipo_anexo | DEFAULT 'documento' | atestado, comprovante, documento, foto, outros |
 | nome | VARCHAR(255) | NOT NULL | Nome do arquivo |
 | url | TEXT | NOT NULL | URL do arquivo |
@@ -263,7 +263,7 @@ Arquivos anexados (solicitações ou colaborador).
 
 ---
 
-### bt_localizacoes
+### localizacoes
 
 Localizações permitidas para registro de ponto (geofence).
 
@@ -285,20 +285,20 @@ Localizações permitidas para registro de ponto (geofence).
 
 ---
 
-### bt_localizacao_departamentos
+### localizacao_departamentos
 
 Vinculação localização ↔ departamento (quais departamentos podem bater ponto em qual local).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| localizacao_id | INTEGER | NOT NULL, FK → bt_localizacoes(id) ON DELETE CASCADE | Localização |
-| departamento_id | INTEGER | NOT NULL, FK → bt_departamentos(id) ON DELETE CASCADE | Departamento |
+| localizacao_id | INTEGER | NOT NULL, FK → localizacoes(id) ON DELETE CASCADE | Localização |
+| departamento_id | INTEGER | NOT NULL, FK → departamentos(id) ON DELETE CASCADE | Departamento |
 | UNIQUE(localizacao_id, departamento_id) | | | |
 
 ---
 
-### bt_feriados
+### feriados
 
 Feriados (nacional, estadual, municipal, empresa).
 
@@ -318,14 +318,14 @@ Feriados (nacional, estadual, municipal, empresa).
 
 ---
 
-### bt_notificacoes
+### notificacoes
 
 Notificações enviadas aos usuários.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| usuario_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Destinatário |
+| usuario_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Destinatário |
 | tipo | tipo_notificacao | DEFAULT 'sistema' | sistema, solicitacao, marcacao, alerta, lembrete |
 | titulo | VARCHAR(255) | NOT NULL | Título |
 | mensagem | TEXT | NOT NULL | Corpo da mensagem |
@@ -339,14 +339,14 @@ Notificações enviadas aos usuários.
 
 ---
 
-### bt_refresh_tokens
+### refresh_tokens
 
 Tokens de refresh para renovação do JWT.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| usuario_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Usuário |
+| usuario_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Usuário |
 | token | VARCHAR(500) | NOT NULL UNIQUE | Token |
 | data_criacao | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 | data_expiracao | TIMESTAMP | NOT NULL | Expiração |
@@ -357,14 +357,14 @@ Tokens de refresh para renovação do JWT.
 
 ---
 
-### bt_tokens_recuperacao
+### tokens_recuperacao
 
 Tokens para recuperação de senha (envio por e-mail).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| usuario_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Usuário |
+| usuario_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Usuário |
 | token | VARCHAR(255) | NOT NULL UNIQUE | Token de uso único |
 | data_criacao | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 | data_expiracao | TIMESTAMP | NOT NULL | Expiração |
@@ -375,7 +375,7 @@ Tokens para recuperação de senha (envio por e-mail).
 
 ---
 
-### bt_configuracoes_empresa
+### configuracoes_empresa
 
 Dados cadastrais da empresa (um registro principal).
 
@@ -393,7 +393,7 @@ Dados cadastrais da empresa (um registro principal).
 
 ---
 
-### bt_configuracoes
+### configuracoes
 
 Configurações gerais do sistema (chave/valor por categoria).
 
@@ -410,14 +410,14 @@ Configurações gerais do sistema (chave/valor por categoria).
 
 ---
 
-### bt_biometria_facial
+### biometria_facial
 
 Dados de biometria facial (encoding e qualidade).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
 | encoding | BYTEA | | Dados do encoding facial |
 | qualidade | DECIMAL(3,2) | | 0.00 a 1.00 |
 | foto_referencia_url | TEXT | | URL da foto de referência |
@@ -428,7 +428,7 @@ Dados de biometria facial (encoding e qualidade).
 
 ---
 
-### bt_auditoria
+### auditoria
 
 Logs de auditoria (ações no sistema).
 
@@ -436,7 +436,7 @@ Logs de auditoria (ações no sistema).
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
 | data_hora | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
-| usuario_id | INTEGER | FK → bt_colaboradores(id) ON DELETE SET NULL | Quem executou |
+| usuario_id | INTEGER | FK → colaboradores(id) ON DELETE SET NULL | Quem executou |
 | acao | VARCHAR(50) | NOT NULL | CREATE, UPDATE, DELETE, LOGIN, LOGOUT, etc. |
 | modulo | VARCHAR(50) | NOT NULL | colaboradores, marcacoes, solicitacoes, etc. |
 | descricao | TEXT | | Descrição |
@@ -451,25 +451,25 @@ Logs de auditoria (ações no sistema).
 
 ---
 
-### bt_colaborador_jornadas_historico
+### colaborador_jornadas_historico
 
 Histórico de jornadas atribuídas ao colaborador.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
-| jornada_id | INTEGER | NOT NULL, FK → bt_jornadas(id) ON DELETE CASCADE | Jornada |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
+| jornada_id | INTEGER | NOT NULL, FK → jornadas(id) ON DELETE CASCADE | Jornada |
 | data_inicio | DATE | NOT NULL | Início da vigência |
 | data_fim | DATE | | Fim da vigência (NULL = atual) |
-| criado_por | INTEGER | FK → bt_colaboradores(id) | Quem atribuiu |
+| criado_por | INTEGER | FK → colaboradores(id) | Quem atribuiu |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 
 **Índices:** `colaborador_id`, `jornada_id`.
 
 ---
 
-### bt_tipos_solicitacao
+### tipos_solicitacao
 
 Tipos de solicitação configuráveis (ajuste_ponto, ferias, atestado, etc.).
 
@@ -488,7 +488,7 @@ Tipos de solicitação configuráveis (ajuste_ponto, ferias, atestado, etc.).
 
 ## Tabelas de apoio e configuração
 
-### bt_parametros_hora_extra
+### parametros_hora_extra
 
 Parâmetros globais de tolerância de hora extra.
 
@@ -499,22 +499,22 @@ Parâmetros globais de tolerância de hora extra.
 | dias_permitidos_por_mes | INTEGER | NOT NULL DEFAULT 2 | Dias com tolerância por mês |
 | ativo | BOOLEAN | DEFAULT TRUE | Parâmetro ativo |
 | atualizado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
-| atualizado_por | INTEGER | FK → bt_colaboradores(id) | Quem atualizou |
+| atualizado_por | INTEGER | FK → colaboradores(id) | Quem atualizou |
 
 ---
 
-### bt_historico_tolerancia_hora_extra
+### historico_tolerancia_hora_extra
 
 Histórico de dias em que a tolerância de HE foi consumida por colaborador.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) ON DELETE CASCADE | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) ON DELETE CASCADE | Colaborador |
 | data | DATE | NOT NULL | Data |
 | minutos_hora_extra | INTEGER | NOT NULL | Minutos de HE no dia |
 | consumiu_tolerancia | BOOLEAN | DEFAULT TRUE | Se consumiu a cota de tolerância |
-| parametro_id | INTEGER | FK → bt_parametros_hora_extra(id) | Parâmetro vigente |
+| parametro_id | INTEGER | FK → parametros_hora_extra(id) | Parâmetro vigente |
 | criado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
 | UNIQUE(colaborador_id, data) | | | Uma linha por colaborador/dia |
 
@@ -522,21 +522,21 @@ Histórico de dias em que a tolerância de HE foi consumida por colaborador.
 
 ---
 
-### bt_config_sistema
+### config_sistema
 
 Configurações do sistema por empresa (geral, ponto, notificações, segurança, aparência).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| empresa_id | INTEGER | NOT NULL, FK → bt_empresas(id) ON DELETE CASCADE, UNIQUE | Empresa |
+| empresa_id | INTEGER | NOT NULL, FK → empresas(id) ON DELETE CASCADE, UNIQUE | Empresa |
 | geral | JSONB | NOT NULL | nomeEmpresa, fusoHorario, formatoData, idioma, etc. |
 | ponto | JSONB | NOT NULL | toleranciaEntrada, toleranciaSaida, permitirMarcacaoOffline, etc. |
 | notificacoes | JSONB | NOT NULL | notificarAtrasos, emailNotificacoes, etc. |
 | seguranca | JSONB | NOT NULL | tempoSessao, exigirSenhaForte, autenticacaoDoisFatores, etc. |
 | aparencia | JSONB | NOT NULL | tema, corPrimaria, mostrarLogoSidebar, etc. |
 | atualizado_em | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | |
-| atualizado_por | INTEGER | FK → bt_colaboradores(id) | Quem atualizou |
+| atualizado_por | INTEGER | FK → colaboradores(id) | Quem atualizou |
 
 **Índice:** `empresa_id`.
 
@@ -546,14 +546,14 @@ Configurações do sistema por empresa (geral, ponto, notificações, segurança
 
 ### Gestão de Pessoas (`scripts/migrate-gestao-pessoas.sql`)
 
-#### bt_gestao_pessoas
+#### gestao_pessoas
 
 Registros de gestão de pessoas (advertência, feedback, demissão, etc.).
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) | Colaborador |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) | Colaborador |
 | tipo | VARCHAR(50) | NOT NULL, CHECK | advertencia, demissao, feedback_positivo, feedback_negativo |
 | status | VARCHAR(50) | NOT NULL DEFAULT 'pendente', CHECK | pendente, em_andamento, concluido, cancelado |
 | titulo | VARCHAR(255) | NOT NULL | Título |
@@ -564,14 +564,14 @@ Registros de gestão de pessoas (advertência, feedback, demissão, etc.).
 | criado_em | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() | |
 | atualizado_em | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() | |
 
-#### bt_gestao_pessoas_reunioes
+#### gestao_pessoas_reunioes
 
 Reuniões vinculadas (1:1) a um registro de gestão de pessoas.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| gestao_pessoa_id | INTEGER | NOT NULL UNIQUE, FK → bt_gestao_pessoas(id) ON DELETE CASCADE | Registro |
+| gestao_pessoa_id | INTEGER | NOT NULL UNIQUE, FK → gestao_pessoas(id) ON DELETE CASCADE | Registro |
 | data | DATE | NOT NULL | Data da reunião |
 | hora | VARCHAR(5) | NOT NULL | Hora (HH:MM) |
 | status | VARCHAR(20) | DEFAULT 'agendada', CHECK | agendada, realizada, cancelada |
@@ -579,25 +579,25 @@ Reuniões vinculadas (1:1) a um registro de gestão de pessoas.
 | criado_em | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() | |
 | atualizado_em | TIMESTAMP WITH TIME ZONE | DEFAULT NOW() | |
 
-#### bt_gestao_pessoas_participantes
+#### gestao_pessoas_participantes
 
 Participantes de uma reunião de gestão de pessoas.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| reuniao_id | INTEGER | NOT NULL, FK → bt_gestao_pessoas_reunioes(id) ON DELETE CASCADE | Reunião |
-| colaborador_id | INTEGER | NOT NULL, FK → bt_colaboradores(id) | Participante |
+| reuniao_id | INTEGER | NOT NULL, FK → gestao_pessoas_reunioes(id) ON DELETE CASCADE | Reunião |
+| colaborador_id | INTEGER | NOT NULL, FK → colaboradores(id) | Participante |
 | UNIQUE(reuniao_id, colaborador_id) | | | |
 
-#### bt_gestao_pessoas_anexos
+#### gestao_pessoas_anexos
 
 Anexos dos registros de gestão de pessoas.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| gestao_pessoa_id | INTEGER | NOT NULL, FK → bt_gestao_pessoas(id) ON DELETE CASCADE | Registro |
+| gestao_pessoa_id | INTEGER | NOT NULL, FK → gestao_pessoas(id) ON DELETE CASCADE | Registro |
 | nome | VARCHAR(255) | NOT NULL | Nome do arquivo |
 | tipo | VARCHAR(20) | NOT NULL | Tipo MIME ou categoria |
 | tamanho | BIGINT | NOT NULL | Tamanho em bytes |
@@ -609,7 +609,7 @@ Anexos dos registros de gestão de pessoas.
 
 ### Exportação (`sql/modelos-exportacao.sql`)
 
-#### bt_modelos_exportacao
+#### modelos_exportacao
 
 Modelos de exportação (folha, relatório, etc.).
 
@@ -622,14 +622,14 @@ Modelos de exportação (folha, relatório, etc.).
 | criado_em | TIMESTAMP | NOT NULL DEFAULT NOW() | |
 | atualizado_em | TIMESTAMP | NOT NULL DEFAULT NOW() | |
 
-#### bt_codigos_exportacao
+#### codigos_exportacao
 
 Códigos vinculados a um modelo de exportação.
 
 | Coluna | Tipo | Restrições | Descrição |
 |--------|------|------------|-----------|
 | id | SERIAL | PK | Identificador |
-| modelo_id | INTEGER | NOT NULL, FK → bt_modelos_exportacao(id) ON DELETE CASCADE | Modelo |
+| modelo_id | INTEGER | NOT NULL, FK → modelos_exportacao(id) ON DELETE CASCADE | Modelo |
 | codigo | VARCHAR(10) | NOT NULL | Código |
 | descricao | TEXT | | Descrição |
 | status_arquivo | VARCHAR(20) | NOT NULL DEFAULT 'valido' | Status no arquivo |
@@ -637,13 +637,13 @@ Códigos vinculados a um modelo de exportação.
 | criado_em | TIMESTAMP | NOT NULL DEFAULT NOW() | |
 | atualizado_em | TIMESTAMP | NOT NULL DEFAULT NOW() | |
 
-**Índices:** `modelo_id`, `ativo` (em bt_modelos_exportacao).
+**Índices:** `modelo_id`, `ativo` (em modelos_exportacao).
 
 ---
 
 ### Relatório mensal (criada via código em `relatorio-mensal/[id]/route.ts`)
 
-#### bt_relatorios_mensais
+#### relatorios_mensais
 
 Relatórios mensais por colaborador (espelho de ponto mensal, assinatura, etc.).
 
@@ -674,7 +674,7 @@ Relatórios mensais por colaborador (espelho de ponto mensal, assinatura, etc.).
 
 ## Views
 
-- **vw_colaboradores_completo** — Colaboradores com departamento, cargo e jornada (JOIN em bt_cargos, bt_departamentos, bt_jornadas).
+- **vw_colaboradores_completo** — Colaboradores com departamento, cargo e jornada (JOIN em cargos, departamentos, jornadas).
 - **vw_marcacoes_hoje** — Marcações do dia atual com nome do colaborador e departamento.
 - **vw_solicitacoes_pendentes** — Solicitações com status `pendente` com dados do colaborador e departamento.
 - **vw_saldo_banco_horas** — Saldo atual de banco de horas por colaborador ativo.
@@ -687,48 +687,48 @@ Estas tabelas são usadas pela API em várias rotas; a definição pode estar em
 
 | Tabela | Uso resumido |
 |--------|----------------|
-| **bt_empresas** | Empresas (razao_social, nome_fantasia, cnpj, celular, endereço). Colaboradores e dispositivos podem ter `empresa_id`. |
-| **bt_cargos** | Cargos (nome, cbo, descricao; opcional: salario_medio, valor_hora_extra_75, created_at, updated_at). Referenciado por bt_colaboradores. |
-| **bt_dispositivos** | Dispositivos de ponto (codigo, nome, descricao, empresa_id, localizacao_id, total_registros, etc.). |
-| **bt_permissoes** | Permissões por código (codigo). Usado com bt_tipo_usuario_permissoes para RBAC. |
-| **bt_tipo_usuario_permissoes** | Vincula tipo_usuario a permissao_id (concedido). |
-| **bt_api_keys** | Chaves de API para integrações (admin, write, read). |
-| **bt_api_keys_log** | Log de uso de API keys. |
-| **bt_prestadores** | Prestadores de serviço (PJ): razao_social, nome_fantasia, cnpj_cpf, tipo, email, telefone, status, etc. |
-| **bt_contratos_prestador** | Contratos vinculados a prestador (numero, descricao, data_inicio, data_fim, valor, forma_pagamento, status). |
-| **bt_nfes_prestador** | NFes de prestador (prestador_id, contrato_id, numero, serie, chave_acesso, data_emissao, valor, status, arquivo_url). |
-| **bt_alertas_inteligentes** | Alertas (regras + IA/Gemini) para ausências, atrasos, HE, pendências. |
-| **bt_limites_he_empresas** | Limites de hora extra por empresa. |
-| **bt_limites_he_departamentos** | Limites de HE por departamento. |
-| **bt_limites_he_gestores** | Limites de HE por gestor. |
-| **bt_solicitacoes_horas_extras** | Solicitações específicas de horas extras. |
-| **bt_custo_horas_extras** | Custos de HE. |
-| **bt_horas_extras_consolidado** | Dados consolidados de HE. |
-| **bt_liderancas_departamento** | Lideranças por departamento. |
-| **bt_periodos_ferias** | Períodos de férias. |
-| **bt_parametros_beneficios** | Parâmetros de benefícios (ex.: horas_minimas_para_vale_alimentacao). |
-| **bt_parametros_assiduidade** | Parâmetros de assiduidade. |
-| **bt_parametros_tolerancia_atraso** | Parâmetros de tolerância de atraso. |
-| **bt_atrasos_tolerados** | Registro de atrasos tolerados. |
-| **bt_historico_assiduidade** | Histórico de assiduidade. |
-| **bt_config_relatorio_personalizado** | Configuração de relatório personalizado. |
-| **bt_mapeamento_tabelas_colunas** | Mapeamento para embeddings/IA. |
-| **bt_fotos_reconhecimento** | Fotos usadas em reconhecimento (ex.: facial). |
+| **empresas** | Empresas (razao_social, nome_fantasia, cnpj, celular, endereço). Colaboradores e dispositivos podem ter `empresa_id`. |
+| **cargos** | Cargos (nome, cbo, descricao; opcional: salario_medio, valor_hora_extra_75, created_at, updated_at). Referenciado por colaboradores. |
+| **dispositivos** | Dispositivos de ponto (codigo, nome, descricao, empresa_id, localizacao_id, total_registros, etc.). |
+| **permissoes** | Permissões por código (codigo). Usado com tipo_usuario_permissoes para RBAC. |
+| **tipo_usuario_permissoes** | Vincula tipo_usuario a permissao_id (concedido). |
+| **api_keys** | Chaves de API para integrações (admin, write, read). |
+| **api_keys_log** | Log de uso de API keys. |
+| **prestadores** | Prestadores de serviço (PJ): razao_social, nome_fantasia, cnpj_cpf, tipo, email, telefone, status, etc. |
+| **contratos_prestador** | Contratos vinculados a prestador (numero, descricao, data_inicio, data_fim, valor, forma_pagamento, status). |
+| **nfes_prestador** | NFes de prestador (prestador_id, contrato_id, numero, serie, chave_acesso, data_emissao, valor, status, arquivo_url). |
+| **alertas_inteligentes** | Alertas (regras + IA/Gemini) para ausências, atrasos, HE, pendências. |
+| **limites_he_empresas** | Limites de hora extra por empresa. |
+| **limites_he_departamentos** | Limites de HE por departamento. |
+| **limites_he_gestores** | Limites de HE por gestor. |
+| **solicitacoes_horas_extras** | Solicitações específicas de horas extras. |
+| **custo_horas_extras** | Custos de HE. |
+| **horas_extras_consolidado** | Dados consolidados de HE. |
+| **liderancas_departamento** | Lideranças por departamento. |
+| **periodos_ferias** | Períodos de férias. |
+| **parametros_beneficios** | Parâmetros de benefícios (ex.: horas_minimas_para_vale_alimentacao). |
+| **parametros_assiduidade** | Parâmetros de assiduidade. |
+| **parametros_tolerancia_atraso** | Parâmetros de tolerância de atraso. |
+| **atrasos_tolerados** | Registro de atrasos tolerados. |
+| **historico_assiduidade** | Histórico de assiduidade. |
+| **config_relatorio_personalizado** | Configuração de relatório personalizado. |
+| **mapeamento_tabelas_colunas** | Mapeamento para embeddings/IA. |
+| **fotos_reconhecimento** | Fotos usadas em reconhecimento (ex.: facial). |
 
 ---
 
 ## Triggers
 
-O schema define a função `bluepoint.atualizar_timestamp()` e triggers **BEFORE UPDATE** que setam `atualizado_em = CURRENT_TIMESTAMP` nas tabelas: bt_colaboradores, bt_departamentos, bt_jornadas, bt_marcacoes, bt_solicitacoes, bt_localizacoes, bt_feriados, bt_configuracoes, bt_configuracoes_empresa, bt_biometria_facial, bt_parametros_hora_extra, bt_config_sistema.
+O schema define a função `people.atualizar_timestamp()` e triggers **BEFORE UPDATE** que setam `atualizado_em = CURRENT_TIMESTAMP` nas tabelas: colaboradores, departamentos, jornadas, marcacoes, solicitacoes, localizacoes, feriados, configuracoes, configuracoes_empresa, biometria_facial, parametros_hora_extra, config_sistema.
 
 ---
 
 ## Dados iniciais (schema.sql)
 
-- **bt_configuracoes:** entradas padrão para categoria `ponto` (tolerâncias), `notificacoes`, `geral` (fuso, formato data/hora).
-- **bt_tipos_solicitacao:** ajuste_ponto, ferias, atestado, ausencia, outros.
-- **bt_feriados:** feriados nacionais 2026.
-- **bt_configuracoes_empresa:** um registro inicial (id = 1) vazio para preenchimento.
+- **configuracoes:** entradas padrão para categoria `ponto` (tolerâncias), `notificacoes`, `geral` (fuso, formato data/hora).
+- **tipos_solicitacao:** ajuste_ponto, ferias, atestado, ausencia, outros.
+- **feriados:** feriados nacionais 2026.
+- **configuracoes_empresa:** um registro inicial (id = 1) vazio para preenchimento.
 
 ---
 

@@ -33,7 +33,7 @@ const pool = new Pool({
 
 // Definir search_path e timezone para cada conexão
 pool.on('connect', (client) => {
-  client.query("SET search_path TO bluepoint, public; SET timezone TO 'America/Sao_Paulo'");
+  client.query("SET search_path TO people, public; SET timezone TO 'America/Sao_Paulo'");
 });
 
 export async function query<T extends QueryResultRow = QueryResultRow>(
@@ -53,7 +53,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
 
 export async function getClient(): Promise<PoolClient> {
   const client = await pool.connect();
-  await client.query("SET search_path TO bluepoint, public; SET timezone TO 'America/Sao_Paulo'");
+  await client.query("SET search_path TO people, public; SET timezone TO 'America/Sao_Paulo'");
   return client;
 }
 

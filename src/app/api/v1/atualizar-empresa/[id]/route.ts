@@ -43,7 +43,7 @@ export async function PUT(
 
       // Verificar se empresa existe
       const empresaAtual = await query(
-        `SELECT * FROM bluepoint.bt_empresas WHERE id = $1`,
+        `SELECT * FROM people.empresas WHERE id = $1`,
         [empresaId]
       );
 
@@ -57,7 +57,7 @@ export async function PUT(
       if (data.cnpj) {
         const cnpjLimpo = data.cnpj.replace(/[^\d]/g, '');
         const existeResult = await query(
-          `SELECT id FROM bluepoint.bt_empresas WHERE cnpj = $1 AND id != $2`,
+          `SELECT id FROM people.empresas WHERE cnpj = $1 AND id != $2`,
           [cnpjLimpo, empresaId]
         );
 
@@ -107,7 +107,7 @@ export async function PUT(
       values.push(empresaId);
 
       const result = await query(
-        `UPDATE bluepoint.bt_empresas 
+        `UPDATE people.empresas 
          SET ${updates.join(', ')}
          WHERE id = $${paramIndex}
          RETURNING id, razao_social, nome_fantasia, cnpj`,

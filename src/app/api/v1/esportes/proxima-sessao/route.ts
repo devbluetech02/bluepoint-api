@@ -13,9 +13,9 @@ export async function GET(request: NextRequest) {
 
       const inscricoesResult = await query(
         `SELECT i.id, i.colaborador_id, c.nome, d.nome AS departamento, i.posicao, i.confirmado, i.confirmado_em
-         FROM bluepoint.bt_esportes_inscricoes i
-         JOIN bluepoint.bt_colaboradores c ON c.id = i.colaborador_id
-         LEFT JOIN bluepoint.bt_departamentos d ON d.id = c.departamento_id
+         FROM people.esportes_inscricoes i
+         JOIN people.colaboradores c ON c.id = i.colaborador_id
+         LEFT JOIN people.departamentos d ON d.id = c.departamento_id
          WHERE i.sessao_id = $1
          ORDER BY i.id ASC`,
         [sessaoId],

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT id, nome, foto_url FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome, foto_url FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 

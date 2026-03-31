@@ -1,8 +1,8 @@
 const APP_TITLES: Record<string, string> = {
   station: 'BluePoint Station',
-  'bluepoint-station': 'BluePoint Station',
+  'people-station': 'BluePoint Station',
   mobile: 'BluePoint Mobile',
-  'bluepoint-mobile': 'BluePoint Mobile',
+  'people-mobile': 'BluePoint Mobile',
 };
 
 interface PushVisual {
@@ -112,7 +112,7 @@ export async function sendPush(apiKey: string, payload: Record<string, unknown>)
 }
 
 /** Nomes dos apps que devem receber push de nova versão (apenas BluePoint Mobile). */
-const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'bluepoint-mobile'];
+const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'people-mobile'];
 
 export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlDownload: string): Promise<void> {
   if (!APPS_COM_PUSH_NOVA_VERSAO.includes(nomeApp)) {

@@ -34,8 +34,8 @@ export async function GET() {
     if (!encodings) {
       const encodingsResult = await query(
         `SELECT bf.colaborador_id, bf.external_id, bf.encoding
-         FROM bluepoint.bt_biometria_facial bf
-         LEFT JOIN bluepoint.bt_colaboradores c ON bf.colaborador_id = c.id
+         FROM people.biometria_facial bf
+         LEFT JOIN people.colaboradores c ON bf.colaborador_id = c.id
          WHERE bf.encoding IS NOT NULL
            AND (
              bf.external_id IS NOT NULL 

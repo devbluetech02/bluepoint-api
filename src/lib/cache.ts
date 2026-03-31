@@ -45,6 +45,8 @@ export const CACHE_KEYS = {
   SOLICITACAO: 'solicitacao:',
   SOLICITACOES: 'solicitacoes:',
   TIPOS_SOLICITACAO: 'tipos_solicitacao:',
+  PENDENCIA: 'pendencia:',
+  PENDENCIAS: 'pendencias:',
   
   // Tolerância de atraso
   ATRASOS_TOLERADOS: 'atrasos_tolerados:',
@@ -540,6 +542,21 @@ export async function invalidateSolicitacaoCache(solicitacaoId?: number | string
     await cacheDel(`${CACHE_KEYS.SOLICITACAO}${solicitacaoId}`);
   }
   
+  if (colaboradorId) {
+    await cacheDel(`${CACHE_KEYS.RESUMO_COLABORADOR}${colaboradorId}`);
+  }
+}
+
+/**
+ * Invalida cache relacionado a pendências
+ */
+export async function invalidatePendenciaCache(pendenciaId?: number | string, colaboradorId?: number | string): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.PENDENCIAS}*`);
+
+  if (pendenciaId) {
+    await cacheDel(`${CACHE_KEYS.PENDENCIA}${pendenciaId}`);
+  }
+
   if (colaboradorId) {
     await cacheDel(`${CACHE_KEYS.RESUMO_COLABORADOR}${colaboradorId}`);
   }

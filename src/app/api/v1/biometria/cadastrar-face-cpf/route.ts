@@ -139,7 +139,7 @@ export async function POST(request: NextRequest) {
       // ========================================
       const colaboradorResult = await query(
         `SELECT id, nome, email, cpf, status, face_registrada
-         FROM bluepoint.bt_colaboradores 
+         FROM people.colaboradores 
          WHERE cpf = $1 OR cpf = $2`,
         [cpf, formatarCpf(cpf)] // Busca com e sem formatação
       );
@@ -208,14 +208,14 @@ export async function POST(request: NextRequest) {
 
       // Verificar se já existe registro
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_biometria_facial WHERE colaborador_id = $1`,
+        `SELECT id FROM people.biometria_facial WHERE colaborador_id = $1`,
         [colaborador.id]
       );
 
       if (existeResult.rows.length > 0) {
         // Atualizar registro existente
         await query(
-          `UPDATE bluepoint.bt_biometria_facial 
+          `UPDATE people.biometria_facial 
            SET encoding = $1, qualidade = $2, atualizado_em = NOW()
            WHERE colaborador_id = $3`,
           [encodingBuffer, qualidade, colaborador.id]
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
       } else {
         // Criar novo registro
         await query(
-          `INSERT INTO bluepoint.bt_biometria_facial (colaborador_id, encoding, qualidade)
+          `INSERT INTO people.biometria_facial (colaborador_id, encoding, qualidade)
            VALUES ($1, $2, $3)`,
           [colaborador.id, encodingBuffer, qualidade]
         );
@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
 
       // Atualizar flag no colaborador
       await query(
-        `UPDATE bluepoint.bt_colaboradores 
+        `UPDATE people.colaboradores 
          SET face_registrada = true, atualizado_em = NOW() 
          WHERE id = $1`,
         [colaborador.id]

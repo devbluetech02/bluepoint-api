@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bluepoint.bt_solicitacoes_horas_extras s ${whereClause}`,
+          `SELECT COUNT(*) as total FROM people.solicitacoes_horas_extras s ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -98,10 +98,10 @@ export async function GET(request: NextRequest) {
         const dataParams = [...params, clampedLimite, clampedOffset];
         const result = await query(
           `SELECT s.*, cg.nome AS cargo, e.nome_fantasia AS filial
-           FROM bluepoint.bt_solicitacoes_horas_extras s
-           LEFT JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+           FROM people.solicitacoes_horas_extras s
+           LEFT JOIN people.colaboradores c ON s.colaborador_id = c.id
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.empresas e ON c.empresa_id = e.id
            ${whereClause}
            ORDER BY s.criado_em DESC
            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
         if (ids.length > 0) {
           const custosResult = await query(
             `SELECT solicitacao_id, horas_extras, custo_dia, custo_mes, custo_ano
-             FROM bluepoint.bt_custo_horas_extras
+             FROM people.custo_horas_extras
              WHERE solicitacao_id = ANY($1)`,
             [ids]
           );
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) {
 
         if (!resolvedColaboradorId && matricula) {
           const colabResult = await query(
-            `SELECT id FROM bluepoint.bt_colaboradores WHERE cpf = $1 AND status = 'ativo'`,
+            `SELECT id FROM people.colaboradores WHERE cpf = $1 AND status = 'ativo'`,
             [matricula]
           );
           if (colabResult.rows.length > 0) {
@@ -187,7 +187,7 @@ export async function POST(request: NextRequest) {
 
         // Inserir solicitação
         const insertResult = await query(
-          `INSERT INTO bluepoint.bt_solicitacoes_horas_extras
+          `INSERT INTO people.solicitacoes_horas_extras
              (solicitante, gestor, data, de, ate, colaborador_id, status)
            VALUES ($1, $2, $3, $4, $5, $6, 'pendente')
            RETURNING *`,

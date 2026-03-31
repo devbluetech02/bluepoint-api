@@ -38,14 +38,14 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bt_notificacoes ${whereClause}`,
+          `SELECT COUNT(*) as total FROM notificacoes ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
 
         // Contar não lidas
         const naoLidasResult = await query(
-          `SELECT COUNT(*) as total FROM bt_notificacoes WHERE usuario_id = $1 AND lida = false`,
+          `SELECT COUNT(*) as total FROM notificacoes WHERE usuario_id = $1 AND lida = false`,
           [user.userId]
         );
         const naoLidas = parseInt(naoLidasResult.rows[0].total);
@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
         const dataParams = [...params, limite, offset];
         const result = await query(
           `SELECT id, tipo, titulo, mensagem, lida, data_envio, link, metadados
-           FROM bt_notificacoes
+           FROM notificacoes
            ${whereClause}
            ORDER BY data_envio DESC
            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

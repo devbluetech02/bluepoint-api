@@ -131,7 +131,7 @@ function mapTipoMarcacao(tipo: string): string {
 
 async function garantirTabela(): Promise<void> {
   await query(`
-    CREATE TABLE IF NOT EXISTS bluepoint.bt_relatorios_mensais (
+    CREATE TABLE IF NOT EXISTS people.relatorios_mensais (
       id SERIAL PRIMARY KEY,
       colaborador_id INTEGER NOT NULL,
       mes INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
@@ -157,12 +157,12 @@ async function garantirTabela(): Promise<void> {
 
   const colCheck = await query(`
     SELECT column_name FROM information_schema.columns
-    WHERE table_schema = 'bluepoint' AND table_name = 'bt_relatorios_mensais' AND column_name = 'localizacao_gps'
+    WHERE table_schema = 'people' AND table_name = 'relatorios_mensais' AND column_name = 'localizacao_gps'
   `);
   if (colCheck.rows.length === 0) {
-    await query(`ALTER TABLE bluepoint.bt_relatorios_mensais ADD COLUMN localizacao_gps VARCHAR(60) NULL`);
-    await query(`ALTER TABLE bluepoint.bt_relatorios_mensais ADD COLUMN assinatura_imagem TEXT NULL`);
-    await query(`ALTER TABLE bluepoint.bt_relatorios_mensais ADD COLUMN ip_address VARCHAR(45) NULL`);
+    await query(`ALTER TABLE people.relatorios_mensais ADD COLUMN localizacao_gps VARCHAR(60) NULL`);
+    await query(`ALTER TABLE people.relatorios_mensais ADD COLUMN assinatura_imagem TEXT NULL`);
+    await query(`ALTER TABLE people.relatorios_mensais ADD COLUMN ip_address VARCHAR(45) NULL`);
   }
 }
 
@@ -198,7 +198,7 @@ export async function GET(
 
       const colabResult = await query(
         `SELECT c.id, c.nome, c.jornada_id
-         FROM bluepoint.bt_colaboradores c
+         FROM people.colaboradores c
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -213,7 +213,7 @@ export async function GET(
       if (colab.jornada_id) {
         const jornadaResult = await query(
           `SELECT dia_semana, dias_semana, folga, periodos
-           FROM bluepoint.bt_jornada_horarios
+           FROM people.jornada_horarios
            WHERE jornada_id = $1
            ORDER BY COALESCE(dia_semana, sequencia, id)`,
           [colab.jornada_id]
@@ -235,7 +235,7 @@ export async function GET(
 
       const marcacoesResult = await query(
         `SELECT data_hora, tipo
-         FROM bluepoint.bt_marcacoes
+         FROM people.marcacoes
          WHERE colaborador_id = $1
            AND data_hora >= $2
            AND data_hora < ($3::date + interval '1 day')
@@ -258,7 +258,7 @@ export async function GET(
                WHEN tipo IN ('debito', 'compensacao') THEN -horas
                ELSE 0 END
         ), 0) as saldo
-         FROM bluepoint.bt_banco_horas
+         FROM people.banco_horas
          WHERE colaborador_id = $1
            AND data >= $2 AND data <= $3`,
         [colaboradorId, dataInicio, dataFim]
@@ -349,7 +349,7 @@ export async function GET(
         await client.query('BEGIN');
 
         const upsertResult = await client.query(
-          `INSERT INTO bluepoint.bt_relatorios_mensais
+          `INSERT INTO people.relatorios_mensais
             (colaborador_id, mes, ano, dias_trabalhados, horas_trabalhadas, horas_extras, banco_horas, faltas, atrasos, total_atrasos, atualizado_em)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
            ON CONFLICT (colaborador_id, mes, ano)
@@ -362,7 +362,7 @@ export async function GET(
              atrasos = EXCLUDED.atrasos,
              total_atrasos = EXCLUDED.total_atrasos,
              atualizado_em = NOW()
-           WHERE bluepoint.bt_relatorios_mensais.status = 'pendente'
+           WHERE people.relatorios_mensais.status = 'pendente'
            RETURNING id, status, assinado_em, dispositivo, localizacao_gps, assinatura_imagem, ip_address`,
           [
             colaboradorId, mes, ano,
@@ -383,7 +383,7 @@ export async function GET(
         } else {
           const existente = await query(
             `SELECT id, status, assinado_em, dispositivo, localizacao_gps, assinatura_imagem, ip_address
-             FROM bluepoint.bt_relatorios_mensais WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
+             FROM people.relatorios_mensais WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
             [colaboradorId, mes, ano]
           );
           relatorio = existente.rows[0];

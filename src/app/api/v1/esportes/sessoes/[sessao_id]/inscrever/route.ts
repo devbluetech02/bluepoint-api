@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       const posicao = validation.data.posicao;
 
       const sessaoResult = await query(
-        `SELECT id, total_vagas FROM bluepoint.bt_esportes_sessoes WHERE id = $1`,
+        `SELECT id, total_vagas FROM people.esportes_sessoes WHERE id = $1`,
         [sessaoId],
       );
       if (sessaoResult.rows.length === 0) {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const jaInscrito = await query(
-        `SELECT id FROM bluepoint.bt_esportes_inscricoes WHERE sessao_id = $1 AND colaborador_id = $2`,
+        `SELECT id FROM people.esportes_inscricoes WHERE sessao_id = $1 AND colaborador_id = $2`,
         [sessaoId, user.userId],
       );
       if (jaInscrito.rows.length > 0) {
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const lotacao = await query(
-        `SELECT COUNT(*)::int AS total FROM bluepoint.bt_esportes_inscricoes WHERE sessao_id = $1`,
+        `SELECT COUNT(*)::int AS total FROM people.esportes_inscricoes WHERE sessao_id = $1`,
         [sessaoId],
       );
       const totalInscritos = lotacao.rows[0].total as number;
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const insertResult = await query(
-        `INSERT INTO bluepoint.bt_esportes_inscricoes (sessao_id, colaborador_id, posicao)
+        `INSERT INTO people.esportes_inscricoes (sessao_id, colaborador_id, posicao)
          VALUES ($1, $2, $3)
          RETURNING id, colaborador_id, posicao, confirmado, confirmado_em`,
         [sessaoId, user.userId, posicao],
@@ -61,8 +61,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       const colaboradorResult = await query(
         `SELECT c.nome, d.nome AS departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_departamentos d ON d.id = c.departamento_id
+         FROM people.colaboradores c
+         LEFT JOIN people.departamentos d ON d.id = c.departamento_id
          WHERE c.id = $1`,
         [user.userId],
       );

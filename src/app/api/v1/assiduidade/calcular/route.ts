@@ -49,17 +49,17 @@ export async function GET(request: NextRequest) {
                   colaborador_nome, colaborador_cargo,
                   colaborador_departamento, observacoes,
                   status, calculado_em, atualizado_em
-           FROM bluepoint.bt_historico_assiduidade
+           FROM people.historico_assiduidade
            WHERE mes = $1 AND ano = $2
            ORDER BY colaborador_nome`,
           [mes, ano],
         ),
         query(
           `SELECT COUNT(*)::int AS total
-           FROM bluepoint.bt_colaboradores c
+           FROM people.colaboradores c
            WHERE c.status = 'ativo'
              AND NOT EXISTS (
-               SELECT 1 FROM bluepoint.bt_historico_assiduidade h
+               SELECT 1 FROM people.historico_assiduidade h
                WHERE h.colaborador_id = c.id AND h.mes = $1 AND h.ano = $2
              )`,
           [mes, ano],
@@ -131,10 +131,10 @@ export async function POST(request: NextRequest) {
 
         if (forcarRecalculo) {
           await clientQuery(
-            `DELETE FROM bluepoint.bt_historico_assiduidade
+            `DELETE FROM people.historico_assiduidade
              WHERE mes = $1 AND ano = $2
                AND colaborador_id IN (
-                 SELECT id FROM bluepoint.bt_colaboradores
+                 SELECT id FROM people.colaboradores
                  WHERE status = 'ativo'
                )`,
             [mes, ano],
@@ -146,13 +146,13 @@ export async function POST(request: NextRequest) {
                   c.bloqueado_assiduidade,
                   cg.nome AS cargo_nome,
                   d.nome AS departamento_nome
-           FROM bluepoint.bt_colaboradores c
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_departamentos d
+           FROM people.colaboradores c
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.departamentos d
              ON c.departamento_id = d.id
            WHERE c.status = 'ativo'
              AND NOT EXISTS (
-               SELECT 1 FROM bluepoint.bt_historico_assiduidade h
+               SELECT 1 FROM people.historico_assiduidade h
                WHERE h.colaborador_id = c.id
                  AND h.mes = $1 AND h.ano = $2
              )
@@ -163,10 +163,10 @@ export async function POST(request: NextRequest) {
 
         const totalPendentesResult = await clientQuery(
           `SELECT COUNT(*)::int AS total
-           FROM bluepoint.bt_colaboradores c
+           FROM people.colaboradores c
            WHERE c.status = 'ativo'
              AND NOT EXISTS (
-               SELECT 1 FROM bluepoint.bt_historico_assiduidade h
+               SELECT 1 FROM people.historico_assiduidade h
                WHERE h.colaborador_id = c.id
                  AND h.mes = $1 AND h.ano = $2
              )`,

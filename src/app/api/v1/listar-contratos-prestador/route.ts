@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
 
         const countResult = await query(
           `SELECT COUNT(*) as total
-           FROM bluepoint.bt_contratos_prestador c
+           FROM people.contratos_prestador c
            ${whereClause}`,
           params
         );
@@ -70,8 +70,8 @@ export async function GET(request: NextRequest) {
             c.arquivo_url,
             c.criado_em,
             c.atualizado_em
-          FROM bluepoint.bt_contratos_prestador c
-          JOIN bluepoint.bt_prestadores p ON c.prestador_id = p.id
+          FROM people.contratos_prestador c
+          JOIN people.prestadores p ON c.prestador_id = p.id
           ${whereClause}
           ORDER BY c.${orderBy} ${orderDir}
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

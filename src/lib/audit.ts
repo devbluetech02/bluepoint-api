@@ -7,6 +7,7 @@ export type AuditAction =
   | 'criar'
   | 'editar'
   | 'excluir'
+  | 'resolver'
   | 'visualizar'
   | 'exportar'
   | 'aprovar'
@@ -27,6 +28,7 @@ export type AuditModule =
   | 'configuracoes'
   | 'marcacoes'
   | 'solicitacoes'
+  | 'pendencias'
   | 'relatorios'
   | 'empresas'
   | 'cargos'
@@ -67,7 +69,8 @@ export type AuditModule =
   | 'prestadores'
   | 'contratos_prestador'
   | 'nfes_prestador'
-  | 'gestao_pessoas';
+  | 'gestao_pessoas'
+  | 'reunioes';
 
 export interface AuditLogParams {
   usuarioId?: number | null;
@@ -116,7 +119,7 @@ export function buildAuditParams(
 export async function registrarAuditoria(params: AuditLogParams): Promise<void> {
   try {
     const result = await query(
-      `INSERT INTO bt_auditoria 
+      `INSERT INTO auditoria 
         (usuario_id, acao, modulo, descricao, ip, user_agent,
          dados_anteriores, dados_novos, metadados,
          entidade_id, entidade_tipo, colaborador_id, colaborador_nome)
@@ -140,7 +143,7 @@ export async function registrarAuditoria(params: AuditLogParams): Promise<void> 
     );
     const id = result.rows[0]?.id;
     if (id != null) {
-      embedTableRowAfterInsert('bt_auditoria', id).catch(() => {});
+      embedTableRowAfterInsert('auditoria', id).catch(() => {});
     }
   } catch (error) {
     console.error('Erro ao registrar auditoria:', error);

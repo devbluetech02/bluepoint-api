@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se anexo existe e pertence ao usuário
       const result = await query(
-        `SELECT * FROM bt_anexos WHERE id = $1`,
+        `SELECT * FROM anexos WHERE id = $1`,
         [anexoId]
       );
 
@@ -38,7 +38,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Verificar se está vinculado a solicitação aprovada/rejeitada
       if (anexo.solicitacao_id) {
         const solicitacaoResult = await query(
-          `SELECT status FROM bt_solicitacoes WHERE id = $1`,
+          `SELECT status FROM solicitacoes WHERE id = $1`,
           [anexo.solicitacao_id]
         );
         
@@ -48,7 +48,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       // Excluir do banco (o arquivo no MinIO pode ser mantido por questões de auditoria)
-      await query(`DELETE FROM bt_anexos WHERE id = $1`, [anexoId]);
+      await query(`DELETE FROM anexos WHERE id = $1`, [anexoId]);
 
       await registrarAuditoria({
         usuarioId: user.userId,

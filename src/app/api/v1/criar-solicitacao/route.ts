@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       let gestorNome: string | null = null;
       if (data.tipo === 'hora_extra' && data.gestorId) {
         const gestorResult = await query(
-          `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo' AND tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')`,
+          `SELECT id, nome FROM people.colaboradores WHERE id = $1 AND status = 'ativo' AND tipo IN ('gestor', 'gerente', 'supervisor', 'coordenador', 'admin')`,
           [data.gestorId]
         );
 
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
         const horaFim = typeof da.horaFim === 'string' ? da.horaFim : null;
         if (horaInicio && horaFim) {
           const dup = await client.query(
-            `SELECT id FROM bt_solicitacoes
+            `SELECT id FROM solicitacoes
              WHERE colaborador_id = $1 AND tipo = 'hora_extra'
                AND status IN ('pendente', 'aprovada')
                AND data_evento = $2::date
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       // Se for hora_extra, cancelar solicitações automáticas pendentes do mesmo colaborador/data
       if (data.tipo === 'hora_extra' && data.dataEvento) {
         const automaticasCanceladas = await client.query(
-          `UPDATE bt_solicitacoes
+          `UPDATE solicitacoes
            SET status = 'cancelada', atualizado_em = NOW()
            WHERE colaborador_id = $1
              AND tipo = 'hora_extra'
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
 
         for (const row of automaticasCanceladas.rows) {
           await client.query(
-            `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
+            `INSERT INTO solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
              VALUES ($1, 'pendente', 'cancelada', $2, 'Cancelada automaticamente: colaborador criou solicitação manual para o mesmo dia')`,
             [row.id, user.userId]
           );
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       const gestorIdValue = data.tipo === 'hora_extra' && data.gestorId ? data.gestorId : null;
 
       const result = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, data_evento_fim, descricao, justificativa, dados_adicionais, gestor_id
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, tipo, status`,
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
 
       // Registrar histórico
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, 'Solicitação criada')`,
         [solicitacao.id, user.userId]
       );
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
       if (data.anexosIds && data.anexosIds.length > 0) {
         for (const anexoId of data.anexosIds) {
           await client.query(
-            `UPDATE bt_anexos SET solicitacao_id = $1 WHERE id = $2 AND colaborador_id = $3`,
+            `UPDATE anexos SET solicitacao_id = $1 WHERE id = $2 AND colaborador_id = $3`,
             [solicitacao.id, anexoId, user.userId]
           );
         }
@@ -135,7 +135,7 @@ export async function POST(request: NextRequest) {
 
       await client.query('COMMIT');
 
-      await embedTableRowAfterInsert('bt_solicitacoes', solicitacao.id);
+      await embedTableRowAfterInsert('solicitacoes', solicitacao.id);
 
       // Calcular e salvar custos de HE (fora da transação - não bloqueia criação)
       const da = dadosAdicionais as Record<string, unknown>;

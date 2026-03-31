@@ -18,7 +18,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `DELETE FROM bluepoint.bt_esportes_inscricoes
+        `DELETE FROM people.esportes_inscricoes
          WHERE sessao_id = $1 AND colaborador_id = $2
          RETURNING id`,
         [sessaoId, user.userId],

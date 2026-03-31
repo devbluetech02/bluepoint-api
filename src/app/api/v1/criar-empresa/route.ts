@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se CNPJ já existe
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_empresas WHERE cnpj = $1`,
+        `SELECT id FROM people.empresas WHERE cnpj = $1`,
         [cnpjLimpo]
       );
 
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_empresas (
+        `INSERT INTO people.empresas (
           razao_social, nome_fantasia, cnpj, celular, cep, estado, cidade, bairro, rua, numero
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, razao_social, nome_fantasia, cnpj`,
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
       const empresa = result.rows[0];
 
       await invalidateEmpresaCache();
-      await embedTableRowAfterInsert('bt_empresas', empresa.id);
+      await embedTableRowAfterInsert('empresas', empresa.id);
 
       await registrarAuditoria({
         usuarioId: user.userId,

@@ -20,6 +20,7 @@ import {
   registrarAtrasoTolerado,
 } from '@/lib/tolerancia-atraso';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { tipoPontoBiometriaSchema } from '@/lib/validation';
 import { z } from 'zod';
 
 const verificarFaceSchema = z.object({
@@ -27,7 +28,7 @@ const verificarFaceSchema = z.object({
   // Campos opcionais para dispositivo autorizado
   dispositivoCodigo: z.string().length(6).toUpperCase().optional(),
   registrarPonto: z.boolean().optional().default(false),
-  tipoPonto: z.enum(['entrada', 'saida', 'almoco', 'retorno']).optional(),
+  tipoPonto: tipoPontoBiometriaSchema,
   latitude: z.number().optional(),
   longitude: z.number().optional(),
 });
@@ -73,7 +74,7 @@ async function validarDispositivo(codigo: string): Promise<{ valido: boolean; di
   const result = await query(
     `SELECT id, nome, status, permite_entrada, permite_saida, 
             requer_foto, requer_geolocalizacao, empresa_id, localizacao_id
-     FROM bluepoint.bt_dispositivos WHERE codigo = $1`,
+     FROM people.dispositivos WHERE codigo = $1`,
     [codigo]
   );
 
@@ -100,7 +101,7 @@ async function detectarTipoPonto(colaboradorId: number): Promise<'entrada' | 'sa
   try {
     // Buscar todas as marcações do colaborador no dia atual
     const result = await query(
-      `SELECT tipo FROM bluepoint.bt_marcacoes 
+      `SELECT tipo FROM people.marcacoes 
        WHERE colaborador_id = $1 
          AND DATE(data_hora) = CURRENT_DATE
        ORDER BY data_hora ASC`,
@@ -151,7 +152,7 @@ async function detectarTipoPonto(colaboradorId: number): Promise<'entrada' | 'sa
 async function contarMarcacoesDia(colaboradorId: number): Promise<number> {
   try {
     const result = await query(
-      `SELECT COUNT(*) FROM bluepoint.bt_marcacoes 
+      `SELECT COUNT(*) FROM people.marcacoes 
        WHERE colaborador_id = $1 
          AND DATE(data_hora) = CURRENT_DATE`,
       [colaboradorId]
@@ -186,7 +187,7 @@ async function registrarPonto(
 
     // Inserir marcação
     const result = await query(
-      `INSERT INTO bluepoint.bt_marcacoes (
+      `INSERT INTO people.marcacoes (
         colaborador_id, data_hora, tipo, latitude, longitude,
         metodo, dispositivo_id, empresa_id, criado_em
       ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', $5, $6, NOW())
@@ -203,7 +204,7 @@ async function registrarPonto(
 
     // Atualizar contador do dispositivo
     await query(
-      `UPDATE bluepoint.bt_dispositivos SET 
+      `UPDATE people.dispositivos SET 
         total_registros = total_registros + 1,
         ultimo_acesso = NOW(),
         ip_ultimo_acesso = $1
@@ -217,11 +218,42 @@ async function registrarPonto(
     await invalidateMarcacaoCache(colaboradorId);
     await cacheDelPattern(`${CACHE_KEYS.ATRASOS_TOLERADOS}*`);
 
-    embedTableRowAfterInsert('bt_marcacoes', marcacaoId).catch(() => {});
+    embedTableRowAfterInsert('marcacoes', marcacaoId).catch(() => {});
 
     return { sucesso: true, marcacaoId, tipo, sequencia };
   } catch (error) {
     console.error('Erro ao registrar ponto:', error);
+    return { sucesso: false, erro: 'Erro ao registrar ponto' };
+  }
+}
+
+/** Marcação por face quando o código de totem não está cadastrado (DEVICE_NOT_FOUND). Ocorrência será integrada depois. */
+async function registrarPontoBiometriaDispositivoNaoAutorizado(
+  colaboradorId: number,
+  empresaId: number | null,
+  tipo: 'entrada' | 'saida' | 'almoco' | 'retorno',
+  latitude?: number,
+  longitude?: number
+): Promise<{ sucesso: boolean; marcacaoId?: number; tipo?: 'entrada' | 'saida' | 'almoco' | 'retorno'; sequencia?: number; erro?: string }> {
+  try {
+    const sequencia = await contarMarcacoesDia(colaboradorId) + 1;
+    const result = await query(
+      `INSERT INTO people.marcacoes (
+        colaborador_id, data_hora, tipo, latitude, longitude,
+        metodo, dispositivo_id, empresa_id, criado_em
+      ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', NULL, $5, NOW())
+      RETURNING id`,
+      [colaboradorId, tipo, latitude ?? null, longitude ?? null, empresaId]
+    );
+
+    const marcacaoId = result.rows[0].id;
+    await invalidateMarcacaoCache(colaboradorId);
+    await cacheDelPattern(`${CACHE_KEYS.ATRASOS_TOLERADOS}*`);
+    embedTableRowAfterInsert('marcacoes', marcacaoId).catch(() => {});
+
+    return { sucesso: true, marcacaoId, tipo, sequencia };
+  } catch (error) {
+    console.error('Erro ao registrar ponto (dispositivo não cadastrado):', error);
     return { sucesso: false, erro: 'Erro ao registrar ponto' };
   }
 }
@@ -276,26 +308,38 @@ export async function POST(request: NextRequest) {
 
     const { imagem, dispositivoCodigo, registrarPonto: deveRegistrarPonto, tipoPonto, latitude, longitude } = validation.data;
 
-    // Se for registrar ponto, validar dispositivo primeiro
+    // Código de dispositivo inexistente (DEVICE_NOT_FOUND) não bloqueia: registra ponto após face + colaborador válido.
+    // Dispositivo inativo/bloqueado continua sendo rejeitado aqui.
     let dispositivo: Dispositivo | undefined;
+    let dispositivoCodigoNaoCadastrado = false;
     if (dispositivoCodigo) {
-      const validacao = await validarDispositivo(dispositivoCodigo);
-      if (!validacao.valido) {
+      const validacaoDisp = await validarDispositivo(dispositivoCodigo);
+      if (!validacaoDisp.valido && validacaoDisp.code !== 'DEVICE_NOT_FOUND') {
         return jsonResponse({
           success: false,
-          error: validacao.erro,
-          code: validacao.code,
+          error: validacaoDisp.erro,
+          code: validacaoDisp.code,
         }, 403, rateLimitHeaders);
       }
-      dispositivo = validacao.dispositivo;
-
-      // Se requer geolocalização, verificar
-      if (dispositivo?.requer_geolocalizacao && (!latitude || !longitude)) {
-        return jsonResponse({
-          success: false,
-          error: 'Este dispositivo requer geolocalização',
-          code: 'GEOLOCATION_REQUIRED',
-        }, 400, rateLimitHeaders);
+      if (validacaoDisp.valido) {
+        const disp = validacaoDisp.dispositivo;
+        if (!disp) {
+          return jsonResponse({
+            success: false,
+            error: 'Estado inconsistente do dispositivo',
+            code: 'DEVICE_INVALID',
+          }, 500, rateLimitHeaders);
+        }
+        dispositivo = disp;
+        if (disp.requer_geolocalizacao && (!latitude || !longitude)) {
+          return jsonResponse({
+            success: false,
+            error: 'Este dispositivo requer geolocalização',
+            code: 'GEOLOCATION_REQUIRED',
+          }, 400, rateLimitHeaders);
+        }
+      } else {
+        dispositivoCodigoNaoCadastrado = true;
       }
     }
 
@@ -344,8 +388,8 @@ export async function POST(request: NextRequest) {
       const encodingsResult = await query(
         `SELECT bf.colaborador_id, bf.external_id, bf.encoding, bf.encodings_extras,
                 bf.encodings_aprendidos, bf.qualidades_aprendidos, bf.total_aprendidos
-         FROM bluepoint.bt_biometria_facial bf
-         LEFT JOIN bluepoint.bt_colaboradores c ON bf.colaborador_id = c.id
+         FROM people.biometria_facial bf
+         LEFT JOIN people.colaboradores c ON bf.colaborador_id = c.id
          WHERE bf.encoding IS NOT NULL
            AND (
              bf.external_id IS NOT NULL 
@@ -565,7 +609,7 @@ export async function POST(request: NextRequest) {
         let bioId: number | null = null;
         if (matchedRecord.colaboradorId) {
           const bioResult = await query(
-            `SELECT id, total_aprendidos FROM bluepoint.bt_biometria_facial WHERE colaborador_id = $1`,
+            `SELECT id, total_aprendidos FROM people.biometria_facial WHERE colaborador_id = $1`,
             [matchedRecord.colaboradorId]
           );
           if (bioResult.rows.length > 0) {
@@ -574,7 +618,7 @@ export async function POST(request: NextRequest) {
         } else if (Object.keys(matchedRecord.externalIds || {}).length > 0) {
           const primeiroPrefixo = Object.keys(matchedRecord.externalIds)[0];
           const bioResult = await query(
-            `SELECT id, total_aprendidos FROM bluepoint.bt_biometria_facial WHERE external_id ? $1`,
+            `SELECT id, total_aprendidos FROM people.biometria_facial WHERE external_id ? $1`,
             [primeiroPrefixo]
           );
           if (bioResult.rows.length > 0) {
@@ -589,7 +633,7 @@ export async function POST(request: NextRequest) {
 
         // Adicionar encoding aprendido
         await query(
-          `UPDATE bluepoint.bt_biometria_facial 
+          `UPDATE people.biometria_facial 
            SET encodings_aprendidos = array_append(encodings_aprendidos, $1),
                qualidades_aprendidos = array_append(qualidades_aprendidos, $2),
                total_aprendidos = total_aprendidos + 1,
@@ -615,7 +659,7 @@ export async function POST(request: NextRequest) {
     
     if (matchedRecord?.colaboradorId) {
       const bioResult = await query(
-        `SELECT colaborador_id, external_id FROM bluepoint.bt_biometria_facial WHERE colaborador_id = $1`,
+        `SELECT colaborador_id, external_id FROM people.biometria_facial WHERE colaborador_id = $1`,
         [matchedRecord.colaboradorId]
       );
       if (bioResult.rows.length > 0) {
@@ -628,7 +672,7 @@ export async function POST(request: NextRequest) {
       // Buscar pelo primeiro external_id encontrado
       const primeiroPrefixo = Object.keys(matchedRecord.externalIds)[0];
       const bioResult = await query(
-        `SELECT colaborador_id, external_id FROM bluepoint.bt_biometria_facial WHERE external_id ? $1`,
+        `SELECT colaborador_id, external_id FROM people.biometria_facial WHERE external_id ? $1`,
         [primeiroPrefixo]
       );
       if (bioResult.rows.length > 0) {
@@ -689,20 +733,20 @@ export async function POST(request: NextRequest) {
     // Se tem colaborador_id, busca dados do colaborador BluePoint
     const colaboradorResult = await query(
       `SELECT 
-        c.id, c.nome, c.email, c.tipo, c.foto_url, c.cargo_id,
+        c.id, c.nome, c.email, c.tipo, c.foto_url, c.cargo_id, c.empresa_id,
         cg.nome as cargo_nome,
         d.nome as departamento_nome
-       FROM bluepoint.bt_colaboradores c
-       LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-       LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-       WHERE c.id = $1`,
+       FROM people.colaboradores c
+       LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+       LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+       WHERE c.id = $1 AND c.status = 'ativo'`,
       [colaboradorIdFinal]
     );
 
     if (colaboradorResult.rows.length === 0) {
       return jsonResponse({
         success: false,
-        error: 'Colaborador não encontrado',
+        error: 'Colaborador não encontrado no banco de dados',
         code: 'COLLABORATOR_NOT_FOUND',
       }, 404, rateLimitHeaders);
     }
@@ -738,7 +782,9 @@ export async function POST(request: NextRequest) {
       mensagem: string;
     } | null = null;
 
-    if (deveRegistrarPonto && dispositivo) {
+    const podeRegistrarPontoBiometria = deveRegistrarPonto && (dispositivo || dispositivoCodigoNaoCadastrado);
+
+    if (podeRegistrarPontoBiometria) {
       let tipoFinal: 'entrada' | 'saida' | 'almoco' | 'retorno';
       let tipoDetectado = false;
 
@@ -819,14 +865,22 @@ export async function POST(request: NextRequest) {
 
       // Se NÃO precisa aprovação, registra ponto normalmente
       if (!atrasoInfo) {
-        const resultadoPonto = await registrarPonto(
-          colaborador.id,
-          tipoFinal,
-          dispositivo,
-          latitude,
-          longitude,
-          clientIp
-        );
+        const resultadoPonto = dispositivo
+          ? await registrarPonto(
+              colaborador.id,
+              tipoFinal,
+              dispositivo,
+              latitude,
+              longitude,
+              clientIp
+            )
+          : await registrarPontoBiometriaDispositivoNaoAutorizado(
+              colaborador.id,
+              colaborador.empresa_id ?? null,
+              tipoFinal,
+              latitude,
+              longitude
+            );
 
         if (resultadoPonto.sucesso) {
           pontoRegistrado = {
@@ -834,8 +888,9 @@ export async function POST(request: NextRequest) {
             tipo: resultadoPonto.tipo,
             tipoDetectadoAutomaticamente: tipoDetectado,
             sequencia: resultadoPonto.sequencia,
-            dispositivoId: dispositivo.id,
-            dispositivoNome: dispositivo.nome,
+            ...(dispositivo
+              ? { dispositivoId: dispositivo.id, dispositivoNome: dispositivo.nome }
+              : { dispositivoNaoAutorizado: true as const }),
             dataHora: new Date().toISOString(),
             toleranciaHoraExtra: null as { consumiuTolerancia: boolean; solicitacaoId?: number; mensagem: string } | null,
             atrasoTolerado: null as { minutos: number; horarioPrevisto: string; horarioTentativa: string; toleranciaDiariaRestante: number } | null,
@@ -929,7 +984,9 @@ export async function POST(request: NextRequest) {
             retorno: 'Retorno do almoço',
             saida: 'Saída',
           };
-          let descricaoLog = `Verificação por face: ${colaborador.nome} registrou ponto (${tipoLabel[resultadoPonto.tipo!]}) no dispositivo ${dispositivo.nome}`;
+          let descricaoLog = dispositivo
+            ? `Verificação por face: ${colaborador.nome} registrou ponto (${tipoLabel[resultadoPonto.tipo!]}) no dispositivo ${dispositivo.nome}`
+            : `Verificação por face: ${colaborador.nome} registrou ponto (${tipoLabel[resultadoPonto.tipo!]}) — código de dispositivo não cadastrado (ponto registrado; ocorrência pendente de integração)`;
           if (pontoRegistrado.atrasoTolerado) {
             descricaoLog += ` - atraso tolerado: ${pontoRegistrado.atrasoTolerado.minutos} min`;
           }
@@ -950,8 +1007,9 @@ export async function POST(request: NextRequest) {
             dadosNovos: {
               marcacaoId: resultadoPonto.marcacaoId,
               tipo: resultadoPonto.tipo,
-              dispositivoId: dispositivo.id,
-              dispositivoNome: dispositivo.nome,
+              ...(dispositivo
+                ? { dispositivoId: dispositivo.id, dispositivoNome: dispositivo.nome }
+                : { dispositivoNaoAutorizado: true }),
               metodo: 'biometria',
               ...(pontoRegistrado.atrasoTolerado && {
                 atrasoTolerado: pontoRegistrado.atrasoTolerado.minutos,
@@ -981,7 +1039,7 @@ export async function POST(request: NextRequest) {
       success: true,
       data: {
         identificado: true,
-        tipo: 'bluepoint',
+        tipo: 'people',
         colaboradorId: colaborador.id,
         externalIds: externalIdsFinal,
         colaborador: {

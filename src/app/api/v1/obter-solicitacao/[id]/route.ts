@@ -32,10 +32,10 @@ export async function GET(request: NextRequest, { params }: Params) {
           a.nome as aprovador_nome,
           g.id as gestor_id,
           g.nome as gestor_nome
-        FROM bt_solicitacoes s
-        JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-        LEFT JOIN bluepoint.bt_colaboradores a ON s.aprovador_id = a.id
-        LEFT JOIN bluepoint.bt_colaboradores g ON s.gestor_id = g.id
+        FROM solicitacoes s
+        JOIN people.colaboradores c ON s.colaborador_id = c.id
+        LEFT JOIN people.colaboradores a ON s.aprovador_id = a.id
+        LEFT JOIN people.colaboradores g ON s.gestor_id = g.id
         WHERE s.id = $1`,
         [solicitacaoId]
       );
@@ -49,7 +49,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar anexos
       const anexosResult = await query(
         `SELECT id, tipo, nome, url, tamanho, data_upload
-         FROM bt_anexos
+         FROM anexos
          WHERE solicitacao_id = $1
          ORDER BY data_upload`,
         [solicitacaoId]
@@ -58,8 +58,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar histórico de status
       const historicoResult = await query(
         `SELECT sh.*, u.nome as usuario_nome
-         FROM bt_solicitacoes_historico sh
-         LEFT JOIN bluepoint.bt_colaboradores u ON sh.usuario_id = u.id
+         FROM solicitacoes_historico sh
+         LEFT JOIN people.colaboradores u ON sh.usuario_id = u.id
          WHERE sh.solicitacao_id = $1
          ORDER BY sh.criado_em`,
         [solicitacaoId]

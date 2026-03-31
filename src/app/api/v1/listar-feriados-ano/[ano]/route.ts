@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Buscar feriados do ano (incluindo recorrentes)
       const result = await query(
         `SELECT id, nome, data, tipo
-         FROM bt_feriados
+         FROM feriados
          WHERE EXTRACT(YEAR FROM data) = $1 
             OR (recorrente = true AND EXTRACT(YEAR FROM data) <= $1)
          ORDER BY EXTRACT(MONTH FROM data), EXTRACT(DAY FROM data)`,

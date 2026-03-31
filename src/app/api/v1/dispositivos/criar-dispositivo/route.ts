@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir dispositivo
       const result = await query(
-        `INSERT INTO bluepoint.bt_dispositivos (
+        `INSERT INTO people.dispositivos (
           codigo, nome, descricao, empresa_id, localizacao_id,
           permite_entrada, permite_saida, requer_foto, requer_geolocalizacao,
           modelo, sistema_operacional, criado_por
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       const dispositivo = result.rows[0];
 
       await invalidateDispositivoCache();
-      await embedTableRowAfterInsert('bt_dispositivos', dispositivo.id);
+      await embedTableRowAfterInsert('dispositivos', dispositivo.id);
 
       // Auditoria
       await registrarAuditoria({

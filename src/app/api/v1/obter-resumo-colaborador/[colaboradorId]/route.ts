@@ -24,8 +24,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       // Verificar colaborador
       const colaboradorResult = await query(
         `SELECT c.id, c.nome, c.email, c.cargo_id, cg.nome as cargo_nome, c.foto_url
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           `SELECT 
             COUNT(DISTINCT DATE(data_hora)) as dias_trabalhados,
             COUNT(*) as total_marcacoes
-          FROM bluepoint.bt_marcacoes
+          FROM people.marcacoes
           WHERE colaborador_id = $1 AND ${intervalo}`,
           [colaboradorId]
         );
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Últimas marcações
         const ultimasMarcacoesResult = await query(
           `SELECT id, data_hora, tipo, metodo
-           FROM bluepoint.bt_marcacoes
+           FROM people.marcacoes
            WHERE colaborador_id = $1
            ORDER BY data_hora DESC
            LIMIT 5`,
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
         // Saldo de banco de horas
         const saldoResult = await query(
-          `SELECT saldo_atual FROM bt_banco_horas
+          `SELECT saldo_atual FROM banco_horas
            WHERE colaborador_id = $1
            ORDER BY criado_em DESC
            LIMIT 1`,
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Próximas férias
         const feriasResult = await query(
           `SELECT data_evento, data_evento_fim, dados_adicionais
-           FROM bt_solicitacoes
+           FROM solicitacoes
            WHERE colaborador_id = $1 
            AND tipo = 'ferias' 
            AND status = 'aprovada'

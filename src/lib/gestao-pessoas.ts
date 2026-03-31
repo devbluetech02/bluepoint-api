@@ -70,7 +70,7 @@ export async function fetchAnexosPorRegistros(registroIds: number[]): Promise<Ma
   const placeholders = registroIds.map((_, i) => `$${i + 1}`).join(',');
   const result = await query(
     `SELECT id, gestao_pessoa_id, nome, tipo, tamanho, url, criado_em
-     FROM bluepoint.bt_gestao_pessoas_anexos
+     FROM people.gestao_pessoas_anexos
      WHERE gestao_pessoa_id IN (${placeholders})
      ORDER BY criado_em`,
     registroIds
@@ -117,7 +117,7 @@ export async function fetchReunioesComParticipantes(registroIds: number[]): Prom
 
   const reunioesResult = await query(
     `SELECT id, gestao_pessoa_id, data, hora, status, observacoes
-     FROM bluepoint.bt_gestao_pessoas_reunioes
+     FROM people.gestao_pessoas_reunioes
      WHERE gestao_pessoa_id IN (${placeholders})`,
     registroIds
   );
@@ -130,10 +130,10 @@ export async function fetchReunioesComParticipantes(registroIds: number[]): Prom
 
   const partResult = await query(
     `SELECT p.reuniao_id, p.colaborador_id, c.nome, cg.nome AS cargo, d.nome AS departamento
-     FROM bluepoint.bt_gestao_pessoas_participantes p
-     JOIN bluepoint.bt_colaboradores c ON p.colaborador_id = c.id
-     LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-     LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+     FROM people.gestao_pessoas_participantes p
+     JOIN people.colaboradores c ON p.colaborador_id = c.id
+     LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+     LEFT JOIN people.departamentos d ON c.departamento_id = d.id
      WHERE p.reuniao_id IN (${pPlaceholders})`,
     reuniaoIds
   );

@@ -40,7 +40,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const existeResult = await query(
-        `SELECT id, nome, descricao, ativo FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `SELECT id, nome, descricao, ativo FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 
@@ -74,7 +74,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(modeloId);
 
       const result = await query(
-        `UPDATE bluepoint.bt_modelos_exportacao SET ${updates.join(', ')} WHERE id = $${paramIndex}
+        `UPDATE people.modelos_exportacao SET ${updates.join(', ')} WHERE id = $${paramIndex}
          RETURNING id, nome, descricao, ativo, atualizado_em`,
         values
       );

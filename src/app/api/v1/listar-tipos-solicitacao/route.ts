@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
       const dados = await cacheAside(cacheKey, async () => {
         const result = await query(
           `SELECT codigo, nome, descricao, requer_anexo, campos_adicionais
-           FROM bt_tipos_solicitacao
+           FROM tipos_solicitacao
            WHERE ativo = true
            ORDER BY nome`
         );

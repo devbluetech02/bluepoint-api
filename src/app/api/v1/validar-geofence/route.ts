@@ -23,14 +23,14 @@ export async function POST(request: NextRequest) {
       if (localizacaoId) {
         // Validar localização específica
         const result = await query(
-          `SELECT * FROM bt_localizacoes WHERE id = $1 AND status = 'ativo'`,
+          `SELECT * FROM localizacoes WHERE id = $1 AND status = 'ativo'`,
           [localizacaoId]
         );
         localizacoes = result.rows;
       } else {
         // Validar todas as localizações ativas
         const result = await query(
-          `SELECT * FROM bt_localizacoes WHERE status = 'ativo'`
+          `SELECT * FROM localizacoes WHERE status = 'ativo'`
         );
         localizacoes = result.rows;
       }

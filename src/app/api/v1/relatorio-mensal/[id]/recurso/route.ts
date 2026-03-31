@@ -20,7 +20,7 @@ const recursoRelatorioSchema = z.object({
 async function gerarProtocolo(client: import('@/lib/db').PoolClient, ano: number): Promise<string> {
   const result = await client.query(
     `SELECT COUNT(*) as total
-     FROM bluepoint.bt_solicitacoes
+     FROM people.solicitacoes
      WHERE tipo = 'recurso_relatorio'
        AND EXTRACT(YEAR FROM data_solicitacao) = $1`,
     [ano]
@@ -53,7 +53,7 @@ export async function POST(
 
       const relatorioResult = await query(
         `SELECT id, colaborador_id, mes, ano, status
-         FROM bluepoint.bt_relatorios_mensais
+         FROM people.relatorios_mensais
          WHERE id = $1`,
         [relatorioId]
       );
@@ -81,7 +81,7 @@ export async function POST(
       const protocolo = await gerarProtocolo(client, anoAtual);
 
       const solicitacaoResult = await client.query(
-        `INSERT INTO bluepoint.bt_solicitacoes (
+        `INSERT INTO people.solicitacoes (
           colaborador_id, tipo, data_evento, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'recurso_relatorio', $2, $3, $4, $5)
         RETURNING id, tipo, status`,
@@ -103,7 +103,7 @@ export async function POST(
       const solicitacao = solicitacaoResult.rows[0];
 
       await client.query(
-        `INSERT INTO bluepoint.bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO people.solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, $3)`,
         [solicitacao.id, user.userId, `Recurso aberto: ${protocolo}`]
       );
@@ -111,14 +111,14 @@ export async function POST(
       if (data.anexos && data.anexos.length > 0) {
         for (const anexoId of data.anexos) {
           await client.query(
-            `UPDATE bluepoint.bt_anexos SET solicitacao_id = $1 WHERE id = $2 AND colaborador_id = $3`,
+            `UPDATE people.anexos SET solicitacao_id = $1 WHERE id = $2 AND colaborador_id = $3`,
             [solicitacao.id, anexoId, data.colaboradorId]
           );
         }
       }
 
       await client.query(
-        `UPDATE bluepoint.bt_relatorios_mensais
+        `UPDATE people.relatorios_mensais
          SET status = 'recurso', atualizado_em = NOW()
          WHERE id = $1`,
         [relatorioId]

@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
       // Buscar senha atual do usuário
       const result = await query(
-        `SELECT senha_hash FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT senha_hash FROM people.colaboradores WHERE id = $1`,
         [user.userId]
       );
 
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
 
       // Atualizar senha
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
         [novaSenhaHash, user.userId]
       );
 

@@ -42,7 +42,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, codigo FROM bluepoint.bt_dispositivos WHERE id = $1`,
+        `SELECT id, nome, codigo FROM people.dispositivos WHERE id = $1`,
         [dispositivoId]
       );
 
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       // Atualizar código
       await query(
-        `UPDATE bluepoint.bt_dispositivos SET codigo = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.dispositivos SET codigo = $1, atualizado_em = NOW() WHERE id = $2`,
         [novoCodigo, dispositivoId]
       );
 

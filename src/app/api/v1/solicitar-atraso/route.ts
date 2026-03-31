@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       // Verificar colaborador
       const colaboradorResult = await query(
         `SELECT c.id, c.nome, c.departamento_id
-         FROM bluepoint.bt_colaboradores c
+         FROM people.colaboradores c
          WHERE c.id = $1 AND c.status = 'ativo'`,
         [data.colaboradorId]
       );
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se já existe solicitação de atraso pendente para hoje
       const solicitacaoPendente = await query(
-        `SELECT id FROM bluepoint.bt_solicitacoes
+        `SELECT id FROM people.solicitacoes
          WHERE colaborador_id = $1
            AND tipo = 'atraso'
            AND status = 'pendente'

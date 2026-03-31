@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se jornada existe
       const jornadaResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_jornadas WHERE id = $1`,
+        `SELECT id, nome FROM people.jornadas WHERE id = $1`,
         [jornadaId]
       );
 
@@ -32,7 +32,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se há colaboradores vinculados
       const colaboradoresResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE jornada_id = $1`,
+        `SELECT COUNT(*) as total FROM people.colaboradores WHERE jornada_id = $1`,
         [jornadaId]
       );
 
@@ -42,7 +42,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Soft delete - marca como inativo e preenche data de exclusão
       await query(
-        `UPDATE bluepoint.bt_jornadas SET status = 'inativo', excluido_em = NOW(), atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE people.jornadas SET status = 'inativo', excluido_em = NOW(), atualizado_em = NOW() WHERE id = $1`,
         [jornadaId]
       );
 

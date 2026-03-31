@@ -37,7 +37,7 @@ export async function POST(
 
       const relatorioResult = await query(
         `SELECT id, colaborador_id, mes, ano, status
-         FROM bluepoint.bt_relatorios_mensais
+         FROM people.relatorios_mensais
          WHERE id = $1`,
         [relatorioId]
       );
@@ -65,14 +65,14 @@ export async function POST(
       await client.query('BEGIN');
 
       await client.query(
-        `UPDATE bluepoint.bt_relatorios_mensais
+        `UPDATE people.relatorios_mensais
          SET status = 'contestado', atualizado_em = NOW()
          WHERE id = $1`,
         [relatorioId]
       );
 
       const solicitacaoResult = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'contestacao', $2, $3, $4, $5)
         RETURNING id`,

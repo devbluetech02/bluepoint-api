@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_cargos WHERE id = $1`,
+        `SELECT id, nome FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -32,7 +32,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se há colaboradores usando este cargo
       const colaboradoresResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores WHERE cargo_id = $1`,
+        `SELECT COUNT(*) as total FROM people.colaboradores WHERE cargo_id = $1`,
         [cargoId]
       );
 
@@ -41,7 +41,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       // Excluir
-      await query(`DELETE FROM bluepoint.bt_cargos WHERE id = $1`, [cargoId]);
+      await query(`DELETE FROM people.cargos WHERE id = $1`, [cargoId]);
 
       await registrarAuditoria({
         usuarioId: user.userId,

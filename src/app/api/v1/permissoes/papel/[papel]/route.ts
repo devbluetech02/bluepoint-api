@@ -49,13 +49,13 @@ export async function GET(
         async () => {
           const todasResult = await query(
             `SELECT id, codigo, nome, descricao, modulo, acao
-             FROM bt_permissoes
+             FROM permissoes
              ORDER BY modulo, acao`
           );
 
           const vinculoResult = await query(
             `SELECT tp.permissao_id, tp.concedido
-             FROM bt_tipo_usuario_permissoes tp
+             FROM tipo_usuario_permissoes tp
              WHERE tp.tipo_usuario = $1`,
             [papel]
           );
@@ -140,7 +140,7 @@ export async function PUT(
 
       for (const p of permissoes) {
         await query(
-          `INSERT INTO bt_tipo_usuario_permissoes (tipo_usuario, permissao_id, concedido, atualizado_em, atualizado_por)
+          `INSERT INTO tipo_usuario_permissoes (tipo_usuario, permissao_id, concedido, atualizado_em, atualizado_por)
            VALUES ($1, $2, $3, NOW(), $4)
            ON CONFLICT (tipo_usuario, permissao_id)
            DO UPDATE SET concedido = $3, atualizado_em = NOW(), atualizado_por = $4`,
@@ -153,8 +153,8 @@ export async function PUT(
 
       const resultado = await query(
         `SELECT p.id, p.codigo, p.nome, p.modulo, p.acao, tp.concedido
-         FROM bt_tipo_usuario_permissoes tp
-         JOIN bt_permissoes p ON tp.permissao_id = p.id
+         FROM tipo_usuario_permissoes tp
+         JOIN permissoes p ON tp.permissao_id = p.id
          WHERE tp.tipo_usuario = $1
          ORDER BY p.modulo, p.acao`,
         [papel]

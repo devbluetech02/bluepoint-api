@@ -32,8 +32,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       // Verificar se existe cadastro
       const existeResult = await query(
         `SELECT bf.id, c.nome 
-         FROM bluepoint.bt_biometria_facial bf
-         JOIN bluepoint.bt_colaboradores c ON bf.colaborador_id = c.id
+         FROM people.biometria_facial bf
+         JOIN people.colaboradores c ON bf.colaborador_id = c.id
          WHERE bf.colaborador_id = $1`,
         [colaboradorId]
       );
@@ -50,13 +50,13 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Remover cadastro
       await query(
-        `DELETE FROM bluepoint.bt_biometria_facial WHERE colaborador_id = $1`,
+        `DELETE FROM people.biometria_facial WHERE colaborador_id = $1`,
         [colaboradorId]
       );
 
       // Atualizar flag no colaborador
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET face_registrada = false, atualizado_em = NOW() WHERE id = $1`,
+        `UPDATE people.colaboradores SET face_registrada = false, atualizado_em = NOW() WHERE id = $1`,
         [colaboradorId]
       );
 

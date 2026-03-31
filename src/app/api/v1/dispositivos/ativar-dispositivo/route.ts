@@ -70,9 +70,9 @@ export async function POST(request: NextRequest) {
         e.id as empresa_id, e.nome_fantasia as empresa_nome,
         l.id as localizacao_id, l.nome as localizacao_nome,
         l.latitude, l.longitude, l.raio_permitido
-      FROM bluepoint.bt_dispositivos d
-      LEFT JOIN bluepoint.bt_empresas e ON d.empresa_id = e.id
-      LEFT JOIN bluepoint.bt_localizacoes l ON d.localizacao_id = l.id
+      FROM people.dispositivos d
+      LEFT JOIN people.empresas e ON d.empresa_id = e.id
+      LEFT JOIN people.localizacoes l ON d.localizacao_id = l.id
       WHERE d.codigo = $1`,
       [codigo]
     );
@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
 
     // Atualizar informações do dispositivo
     await query(
-      `UPDATE bluepoint.bt_dispositivos SET
+      `UPDATE people.dispositivos SET
         modelo = COALESCE($1, modelo),
         sistema_operacional = COALESCE($2, sistema_operacional),
         versao_app = COALESCE($3, versao_app),

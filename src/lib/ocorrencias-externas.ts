@@ -429,7 +429,7 @@ export async function registrarOcorrenciaAtraso(params: {
       if (params.marcacaoId) {
         try {
           await query(
-            `UPDATE bluepoint.bt_marcacoes SET ocorrencia_portal_id = $1 WHERE id = $2`,
+            `UPDATE people.marcacoes SET ocorrencia_portal_id = $1 WHERE id = $2`,
             [data.data.id, params.marcacaoId]
           );
           console.log(
@@ -476,7 +476,7 @@ const MOTIVOS_LABELS: Record<string, string> = {
  * justificativa de atraso enviada pelo colaborador.
  *
  * Usa PATCH /api/external/ocorrencias/:id diretamente no registro
- * já criado (o ID é armazenado em bt_marcacoes.ocorrencia_portal_id
+ * já criado (o ID é armazenado em marcacoes.ocorrencia_portal_id
  * no momento em que a ocorrência é gerada).
  */
 export async function enviarJustificativaAtrasoAoPortal(params: {

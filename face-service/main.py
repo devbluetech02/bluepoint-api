@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     print("[InsightFace] Encerrando...")
 
 
-app = FastAPI(title="BluePoint Face Service", lifespan=lifespan)
+app = FastAPI(title="People Face Service", lifespan=lifespan)
 
 
 # ==========================================

@@ -112,7 +112,7 @@ export async function validarApiKey(
         status, ultimo_uso as "ultimoUso",
         total_requisicoes as "totalRequisicoes",
         criado_em as "criadoEm", expira_em as "expiraEm"
-      FROM bluepoint.bt_api_keys
+      FROM people.api_keys
       WHERE token = $1`,
       [token]
     );
@@ -229,7 +229,7 @@ export async function criarApiKey(dados: {
   const token = gerarApiToken(dados.prefixo);
 
   const result = await query(
-    `INSERT INTO bluepoint.bt_api_keys (
+    `INSERT INTO people.api_keys (
       nome, descricao, token, permissoes, modulos_permitidos,
       rate_limit_por_minuto, rate_limit_por_dia, ips_permitidos,
       empresa_id, criado_por, expira_em
@@ -298,7 +298,7 @@ export async function listarApiKeys(filtros?: {
       status, ultimo_uso as "ultimoUso",
       total_requisicoes as "totalRequisicoes",
       criado_em as "criadoEm", expira_em as "expiraEm"
-    FROM bluepoint.bt_api_keys
+    FROM people.api_keys
     ${whereClause}
     ORDER BY criado_em DESC`,
     params
@@ -323,7 +323,7 @@ export async function obterApiKey(id: number): Promise<Omit<ApiKey, 'token'> | n
       status, ultimo_uso as "ultimoUso",
       total_requisicoes as "totalRequisicoes",
       criado_em as "criadoEm", expira_em as "expiraEm"
-    FROM bluepoint.bt_api_keys
+    FROM people.api_keys
     WHERE id = $1`,
     [id]
   );
@@ -404,12 +404,12 @@ export async function atualizarApiKey(
   params.push(id);
 
   const result = await query(
-    `UPDATE bluepoint.bt_api_keys SET ${sets.join(', ')} WHERE id = $${paramIndex}`,
+    `UPDATE people.api_keys SET ${sets.join(', ')} WHERE id = $${paramIndex}`,
     params
   );
 
   // Invalidar cache
-  const tokenResult = await query('SELECT token FROM bluepoint.bt_api_keys WHERE id = $1', [id]);
+  const tokenResult = await query('SELECT token FROM people.api_keys WHERE id = $1', [id]);
   if (tokenResult.rows[0]) {
     await cacheDel(`${API_KEY_CACHE_PREFIX}${tokenResult.rows[0].token}`);
   }
@@ -422,14 +422,14 @@ export async function atualizarApiKey(
  */
 export async function revogarApiKey(id: number): Promise<boolean> {
   const result = await query(
-    `UPDATE bluepoint.bt_api_keys 
+    `UPDATE people.api_keys 
      SET status = 'revogado', revogado_em = NOW(), atualizado_em = NOW()
      WHERE id = $1`,
     [id]
   );
 
   // Invalidar cache
-  const tokenResult = await query('SELECT token FROM bluepoint.bt_api_keys WHERE id = $1', [id]);
+  const tokenResult = await query('SELECT token FROM people.api_keys WHERE id = $1', [id]);
   if (tokenResult.rows[0]) {
     await cacheDel(`${API_KEY_CACHE_PREFIX}${tokenResult.rows[0].token}`);
   }
@@ -442,7 +442,7 @@ export async function revogarApiKey(id: number): Promise<boolean> {
  */
 export async function regenerarApiToken(id: number): Promise<string | null> {
   // Invalidar cache do token antigo
-  const oldTokenResult = await query('SELECT token FROM bluepoint.bt_api_keys WHERE id = $1', [id]);
+  const oldTokenResult = await query('SELECT token FROM people.api_keys WHERE id = $1', [id]);
   if (oldTokenResult.rows[0]) {
     await cacheDel(`${API_KEY_CACHE_PREFIX}${oldTokenResult.rows[0].token}`);
   }
@@ -450,7 +450,7 @@ export async function regenerarApiToken(id: number): Promise<string | null> {
   const novoToken = gerarApiToken();
 
   const result = await query(
-    `UPDATE bluepoint.bt_api_keys 
+    `UPDATE people.api_keys 
      SET token = $1, atualizado_em = NOW()
      WHERE id = $2 AND status = 'ativo'
      RETURNING id`,
@@ -467,7 +467,7 @@ export async function regenerarApiToken(id: number): Promise<string | null> {
  */
 export async function registrarUsoApiKey(apiKeyId: number): Promise<void> {
   await query(
-    `UPDATE bluepoint.bt_api_keys 
+    `UPDATE people.api_keys 
      SET ultimo_uso = NOW(), total_requisicoes = total_requisicoes + 1
      WHERE id = $1`,
     [apiKeyId]
@@ -487,7 +487,7 @@ export async function registrarLogApiKey(dados: {
   tempoRespostaMs?: number;
 }): Promise<void> {
   await query(
-    `INSERT INTO bluepoint.bt_api_keys_log 
+    `INSERT INTO people.api_keys_log 
      (api_key_id, endpoint, metodo, ip, user_agent, status_code, tempo_resposta_ms)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [

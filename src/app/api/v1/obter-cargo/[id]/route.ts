@@ -24,7 +24,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const result = await query(
         `SELECT id, nome, cbo, descricao, salario_medio, valor_hora_extra_75, created_at, updated_at
-         FROM bluepoint.bt_cargos
+         FROM people.cargos
          WHERE id = $1`,
         [cargoId]
       );

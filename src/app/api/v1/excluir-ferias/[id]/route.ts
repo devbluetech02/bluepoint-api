@@ -20,8 +20,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       const result = await query(
         `SELECT pf.id, pf.colaborador_id, pf.data_inicio, pf.data_fim, c.nome as colaborador_nome
-         FROM bluepoint.bt_periodos_ferias pf
-         JOIN bluepoint.bt_colaboradores c ON pf.colaborador_id = c.id
+         FROM people.periodos_ferias pf
+         JOIN people.colaboradores c ON pf.colaborador_id = c.id
          WHERE pf.id = $1`,
         [feriasId]
       );
@@ -33,7 +33,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const periodo = result.rows[0];
 
       await query(
-        `DELETE FROM bluepoint.bt_periodos_ferias WHERE id = $1`,
+        `DELETE FROM people.periodos_ferias WHERE id = $1`,
         [feriasId]
       );
 

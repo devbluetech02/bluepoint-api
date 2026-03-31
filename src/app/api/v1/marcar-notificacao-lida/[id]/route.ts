@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Verificar se notificação existe e pertence ao usuário
       const result = await query(
-        `SELECT id, lida FROM bt_notificacoes WHERE id = $1 AND usuario_id = $2`,
+        `SELECT id, lida FROM notificacoes WHERE id = $1 AND usuario_id = $2`,
         [notificacaoId, user.userId]
       );
 
@@ -34,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Marcar como lida
       await query(
-        `UPDATE bt_notificacoes SET lida = true, data_leitura = NOW() WHERE id = $1`,
+        `UPDATE notificacoes SET lida = true, data_leitura = NOW() WHERE id = $1`,
         [notificacaoId]
       );
 

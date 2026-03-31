@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     try {
       const result = await query(
         `SELECT c.id, c.nome, c.email, c.cargo_id, cg.nome AS cargo_nome, c.bloqueado_assiduidade
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
+         FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
          WHERE c.bloqueado_assiduidade = TRUE AND c.status = 'ativo'
          ORDER BY c.nome`
       );
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
       }
 
       const exist = await query<{ id: number; nome: string }>(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
       if (exist.rows.length === 0) {
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       }
 
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET bloqueado_assiduidade = $1, atualizado_em = CURRENT_TIMESTAMP WHERE id = $2`,
+        `UPDATE people.colaboradores SET bloqueado_assiduidade = $1, atualizado_em = CURRENT_TIMESTAMP WHERE id = $2`,
         [bloquear, colaboradorId]
       );
 

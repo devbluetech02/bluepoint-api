@@ -27,17 +27,17 @@ export async function GET(request: NextRequest) {
           c.nome,
           d.nome as departamento,
           (
-            SELECT tipo FROM bluepoint.bt_marcacoes 
+            SELECT tipo FROM people.marcacoes 
             WHERE colaborador_id = c.id AND DATE(data_hora) = CURRENT_DATE
             ORDER BY data_hora DESC LIMIT 1
           ) as ultima_marcacao_tipo,
           (
-            SELECT data_hora FROM bluepoint.bt_marcacoes 
+            SELECT data_hora FROM people.marcacoes 
             WHERE colaborador_id = c.id AND DATE(data_hora) = CURRENT_DATE
             ORDER BY data_hora DESC LIMIT 1
           ) as ultima_marcacao_hora
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
+        FROM people.colaboradores c
+        LEFT JOIN departamentos d ON c.departamento_id = d.id
         ${whereClause}
         ORDER BY c.nome`,
         params

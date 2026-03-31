@@ -125,7 +125,7 @@ Para operações internas do BluePoint, use o token JWT do usuário logado (gest
 
 ### Base URL
 ```
-https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria
+https://people-api.bluetechfilms.com.br/api/v1/biometria
 ```
 
 ### Resumo
@@ -248,7 +248,7 @@ X-Response-Time: 1250ms
 ### cURL Exemplo
 
 ```bash
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face \
   -H "Authorization: Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c" \
   -H "Content-Type: application/json" \
   -d '{
@@ -421,12 +421,12 @@ X-RateLimit-Reset: 55
 
 ```bash
 # 1. Primeiro, faça login para obter o token
-TOKEN=$(curl -s -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/autenticar \
+TOKEN=$(curl -s -X POST https://people-api.bluetechfilms.com.br/api/v1/autenticar \
   -H "Content-Type: application/json" \
   -d '{"email": "admin@empresa.com", "senha": "Admin@123"}' | jq -r '.token')
 
 # 2. Use o token para cadastrar a face
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face-cpf \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/cadastrar-face-cpf \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -476,7 +476,7 @@ curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/cadastr
 
 ```dart
 class BiometriaAdminService {
-  static const String _baseUrl = 'https://bluepoint-api.bluetechfilms.com.br/api/v1';
+  static const String _baseUrl = 'https://people-api.bluetechfilms.com.br/api/v1';
   
   String? _token;
 
@@ -598,7 +598,7 @@ Content-Type: application/json
   "success": true,
   "data": {
     "identificado": true,
-    "tipo": "bluepoint",
+    "tipo": "people",
     "colaboradorId": 1,
     "externalIds": { "portal": "918" },
     "colaborador": {
@@ -644,7 +644,7 @@ Content-Type: application/json
 ### cURL Exemplo
 
 ```bash
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/verificar-face \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/verificar-face \
   -H "Content-Type: application/json" \
   -d '{
     "imagem": "data:image/jpeg;base64,/9j/4AAQ..."
@@ -723,7 +723,7 @@ Content-Type: application/json
 ### cURL Exemplo
 
 ```bash
-curl -X POST https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/salvar-foto-reconhecimento \
+curl -X POST https://people-api.bluetechfilms.com.br/api/v1/biometria/salvar-foto-reconhecimento \
   -H "Authorization: Bearer eyJ..." \
   -H "Content-Type: application/json" \
   -d '{
@@ -815,7 +815,7 @@ Token de API: `Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c`
 ### cURL Exemplo
 
 ```bash
-curl -X GET https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/status-externo/user_123 \
+curl -X GET https://people-api.bluetechfilms.com.br/api/v1/biometria/status-externo/user_123 \
   -H "Authorization: Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c"
 ```
 
@@ -872,7 +872,7 @@ Token de API: `Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c`
 ### cURL Exemplo
 
 ```bash
-curl -X DELETE https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/remover-face-externa \
+curl -X DELETE https://people-api.bluetechfilms.com.br/api/v1/biometria/remover-face-externa \
   -H "Authorization: Bearer bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c" \
   -H "Content-Type: application/json" \
   -d '{"externalId": "user_123"}'
@@ -882,12 +882,12 @@ curl -X DELETE https://bluepoint-api.bluetechfilms.com.br/api/v1/biometria/remov
 
 ## Estrutura do Banco de Dados
 
-### Tabela `bt_biometria_facial`
+### Tabela `biometria_facial`
 
 ```sql
-CREATE TABLE bluepoint.bt_biometria_facial (
+CREATE TABLE people.biometria_facial (
     id SERIAL PRIMARY KEY,
-    colaborador_id INTEGER REFERENCES bluepoint.bt_colaboradores(id),  -- NULL para externos puros
+    colaborador_id INTEGER REFERENCES people.colaboradores(id),  -- NULL para externos puros
     external_id JSONB DEFAULT '{}'::jsonb,  -- Múltiplos sistemas: {"portal": "918", "vendas": "119"}
     encoding BYTEA,                          -- Dados do encoding facial (128 floats)
     qualidade DECIMAL(3,2),                  -- 0.00 a 1.00
@@ -903,7 +903,7 @@ CREATE TABLE bluepoint.bt_biometria_facial (
 );
 
 -- Índice GIN para busca eficiente no JSONB
-CREATE INDEX idx_biometria_external_id_gin ON bluepoint.bt_biometria_facial USING GIN (external_id);
+CREATE INDEX idx_biometria_external_id_gin ON people.biometria_facial USING GIN (external_id);
 ```
 
 ### Formato do `external_id` (JSONB)
@@ -924,26 +924,26 @@ O campo `external_id` armazena um objeto JSON onde:
 
 ```sql
 -- Buscar por sistema + ID específico
-SELECT * FROM bluepoint.bt_biometria_facial 
+SELECT * FROM people.biometria_facial 
 WHERE external_id ->> 'portal' = '918';
 
 -- Buscar todos que têm vínculo com sistema "vendas"
-SELECT * FROM bluepoint.bt_biometria_facial 
+SELECT * FROM people.biometria_facial 
 WHERE external_id ? 'vendas';
 
 -- Adicionar novo external_id (SEM apagar os existentes)
-UPDATE bluepoint.bt_biometria_facial 
+UPDATE people.biometria_facial 
 SET external_id = external_id || '{"vendas": "119"}'::jsonb 
 WHERE id = 5;
 
 -- Remover vínculo de um sistema específico
-UPDATE bluepoint.bt_biometria_facial 
+UPDATE people.biometria_facial 
 SET external_id = external_id - 'portal' 
 WHERE id = 5;
 
 -- Listar todos os sistemas vinculados
 SELECT id, jsonb_object_keys(external_id) as sistema 
-FROM bluepoint.bt_biometria_facial WHERE id = 5;
+FROM people.biometria_facial WHERE id = 5;
 ```
 
 ---
@@ -1098,7 +1098,7 @@ async function verificarFaceMultiSistema(imagemBase64: string) {
 ### Exemplo JavaScript/TypeScript - Uso Básico
 
 ```typescript
-const BLUEPOINT_API = 'https://bluepoint-api.bluetechfilms.com.br/api/v1';
+const BLUEPOINT_API = 'https://people-api.bluetechfilms.com.br/api/v1';
 const API_TOKEN = 'bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c';
 
 /**
@@ -1219,7 +1219,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 
-const String BLUEPOINT_API = 'https://bluepoint-api.bluetechfilms.com.br/api/v1';
+const String BLUEPOINT_API = 'https://people-api.bluetechfilms.com.br/api/v1';
 const String API_TOKEN = 'bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c';
 
 class BiometriaService {
@@ -1329,7 +1329,7 @@ import requests
 import base64
 from typing import Optional, Dict, Any
 
-BLUEPOINT_API = "https://bluepoint-api.bluetechfilms.com.br/api/v1"
+BLUEPOINT_API = "https://people-api.bluetechfilms.com.br/api/v1"
 API_TOKEN = "bp_bio_9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c"
 
 def imagem_para_base64(caminho_imagem: str) -> str:
@@ -1563,7 +1563,7 @@ USUÁRIO QUER FAZER LOGIN POR FACE
 ```typescript
 // config.ts
 export const MEU_PREFIXO = 'portal';  // Defina o prefixo do SEU sistema
-export const BLUEPOINT_API = 'https://bluepoint-api.bluetechfilms.com.br/api/v1';
+export const BLUEPOINT_API = 'https://people-api.bluetechfilms.com.br/api/v1';
 export const API_TOKEN = 'bp_bio_...';  // Seu token real
 
 // biometria.service.ts
@@ -1809,7 +1809,7 @@ Em caso de dúvidas ou problemas:
 - Novos endpoints: `/status-externo/{externalId}`, `/remover-face-externa`
 - Headers padronizados: `X-Request-ID`, `X-RateLimit-*`, `X-Response-Time`
 - Códigos de erro consistentes (`FACE_NOT_DETECTED`, `LOW_QUALITY`, etc.)
-- Suporte a `externalId` direto na tabela `bt_biometria_facial`
+- Suporte a `externalId` direto na tabela `biometria_facial`
 - Invalidação automática do cache ao cadastrar/remover faces
 
 ### v1.0.0 (2026-01-27)

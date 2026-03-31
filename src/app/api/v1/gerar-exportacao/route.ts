@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
       const ref2 = formatDDMMAA(dataFim);
 
       const modeloResult = await query(
-        `SELECT id, nome, ativo FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `SELECT id, nome, ativo FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest) {
       }
 
       const codigosResult = await query(
-        `SELECT codigo, descricao FROM bluepoint.bt_codigos_exportacao
+        `SELECT codigo, descricao FROM people.codigos_exportacao
          WHERE modelo_id = $1 ORDER BY id`,
         [modeloId]
       );
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
       }
 
       const empresaResult = await query(
-        `SELECT id, codigo_alterdata, cnpj FROM bluepoint.bt_empresas WHERE id = $1`,
+        `SELECT id, codigo_alterdata, cnpj FROM people.empresas WHERE id = $1`,
         [empresaId]
       );
       if (empresaResult.rows.length === 0) {
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
 
       const colaboradoresResult = await query(
         `SELECT c.id, c.nome, c.pis, c.departamento_id
-         FROM bluepoint.bt_colaboradores c
+         FROM people.colaboradores c
          WHERE ${colabConditions.join(' AND ')}
          ORDER BY c.nome`,
         colabParams
@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
 
       const marcacoesResult = await query(
         `SELECT m.colaborador_id, DATE(m.data_hora) as data, m.data_hora
-         FROM bluepoint.bt_marcacoes m
+         FROM people.marcacoes m
          WHERE m.colaborador_id = ANY($1)
            AND m.data_hora >= $2
            AND m.data_hora <= $3::date + interval '1 day'
@@ -246,15 +246,15 @@ export async function POST(request: NextRequest) {
       );
 
       const feriadosResult = await query(
-        `SELECT data FROM bluepoint.bt_feriados WHERE data >= $1 AND data <= $2`,
+        `SELECT data FROM people.feriados WHERE data >= $1 AND data <= $2`,
         [dataInicio, dataFim]
       );
       const feriadoSet = new Set(feriadosResult.rows.map(f => String(f.data).substring(0, 10)));
 
       const jornadasResult = await query(
         `SELECT c.id as colaborador_id, j.carga_horaria_semanal
-         FROM bluepoint.bt_colaboradores c
-         JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
+         FROM people.colaboradores c
+         JOIN people.jornadas j ON c.jornada_id = j.id
          WHERE c.id = ANY($1)`,
         [colabIds]
       );

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       const colaboradorResult = await query(
         `SELECT c.id, c.nome, c.jornada_id, c.empresa_id,
                 c.permite_ponto_mobile, c.permite_ponto_qualquer_empresa
-         FROM bluepoint.bt_colaboradores c
+         FROM people.colaboradores c
          WHERE c.id = $1 AND c.status = 'ativo'`,
         [data.colaboradorId]
       );
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
 
       // Registrar ponto normalmente
       const result = await query(
-        `INSERT INTO bluepoint.bt_marcacoes (
+        `INSERT INTO people.marcacoes (
           colaborador_id, empresa_id, data_hora, tipo, latitude, longitude, metodo, foto_url
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, data_hora`,
@@ -176,7 +176,7 @@ export async function POST(request: NextRequest) {
       );
 
       const marcacao = result.rows[0];
-      embedTableRowAfterInsert('bt_marcacoes', marcacao.id).catch(() => {});
+      embedTableRowAfterInsert('marcacoes', marcacao.id).catch(() => {});
 
       // Se houve atraso tolerado, registrar no controle interno
       if (analise.atrasado && analise.registrarNormalmente && analise.atrasoMinutos > 0) {

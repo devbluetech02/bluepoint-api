@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       const result = await query(
         `SELECT id, nome, caminho_storage
-         FROM bluepoint.bt_gestao_pessoas_anexos
+         FROM people.gestao_pessoas_anexos
          WHERE id = $1 AND gestao_pessoa_id = $2`,
         [anexoIdNum, registroId]
       );
@@ -35,7 +35,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       await deletarArquivo(anexo.caminho_storage).catch(() => {});
 
       await query(
-        `DELETE FROM bluepoint.bt_gestao_pessoas_anexos WHERE id = $1`,
+        `DELETE FROM people.gestao_pessoas_anexos WHERE id = $1`,
         [anexoIdNum]
       );
 

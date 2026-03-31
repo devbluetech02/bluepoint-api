@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bluepoint.bt_periodos_ferias pf ${whereClause}`,
+        `SELECT COUNT(*) as total FROM people.periodos_ferias pf ${whereClause}`,
         params
       );
       const total = parseInt(countResult.rows[0].total);
@@ -64,9 +64,9 @@ export async function GET(request: NextRequest) {
           d.nome as designado_por_nome,
           pf.criado_em,
           (pf.data_fim::date - pf.data_inicio::date + 1) as dias
-        FROM bluepoint.bt_periodos_ferias pf
-        JOIN bluepoint.bt_colaboradores c ON pf.colaborador_id = c.id
-        LEFT JOIN bluepoint.bt_colaboradores d ON pf.designado_por = d.id
+        FROM people.periodos_ferias pf
+        JOIN people.colaboradores c ON pf.colaborador_id = c.id
+        LEFT JOIN people.colaboradores d ON pf.designado_por = d.id
         ${whereClause}
         ORDER BY pf.data_inicio DESC
         LIMIT $${pi} OFFSET $${pi + 1}`,

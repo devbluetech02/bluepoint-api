@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       const result = await query(
-        `INSERT INTO bt_feriados (nome, data, tipo, recorrente, abrangencia, descricao)
+        `INSERT INTO feriados (nome, data, tipo, recorrente, abrangencia, descricao)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, nome`,
         [data.nome, data.data, data.tipo, data.recorrente, data.abrangencia || null, data.descricao || null]
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       const feriado = result.rows[0];
 
       await invalidateFeriadoCache();
-      await embedTableRowAfterInsert('bt_feriados', feriado.id);
+      await embedTableRowAfterInsert('feriados', feriado.id);
 
       await registrarAuditoria({
         usuarioId: user.userId,

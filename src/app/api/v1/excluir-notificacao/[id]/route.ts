@@ -20,7 +20,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       // Verificar se notificação existe e pertence ao usuário
       const result = await query(
-        `SELECT id FROM bt_notificacoes WHERE id = $1 AND usuario_id = $2`,
+        `SELECT id FROM notificacoes WHERE id = $1 AND usuario_id = $2`,
         [notificacaoId, user.userId]
       );
 
@@ -29,7 +29,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       // Excluir
-      await query(`DELETE FROM bt_notificacoes WHERE id = $1`, [notificacaoId]);
+      await query(`DELETE FROM notificacoes WHERE id = $1`, [notificacaoId]);
 
       await registrarAuditoria({
         usuarioId: user.userId,

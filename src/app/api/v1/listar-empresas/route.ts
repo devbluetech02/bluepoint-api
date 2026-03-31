@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bluepoint.bt_empresas ${whereClause}`,
+          `SELECT COUNT(*) as total FROM people.empresas ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
             numero,
             created_at,
             updated_at
-          FROM bluepoint.bt_empresas
+          FROM people.empresas
           ${whereClause}
           ORDER BY nome_fantasia ASC
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

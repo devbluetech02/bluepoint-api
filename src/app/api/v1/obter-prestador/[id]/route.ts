@@ -35,7 +35,7 @@ export async function GET(request: NextRequest, { params }: Params) {
             p.observacoes,
             p.criado_em,
             p.atualizado_em
-          FROM bluepoint.bt_prestadores p
+          FROM people.prestadores p
           WHERE p.id = $1`,
           [prestadorId]
         );

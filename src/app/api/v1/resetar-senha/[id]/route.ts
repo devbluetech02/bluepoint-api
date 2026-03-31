@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const result = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       // Atualizar senha
       await query(
-        `UPDATE bluepoint.bt_colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
         [novaSenhaHash, colaboradorId]
       );
 

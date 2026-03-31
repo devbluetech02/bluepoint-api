@@ -19,7 +19,7 @@ export function validarPosicao(valor: unknown): valor is PosicaoEsporte {
 export async function buscarParametrosEsportes(): Promise<ParametrosEsportes> {
   const result = await query(
     `SELECT id, dia_semana, hora_inicio::text AS hora_inicio, total_jogadores, horas_jogo, local, ativo
-     FROM bluepoint.bt_parametros_esportes
+     FROM people.parametros_esportes
      ORDER BY id DESC
      LIMIT 1`,
   );
@@ -63,7 +63,7 @@ export async function calcularProximaDataSessao(diaSemana: number): Promise<{ pr
 
 export async function obterOuCriarSessaoPorData(dataSessao: string, parametros: ParametrosEsportes): Promise<number> {
   const insertResult = await query(
-    `INSERT INTO bluepoint.bt_esportes_sessoes (data_sessao, hora_inicio, horas_jogo, local, total_vagas)
+    `INSERT INTO people.esportes_sessoes (data_sessao, hora_inicio, horas_jogo, local, total_vagas)
      VALUES ($1, $2::time, $3, $4, $5)
      ON CONFLICT (data_sessao) DO NOTHING
      RETURNING id`,
@@ -75,7 +75,7 @@ export async function obterOuCriarSessaoPorData(dataSessao: string, parametros: 
   }
 
   const sessaoResult = await query(
-    `SELECT id FROM bluepoint.bt_esportes_sessoes WHERE data_sessao = $1 LIMIT 1`,
+    `SELECT id FROM people.esportes_sessoes WHERE data_sessao = $1 LIMIT 1`,
     [dataSessao],
   );
 

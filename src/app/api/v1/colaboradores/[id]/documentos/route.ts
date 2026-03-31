@@ -21,7 +21,7 @@ interface Params {
 /**
  * POST /api/v1/colaboradores/:id/documentos
  * FormData: tipoDocumentoId (number), arquivo (File), dataValidade (optional, YYYY-MM-DD)
- * Faz upload do arquivo para o MinIO e grava registro em bt_documentos_colaborador.
+ * Faz upload do arquivo para o MinIO e grava registro em documentos_colaborador.
  */
 export async function POST(request: NextRequest, { params }: Params) {
   return withGestor(request, async (req, user) => {
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const colabResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -57,8 +57,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const tipoResult = await query(
-        `SELECT id, codigo, nome_exibicao, validade_meses
-         FROM bluepoint.bt_tipos_documento_colaborador
+        `SELECT id, codigo, nome_exibicao, validade_meses, categoria
+         FROM people.tipos_documento_colaborador
          WHERE id = $1`,
         [tipoDocumentoId]
       );
@@ -69,6 +69,14 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       const codigoTipo = tipoResult.rows[0].codigo as string;
       const validadeMeses = tipoResult.rows[0].validade_meses as number | null;
+      const categoriaTipo = tipoResult.rows[0].categoria as string;
+
+      if (categoriaTipo !== 'operacional') {
+        return errorResponse(
+          'Este endpoint aceita apenas tipos de documento da categoria "operacional"',
+          400
+        );
+      }
 
       if (arquivo.size > MAX_FILE_SIZE) {
         return errorResponse('Arquivo muito grande. Máximo 15 MB.', 400);
@@ -107,7 +115,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       );
 
       const insertResult = await query(
-        `INSERT INTO bluepoint.bt_documentos_colaborador
+        `INSERT INTO people.documentos_colaborador
          (colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho, data_validade)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING id, colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho, data_upload, data_validade`,

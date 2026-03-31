@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       const prestadorResult = await query(
-        `SELECT id, nome_fantasia FROM bluepoint.bt_prestadores WHERE id = $1`,
+        `SELECT id, nome_fantasia FROM people.prestadores WHERE id = $1`,
         [data.prestadorId]
       );
 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_contratos_prestador (
+        `INSERT INTO people.contratos_prestador (
           prestador_id, numero, descricao, data_inicio, data_fim,
           valor, forma_pagamento, status, alerta_renovacao_dias, observacoes, arquivo_url
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)

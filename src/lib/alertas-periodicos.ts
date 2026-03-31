@@ -36,7 +36,7 @@ interface Alerta {
 
 async function salvarAlerta(a: Alerta): Promise<void> {
   await query(
-    'INSERT INTO bluepoint.bt_alertas_inteligentes (empresa_id,categoria,severidade,titulo,mensagem,dados,origem) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+    'INSERT INTO people.alertas_inteligentes (empresa_id,categoria,severidade,titulo,mensagem,dados,origem) VALUES ($1,$2,$3,$4,$5,$6,$7)',
     [a.empresaId, a.categoria, a.severidade, a.titulo, a.mensagem, JSON.stringify(a.dados), a.origem]
   );
 }
@@ -81,7 +81,7 @@ async function notificarAdmins(alertas: Alerta[]): Promise<void> {
   if (paraNotificar.length === 0) return;
 
   const admins = await query(
-    "SELECT id, email, nome FROM bluepoint.bt_colaboradores WHERE tipo = 'admin' AND status = 'ativo'"
+    "SELECT id, email, nome FROM people.colaboradores WHERE tipo = 'admin' AND status = 'ativo'"
   );
 
   const criticos = paraNotificar.filter(a => a.severidade === 'critico');
@@ -125,7 +125,7 @@ async function notificarAdmins(alertas: Alerta[]): Promise<void> {
 }
 
 async function analisarEmpresas(): Promise<Alerta[]> {
-  const empresas = await query('SELECT id, nome_fantasia FROM bluepoint.bt_empresas ORDER BY nome_fantasia');
+  const empresas = await query('SELECT id, nome_fantasia FROM people.empresas ORDER BY nome_fantasia');
   const alertas: Alerta[] = [];
 
   for (const emp of empresas.rows) {
@@ -133,12 +133,12 @@ async function analisarEmpresas(): Promise<Alerta[]> {
     const nome = emp.nome_fantasia;
 
     const [totRes, presRes, atrasoRes, heRes, limRes, pendRes] = await Promise.all([
-      query("SELECT COUNT(*) as t FROM bluepoint.bt_colaboradores WHERE empresa_id = $1 AND status = 'ativo'", [eid]),
-      query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM bluepoint.bt_marcacoes m JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [eid]),
-      query("SELECT COUNT(DISTINCT s.colaborador_id) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = 'atraso' AND DATE(s.data_evento) = CURRENT_DATE", [eid]),
-      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM bluepoint.bt_banco_horas bh JOIN bluepoint.bt_colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [eid]),
-      query('SELECT limite_mensal FROM bluepoint.bt_limites_he_empresas WHERE empresa_id = $1', [eid]),
-      query("SELECT COUNT(*) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = 'pendente'", [eid]),
+      query("SELECT COUNT(*) as t FROM people.colaboradores WHERE empresa_id = $1 AND status = 'ativo'", [eid]),
+      query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM people.marcacoes m JOIN people.colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [eid]),
+      query("SELECT COUNT(DISTINCT s.colaborador_id) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = 'atraso' AND DATE(s.data_evento) = CURRENT_DATE", [eid]),
+      query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM people.banco_horas bh JOIN people.colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [eid]),
+      query('SELECT limite_mensal FROM people.limites_he_empresas WHERE empresa_id = $1', [eid]),
+      query("SELECT COUNT(*) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = 'pendente'", [eid]),
     ]);
 
     const total = parseInt(totRes.rows[0]?.t || '0');
@@ -203,16 +203,16 @@ async function analisarComGemini(): Promise<Alerta[]> {
   await cacheSet(cooldownKey, true, GEMINI_COOLDOWN);
 
   try {
-    const empresas = await query('SELECT id, nome_fantasia FROM bluepoint.bt_empresas');
+    const empresas = await query('SELECT id, nome_fantasia FROM people.empresas');
     const resumos = [];
 
     for (const emp of empresas.rows) {
       const [t, p, a, he, pend] = await Promise.all([
-        query("SELECT COUNT(*) as t FROM bluepoint.bt_colaboradores WHERE empresa_id = $1 AND status = 'ativo'", [emp.id]),
-        query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM bluepoint.bt_marcacoes m JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [emp.id]),
-        query("SELECT COUNT(DISTINCT s.colaborador_id) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = 'atraso' AND DATE(s.data_evento) = CURRENT_DATE", [emp.id]),
-        query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM bluepoint.bt_banco_horas bh JOIN bluepoint.bt_colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [emp.id]),
-        query("SELECT COUNT(*) as t FROM bluepoint.bt_solicitacoes s JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = 'pendente'", [emp.id]),
+        query("SELECT COUNT(*) as t FROM people.colaboradores WHERE empresa_id = $1 AND status = 'ativo'", [emp.id]),
+        query('SELECT COUNT(DISTINCT m.colaborador_id) as t FROM people.marcacoes m JOIN people.colaboradores c ON m.colaborador_id = c.id WHERE c.empresa_id = $1 AND DATE(m.data_hora) = CURRENT_DATE', [emp.id]),
+        query("SELECT COUNT(DISTINCT s.colaborador_id) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.tipo = 'atraso' AND DATE(s.data_evento) = CURRENT_DATE", [emp.id]),
+        query('SELECT COALESCE(SUM(CASE WHEN bh.horas > 0 THEN bh.horas ELSE 0 END), 0) as t FROM people.banco_horas bh JOIN people.colaboradores c ON bh.colaborador_id = c.id WHERE c.empresa_id = $1 AND EXTRACT(MONTH FROM bh.data) = EXTRACT(MONTH FROM CURRENT_DATE) AND EXTRACT(YEAR FROM bh.data) = EXTRACT(YEAR FROM CURRENT_DATE)', [emp.id]),
+        query("SELECT COUNT(*) as t FROM people.solicitacoes s JOIN people.colaboradores c ON s.colaborador_id = c.id WHERE c.empresa_id = $1 AND s.status = 'pendente'", [emp.id]),
       ]);
       const tot = parseInt(t.rows[0].t);
       if (tot === 0) continue;
@@ -243,7 +243,7 @@ async function analisarComGemini(): Promise<Alerta[]> {
     const insights: Array<{ empresa: string | null; categoria: string; severidade: 'info' | 'atencao' | 'critico'; titulo: string; mensagem: string }> = JSON.parse(text);
     if (!Array.isArray(insights)) return [];
 
-    const empresasMap = await query('SELECT id, nome_fantasia FROM bluepoint.bt_empresas');
+    const empresasMap = await query('SELECT id, nome_fantasia FROM people.empresas');
     return insights.map(i => ({
       empresaId: empresasMap.rows.find((e) => (e as Record<string, unknown>).nome_fantasia === i.empresa)?.id ?? null,
       categoria: i.categoria || 'geral',

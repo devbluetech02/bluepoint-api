@@ -38,11 +38,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       const cacheKey = `${CACHE_KEYS.CUSTO_HORAS_EXTRAS}${solicitacaoId}`;
 
       const custos = await cacheAside(cacheKey, async () => {
-        // 1. Buscar custos pré-calculados (tabela bt_custo_horas_extras)
+        // 1. Buscar custos pré-calculados (tabela custo_horas_extras)
         const result = await query(
           `SELECT horas_extras, valor_he_base, valor_dsr, valor_13, valor_ferias,
                   um_terco_ferias, valor_fgts, valor_inss, custo_dia, custo_mes, custo_ano
-           FROM bluepoint.bt_custo_horas_extras
+           FROM people.custo_horas_extras
            WHERE solicitacao_id = $1 OR solicitacao_original_id = $1
            LIMIT 1`,
           [solicitacaoId]
@@ -52,9 +52,9 @@ export async function GET(request: NextRequest, { params }: Params) {
           return parseCustoRow(result.rows[0]);
         }
 
-        // 2. Fallback: calcular a partir de bt_solicitacoes (sistema geral)
+        // 2. Fallback: calcular a partir de solicitacoes (sistema geral)
         const solResult = await query(
-          `SELECT colaborador_id, dados_adicionais FROM bluepoint.bt_solicitacoes
+          `SELECT colaborador_id, dados_adicionais FROM people.solicitacoes
            WHERE id = $1 AND tipo = 'hora_extra'`,
           [solicitacaoId]
         );

@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo'`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1 AND status = 'ativo'`,
         [data.colaboradorId]
       );
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir marcação manual
       const result = await query(
-        `INSERT INTO bluepoint.bt_marcacoes (
+        `INSERT INTO people.marcacoes (
           colaborador_id, empresa_id, data_hora, tipo, observacao, justificativa, criado_por
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING id, data_hora, tipo`,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
       const marcacao = result.rows[0];
 
       await invalidateMarcacaoCache(data.colaboradorId);
-      await embedTableRowAfterInsert('bt_marcacoes', marcacao.id);
+      await embedTableRowAfterInsert('marcacoes', marcacao.id);
 
       // Registrar auditoria
       await registrarAuditoria({

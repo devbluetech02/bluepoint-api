@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       const result = await query(
-        `INSERT INTO bt_departamentos (nome, descricao, gestor_id)
+        `INSERT INTO departamentos (nome, descricao, gestor_id)
          VALUES ($1, $2, $3)
          RETURNING id, nome`,
         [data.nome, data.descricao || null, data.gestorId || null]
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       // Invalidar cache
       await invalidateDepartamentoCache();
 
-      await embedTableRowAfterInsert('bt_departamentos', departamento.id);
+      await embedTableRowAfterInsert('departamentos', departamento.id);
 
       // Registrar auditoria
       await registrarAuditoria({

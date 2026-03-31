@@ -1,4 +1,4 @@
-CREATE TABLE bluepoint.bt_modelos_exportacao (
+CREATE TABLE people.modelos_exportacao (
   id SERIAL PRIMARY KEY,
   nome VARCHAR(255) NOT NULL,
   descricao TEXT,
@@ -7,9 +7,9 @@ CREATE TABLE bluepoint.bt_modelos_exportacao (
   atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE bluepoint.bt_codigos_exportacao (
+CREATE TABLE people.codigos_exportacao (
   id SERIAL PRIMARY KEY,
-  modelo_id INTEGER NOT NULL REFERENCES bluepoint.bt_modelos_exportacao(id) ON DELETE CASCADE,
+  modelo_id INTEGER NOT NULL REFERENCES people.modelos_exportacao(id) ON DELETE CASCADE,
   codigo VARCHAR(10) NOT NULL,
   descricao TEXT,
   status_arquivo VARCHAR(20) NOT NULL DEFAULT 'valido',
@@ -18,5 +18,5 @@ CREATE TABLE bluepoint.bt_codigos_exportacao (
   atualizado_em TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_codigos_exportacao_modelo_id ON bluepoint.bt_codigos_exportacao(modelo_id);
-CREATE INDEX idx_modelos_exportacao_ativo ON bluepoint.bt_modelos_exportacao(ativo);
+CREATE INDEX idx_codigos_exportacao_modelo_id ON people.codigos_exportacao(modelo_id);
+CREATE INDEX idx_modelos_exportacao_ativo ON people.modelos_exportacao(ativo);

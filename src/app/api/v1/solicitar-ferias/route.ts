@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
       // Criar solicitação
       const result = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, data_evento_fim, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'ferias', $2, $3, $4, $5, $6)
         RETURNING id`,
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
       // Registrar histórico
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, 'Solicitação de férias criada')`,
         [solicitacaoId, user.userId]
       );
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
       // Buscar saldo disponível (simplificado - em produção seria mais complexo)
       const colaboradorResult = await query(
-        `SELECT data_admissao FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT data_admissao FROM people.colaboradores WHERE id = $1`,
         [user.userId]
       );
       

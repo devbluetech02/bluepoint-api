@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT nome, url, tipo FROM bt_anexos WHERE id = $1`,
+        `SELECT nome, url, tipo FROM anexos WHERE id = $1`,
         [anexoId]
       );
 

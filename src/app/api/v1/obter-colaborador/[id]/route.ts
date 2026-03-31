@@ -33,11 +33,11 @@ export async function GET(request: NextRequest, { params }: Params) {
           e.cnpj as empresa_cnpj,
           e.estado as empresa_estado,
           e.cidade as empresa_cidade
-        FROM bluepoint.bt_colaboradores c
-        LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-        LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-        LEFT JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
-        LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+        FROM people.colaboradores c
+        LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+        LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+        LEFT JOIN people.jornadas j ON c.jornada_id = j.id
+        LEFT JOIN people.empresas e ON c.empresa_id = e.id
         WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         // Buscar documentos
         const docsResult = await query(
           `SELECT id, tipo, tipo_documento_id, nome, url, tamanho, data_upload, data_validade
-           FROM bluepoint.bt_documentos_colaborador
+           FROM people.documentos_colaborador
            WHERE colaborador_id = $1
            ORDER BY data_upload DESC`,
           [colaboradorId]

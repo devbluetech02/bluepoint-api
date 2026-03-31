@@ -31,8 +31,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       const docResult = await query(
         `SELECT d.id, d.colaborador_id, d.tipo, d.nome, d.storage_key, c.nome AS colaborador_nome
-         FROM bluepoint.bt_documentos_colaborador d
-         JOIN bluepoint.bt_colaboradores c ON c.id = d.colaborador_id
+         FROM people.documentos_colaborador d
+         JOIN people.colaboradores c ON c.id = d.colaborador_id
          WHERE d.id = $1 AND d.colaborador_id = $2`,
         [documentoId, colaboradorId]
       );
@@ -52,7 +52,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       await query(
-        `DELETE FROM bluepoint.bt_documentos_colaborador WHERE id = $1 AND colaborador_id = $2`,
+        `DELETE FROM people.documentos_colaborador WHERE id = $1 AND colaborador_id = $2`,
         [documentoId, colaboradorId]
       );
 

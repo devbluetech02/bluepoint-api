@@ -27,8 +27,8 @@ export async function POST(request: NextRequest) {
         `SELECT c.id, c.nome, c.jornada_id, c.empresa_id,
                 c.permite_ponto_mobile, c.permite_ponto_qualquer_empresa,
                 j.tolerancia_saida
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bt_jornadas j ON c.jornada_id = j.id
+         FROM people.colaboradores c
+         LEFT JOIN jornadas j ON c.jornada_id = j.id
          WHERE c.id = $1 AND c.status = 'ativo'`,
         [data.colaboradorId]
       );
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar marcações de hoje para determinar tipo automático (almoco ou saida)
       const marcacoesHojeResult = await query(
-        `SELECT id, tipo, data_hora FROM bluepoint.bt_marcacoes
+        `SELECT id, tipo, data_hora FROM people.marcacoes
          WHERE colaborador_id = $1 
          AND DATE(data_hora) = CURRENT_DATE
          ORDER BY data_hora ASC`,
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
       if (colaborador.jornada_id) {
         const horarioResult = await query(
-          `SELECT saida FROM bluepoint.bt_jornada_horarios
+          `SELECT saida FROM people.jornada_horarios
            WHERE jornada_id = $1 AND dia_semana = $2`,
           [colaborador.jornada_id, diaSemana]
         );
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir marcação (almoco ou saida)
       const result = await query(
-        `INSERT INTO bluepoint.bt_marcacoes (
+        `INSERT INTO people.marcacoes (
           colaborador_id, empresa_id, data_hora, tipo, latitude, longitude, metodo, foto_url
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING id, data_hora`,

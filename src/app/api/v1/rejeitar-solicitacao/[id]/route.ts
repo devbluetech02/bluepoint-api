@@ -33,8 +33,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Verificar se solicitação existe e está pendente
       const solicitacaoResult = await query(
         `SELECT s.*, c.nome as colaborador_nome 
-         FROM bt_solicitacoes s
-         JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+         FROM solicitacoes s
+         JOIN people.colaboradores c ON s.colaborador_id = c.id
          WHERE s.id = $1`,
         [solicitacaoId]
       );
@@ -55,7 +55,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Atualizar solicitação
       await query(
-        `UPDATE bt_solicitacoes SET
+        `UPDATE solicitacoes SET
           status = 'rejeitada',
           aprovador_id = $1,
           data_aprovacao = NOW(),
@@ -67,7 +67,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Registrar histórico
       await query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', 'rejeitada', $2, $3)`,
         [solicitacaoId, usuarioHistorico, motivo]
       );
@@ -78,7 +78,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         if (dados.relatorioId) {
           const novoStatus = dados.statusAnterior === 'assinado' ? 'assinado' : 'pendente';
           await query(
-            `UPDATE bluepoint.bt_relatorios_mensais
+            `UPDATE people.relatorios_mensais
              SET status = $1, atualizado_em = NOW()
              WHERE id = $2`,
             [novoStatus, dados.relatorioId]

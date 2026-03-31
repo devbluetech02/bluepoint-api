@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       // Verificar anexo se informado
       if (data.anexoId) {
         const anexoResult = await query(
-          `SELECT id FROM bt_anexos WHERE id = $1 AND colaborador_id = $2`,
+          `SELECT id FROM anexos WHERE id = $1 AND colaborador_id = $2`,
           [data.anexoId, user.userId]
         );
 
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
 
       // Criar solicitação
       const result = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'ausencia', $2, $3, $4, $5)
         RETURNING id`,
@@ -56,14 +56,14 @@ export async function POST(request: NextRequest) {
       // Vincular anexo se informado
       if (data.anexoId) {
         await client.query(
-          `UPDATE bt_anexos SET solicitacao_id = $1 WHERE id = $2`,
+          `UPDATE anexos SET solicitacao_id = $1 WHERE id = $2`,
           [solicitacaoId, data.anexoId]
         );
       }
 
       // Registrar histórico
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, 'Justificativa de ausência criada')`,
         [solicitacaoId, user.userId]
       );

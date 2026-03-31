@@ -25,7 +25,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
 
       const updateResult = await query(
-        `UPDATE bluepoint.bt_esportes_inscricoes
+        `UPDATE people.esportes_inscricoes
          SET posicao = $1
          WHERE sessao_id = $2 AND colaborador_id = $3
          RETURNING id, colaborador_id, posicao, confirmado, confirmado_em`,
@@ -38,8 +38,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       const colaboradorResult = await query(
         `SELECT c.nome, d.nome AS departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bluepoint.bt_departamentos d ON d.id = c.departamento_id
+         FROM people.colaboradores c
+         LEFT JOIN people.departamentos d ON d.id = c.departamento_id
          WHERE c.id = $1`,
         [user.userId],
       );

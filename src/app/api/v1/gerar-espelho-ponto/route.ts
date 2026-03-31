@@ -39,8 +39,8 @@ export async function GET(request: NextRequest) {
       // Buscar colaboradores
       const colaboradoresResult = await query(
         `SELECT c.id, c.nome, d.nome as departamento
-         FROM bluepoint.bt_colaboradores c
-         LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
+         FROM people.colaboradores c
+         LEFT JOIN departamentos d ON c.departamento_id = d.id
          ${whereClause}
          ORDER BY c.nome`,
         params
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
         // Buscar marcações do colaborador no período
         const marcacoesResult = await query(
           `SELECT DATE(data_hora) as data, data_hora, tipo
-           FROM bluepoint.bt_marcacoes
+           FROM people.marcacoes
            WHERE colaborador_id = $1 
            AND data_hora >= $2 
            AND data_hora <= $3::date + interval '1 day'

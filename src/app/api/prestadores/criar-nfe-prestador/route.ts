@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       }
 
       const prestadorResult = await query(
-        `SELECT id, nome_fantasia FROM bluepoint.bt_prestadores WHERE id = $1`,
+        `SELECT id, nome_fantasia FROM people.prestadores WHERE id = $1`,
         [data.prestadorId]
       );
 
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
 
       if (data.contratoId) {
         const contratoResult = await query(
-          `SELECT id, numero FROM bluepoint.bt_contratos_prestador WHERE id = $1 AND prestador_id = $2`,
+          `SELECT id, numero FROM people.contratos_prestador WHERE id = $1 AND prestador_id = $2`,
           [data.contratoId, data.prestadorId]
         );
         if (contratoResult.rows.length === 0) {
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
       const valor = data.valor ?? 0;
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_nfes_prestador (
+        `INSERT INTO people.nfes_prestador (
           prestador_id, contrato_id, numero, serie, chave_acesso,
           data_emissao, valor, status, arquivo_url, observacoes
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)

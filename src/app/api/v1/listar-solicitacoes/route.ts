@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bt_solicitacoes s ${whereClause}`,
+          `SELECT COUNT(*) as total FROM solicitacoes s ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -91,13 +91,13 @@ export async function GET(request: NextRequest) {
             g.id as gestor_id,
             g.nome as gestor_nome,
             COALESCE(anx.total, 0) as anexos
-          FROM bt_solicitacoes s
-          JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-          LEFT JOIN bluepoint.bt_colaboradores a ON s.aprovador_id = a.id
-          LEFT JOIN bluepoint.bt_colaboradores g ON s.gestor_id = g.id
+          FROM solicitacoes s
+          JOIN people.colaboradores c ON s.colaborador_id = c.id
+          LEFT JOIN people.colaboradores a ON s.aprovador_id = a.id
+          LEFT JOIN people.colaboradores g ON s.gestor_id = g.id
           LEFT JOIN (
             SELECT solicitacao_id, COUNT(*) as total
-            FROM bt_anexos
+            FROM anexos
             GROUP BY solicitacao_id
           ) anx ON s.id = anx.solicitacao_id
           ${whereClause}

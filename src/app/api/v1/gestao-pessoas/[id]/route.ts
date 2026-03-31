@@ -40,11 +40,11 @@ export async function GET(request: NextRequest, { params }: Params) {
            cg.nome AS colaborador_cargo,
            d.nome AS colaborador_departamento,
            r.nome AS responsavel_nome
-         FROM bluepoint.bt_gestao_pessoas gp
-         JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-         JOIN bluepoint.bt_colaboradores r ON gp.responsavel_id = r.id
+         FROM people.gestao_pessoas gp
+         JOIN people.colaboradores c ON gp.colaborador_id = c.id
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+         JOIN people.colaboradores r ON gp.responsavel_id = r.id
          WHERE gp.id = $1`,
         [registroId]
       );
@@ -96,8 +96,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       const atualResult = await query(
         `SELECT gp.*, r.nome AS responsavel_nome
-         FROM bluepoint.bt_gestao_pessoas gp
-         JOIN bluepoint.bt_colaboradores r ON gp.responsavel_id = r.id
+         FROM people.gestao_pessoas gp
+         JOIN people.colaboradores r ON gp.responsavel_id = r.id
          WHERE gp.id = $1`,
         [registroId]
       );
@@ -135,7 +135,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         setClauses.push('atualizado_em = NOW()');
         values.push(registroId);
         await dbClient.query(
-          `UPDATE bluepoint.bt_gestao_pessoas SET ${setClauses.join(', ')} WHERE id = $${idx}`,
+          `UPDATE people.gestao_pessoas SET ${setClauses.join(', ')} WHERE id = $${idx}`,
           values
         );
       }
@@ -143,7 +143,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       const hasReuniaoUpdate = data.reuniaoData || data.reuniaoHora || data.reuniaoStatus || data.reuniaoObservacoes !== undefined;
       if (hasReuniaoUpdate || data.participantesIds) {
         const reuniaoExists = await dbClient.query(
-          `SELECT id FROM bluepoint.bt_gestao_pessoas_reunioes WHERE gestao_pessoa_id = $1`,
+          `SELECT id FROM people.gestao_pessoas_reunioes WHERE gestao_pessoa_id = $1`,
           [registroId]
         );
 
@@ -172,7 +172,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
               rClauses.push('atualizado_em = NOW()');
               rValues.push(reuniaoId);
               await dbClient.query(
-                `UPDATE bluepoint.bt_gestao_pessoas_reunioes SET ${rClauses.join(', ')} WHERE id = $${rIdx}`,
+                `UPDATE people.gestao_pessoas_reunioes SET ${rClauses.join(', ')} WHERE id = $${rIdx}`,
                 rValues
               );
             }
@@ -180,12 +180,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
           if (data.participantesIds) {
             await dbClient.query(
-              `DELETE FROM bluepoint.bt_gestao_pessoas_participantes WHERE reuniao_id = $1`,
+              `DELETE FROM people.gestao_pessoas_participantes WHERE reuniao_id = $1`,
               [reuniaoId]
             );
             for (const pId of data.participantesIds) {
               await dbClient.query(
-                `INSERT INTO bluepoint.bt_gestao_pessoas_participantes (reuniao_id, colaborador_id)
+                `INSERT INTO people.gestao_pessoas_participantes (reuniao_id, colaborador_id)
                  VALUES ($1, $2) ON CONFLICT DO NOTHING`,
                 [reuniaoId, pId]
               );
@@ -206,11 +206,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
            cg.nome AS colaborador_cargo,
            d.nome AS colaborador_departamento,
            r.nome AS responsavel_nome
-         FROM bluepoint.bt_gestao_pessoas gp
-         JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
-         LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-         JOIN bluepoint.bt_colaboradores r ON gp.responsavel_id = r.id
+         FROM people.gestao_pessoas gp
+         JOIN people.colaboradores c ON gp.colaborador_id = c.id
+         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+         LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+         JOIN people.colaboradores r ON gp.responsavel_id = r.id
          WHERE gp.id = $1`,
         [registroId]
       );
@@ -258,8 +258,8 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       const result = await query(
         `SELECT gp.id, gp.titulo, gp.tipo, c.nome AS colaborador_nome
-         FROM bluepoint.bt_gestao_pessoas gp
-         JOIN bluepoint.bt_colaboradores c ON gp.colaborador_id = c.id
+         FROM people.gestao_pessoas gp
+         JOIN people.colaboradores c ON gp.colaborador_id = c.id
          WHERE gp.id = $1`,
         [registroId]
       );
@@ -268,14 +268,14 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const registro = result.rows[0];
 
       const anexosResult = await query(
-        `SELECT caminho_storage FROM bluepoint.bt_gestao_pessoas_anexos WHERE gestao_pessoa_id = $1`,
+        `SELECT caminho_storage FROM people.gestao_pessoas_anexos WHERE gestao_pessoa_id = $1`,
         [registroId]
       );
       for (const row of anexosResult.rows) {
         await deletarArquivo((row as { caminho_storage: string }).caminho_storage).catch(() => {});
       }
 
-      await query(`DELETE FROM bluepoint.bt_gestao_pessoas WHERE id = $1`, [registroId]);
+      await query(`DELETE FROM people.gestao_pessoas WHERE id = $1`, [registroId]);
 
       await invalidateGestaoPessoasCache(registroId);
 

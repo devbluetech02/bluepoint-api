@@ -36,7 +36,7 @@ export async function GET(
           numero,
           created_at,
           updated_at
-        FROM bluepoint.bt_empresas
+        FROM people.empresas
         WHERE id = $1`,
         [empresaId]
       );

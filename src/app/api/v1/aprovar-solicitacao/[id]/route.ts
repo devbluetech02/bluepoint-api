@@ -38,8 +38,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Verificar se solicitação existe e está pendente
       const solicitacaoResult = await client.query(
         `SELECT s.*, c.nome as colaborador_nome 
-         FROM bt_solicitacoes s
-         JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+         FROM solicitacoes s
+         JOIN people.colaboradores c ON s.colaborador_id = c.id
          WHERE s.id = $1`,
         [solicitacaoId]
       );
@@ -62,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         if (dados.horaInicio && dados.horaFim) {
           const colabResult = await client.query(
             `SELECT c.empresa_id, c.departamento_id
-             FROM bluepoint.bt_colaboradores c WHERE c.id = $1`,
+             FROM people.colaboradores c WHERE c.id = $1`,
             [solicitacao.colaborador_id]
           );
 
@@ -77,7 +77,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             } else if (colabDeptId && colabEmpresaId) {
               const liderancaResult = await client.query(
                 `SELECT supervisor_ids, coordenador_ids, gerente_ids
-                 FROM bluepoint.bt_liderancas_departamento
+                 FROM people.liderancas_departamento
                  WHERE empresa_id = $1 AND departamento_id = $2`,
                 [colabEmpresaId, colabDeptId]
               );
@@ -108,7 +108,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
               if (papelAprovador === 'supervisor' || papelAprovador === 'coordenador') {
                 // Verificar limite do DEPARTAMENTO
                 const limiteDeptResult = await client.query(
-                  `SELECT limite_mensal FROM bluepoint.bt_limites_he_departamentos
+                  `SELECT limite_mensal FROM people.limites_he_departamentos
                    WHERE empresa_id = $1 AND departamento_id = $2`,
                   [colabEmpresaId, colabDeptId]
                 );
@@ -118,8 +118,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
                   const acumDeptResult = await client.query(
                     `SELECT COALESCE(SUM((s.dados_adicionais->>'custo_aprovado')::numeric), 0) AS total
-                     FROM bluepoint.bt_solicitacoes s
-                     JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+                     FROM people.solicitacoes s
+                     JOIN people.colaboradores c ON s.colaborador_id = c.id
                      WHERE s.tipo = 'hora_extra'
                        AND s.status = 'aprovada'
                        AND c.departamento_id = $1
@@ -144,7 +144,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
               } else if (papelAprovador === 'gerente') {
                 // Gerente: verificar limite da EMPRESA
                 const limiteEmpResult = await client.query(
-                  `SELECT limite_mensal FROM bluepoint.bt_limites_he_empresas
+                  `SELECT limite_mensal FROM people.limites_he_empresas
                    WHERE empresa_id = $1`,
                   [colabEmpresaId]
                 );
@@ -154,8 +154,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
                   const acumEmpResult = await client.query(
                     `SELECT COALESCE(SUM((s.dados_adicionais->>'custo_aprovado')::numeric), 0) AS total
-                     FROM bluepoint.bt_solicitacoes s
-                     JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+                     FROM people.solicitacoes s
+                     JOIN people.colaboradores c ON s.colaborador_id = c.id
                      WHERE s.tipo = 'hora_extra'
                        AND s.status = 'aprovada'
                        AND c.empresa_id = $1
@@ -207,7 +207,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Atualizar solicitação (com custo_aprovado no dados_adicionais se for HE)
       if (custoAprovado !== null) {
         await client.query(
-          `UPDATE bt_solicitacoes SET
+          `UPDATE solicitacoes SET
             status = 'aprovada',
             aprovador_id = $1,
             data_aprovacao = NOW(),
@@ -218,7 +218,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         );
       } else {
         await client.query(
-          `UPDATE bt_solicitacoes SET
+          `UPDATE solicitacoes SET
             status = 'aprovada',
             aprovador_id = $1,
             data_aprovacao = NOW(),
@@ -228,11 +228,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         );
       }
 
-      // Persistir custos detalhados em bt_custo_horas_extras (upsert)
+      // Persistir custos detalhados em custo_horas_extras (upsert)
       if (custoCompleto) {
         try {
           const existente = await client.query(
-            `SELECT id FROM bluepoint.bt_custo_horas_extras WHERE solicitacao_id = $1 LIMIT 1`,
+            `SELECT id FROM people.custo_horas_extras WHERE solicitacao_id = $1 LIMIT 1`,
             [solicitacaoId]
           );
           if (existente.rows.length === 0) {
@@ -251,7 +251,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       // Registrar histórico
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_anterior, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', 'aprovada', $2, $3)`,
         [solicitacaoId, usuarioHistorico, observacao || 'Aprovado']
       );
@@ -264,7 +264,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         const dataFim = solicitacao.data_evento_fim || solicitacao.data_evento;
         if (dataInicio) {
           await client.query(
-            `INSERT INTO bluepoint.bt_periodos_ferias (colaborador_id, data_inicio, data_fim, solicitacao_id)
+            `INSERT INTO people.periodos_ferias (colaborador_id, data_inicio, data_fim, solicitacao_id)
              VALUES ($1, $2, $3, $4)`,
             [solicitacao.colaborador_id, dataInicio, dataFim, solicitacaoId]
           );
@@ -284,14 +284,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
         for (const ajuste of ajustes) {
           const marcacaoAtual = await client.query(
-            `SELECT data_hora FROM bluepoint.bt_marcacoes WHERE id = $1`,
+            `SELECT data_hora FROM people.marcacoes WHERE id = $1`,
             [ajuste.marcacaoId]
           );
 
           const dataHoraOriginal = marcacaoAtual.rows[0]?.data_hora || null;
 
           await client.query(
-            `UPDATE bluepoint.bt_marcacoes SET 
+            `UPDATE people.marcacoes SET 
               data_hora = $1,
               foi_ajustada = true,
               ajustada_por = $2,
@@ -313,7 +313,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         const dados = solicitacao.dados_adicionais;
         if (dados.relatorioId) {
           await client.query(
-            `UPDATE bluepoint.bt_relatorios_mensais
+            `UPDATE people.relatorios_mensais
              SET status = 'pendente',
                  assinado_em = NULL,
                  assinatura_imagem = NULL,
@@ -336,7 +336,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           : new Date(solicitacao.data_solicitacao);
 
         const marcacaoResult = await client.query(
-          `INSERT INTO bluepoint.bt_marcacoes (
+          `INSERT INTO people.marcacoes (
             colaborador_id, empresa_id, data_hora, tipo,
             latitude, longitude, metodo, observacao
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -358,7 +358,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         // Registrar atraso como "não tolerado – aprovado por gestor" para relatórios
         const dataEvento = horarioRegistro.toISOString().split('T')[0];
         await client.query(
-          `INSERT INTO bluepoint.bt_atrasos_tolerados
+          `INSERT INTO people.atrasos_tolerados
              (colaborador_id, data, tipo_marcacao, horario_previsto, horario_real, atraso_minutos, tolerado, marcacao_id)
            VALUES ($1, $2, $3, $4, $5, $6, false, $7)`,
           [

@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
         // Contar total
         const countResult = await query(
           `SELECT COUNT(*) as total
-           FROM bt_solicitacoes s
-           JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+           FROM solicitacoes s
+           JOIN people.colaboradores c ON s.colaborador_id = c.id
            ${whereClause}`,
           params
         );
@@ -85,11 +85,11 @@ export async function GET(request: NextRequest) {
             s.data_aprovacao,
             a.id as aprovador_id,
             a.nome as aprovador_nome,
-            (SELECT COUNT(*) FROM bt_anexos WHERE solicitacao_id = s.id) as total_anexos
-          FROM bt_solicitacoes s
-          JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
-          LEFT JOIN bt_departamentos d ON c.departamento_id = d.id
-          LEFT JOIN bluepoint.bt_colaboradores a ON s.aprovador_id = a.id
+            (SELECT COUNT(*) FROM anexos WHERE solicitacao_id = s.id) as total_anexos
+          FROM solicitacoes s
+          JOIN people.colaboradores c ON s.colaborador_id = c.id
+          LEFT JOIN departamentos d ON c.departamento_id = d.id
+          LEFT JOIN people.colaboradores a ON s.aprovador_id = a.id
           ${whereClause}
           ORDER BY s.data_solicitacao DESC
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -130,8 +130,8 @@ export async function GET(request: NextRequest) {
             COUNT(*) FILTER (WHERE s.status = 'rejeitada') as rejeitadas,
             COALESCE(SUM((s.dados_adicionais->>'totalHoras')::numeric) FILTER (WHERE s.status = 'aprovada'), 0) as total_horas_aprovadas,
             COUNT(DISTINCT s.colaborador_id) as total_colaboradores
-          FROM bt_solicitacoes s
-          JOIN bluepoint.bt_colaboradores c ON s.colaborador_id = c.id
+          FROM solicitacoes s
+          JOIN people.colaboradores c ON s.colaborador_id = c.id
           ${whereClause}`,
           params
         );

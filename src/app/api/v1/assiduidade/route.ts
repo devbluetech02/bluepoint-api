@@ -16,7 +16,7 @@ import { buscarPontosMes } from '@/lib/ocorrencias-externas';
  * Preview em tempo real (sem persistencia).
  * Busca pontos na API externa do Portal do Colaborador e calcula
  * o bonus de todos os colaboradores ativos para o mes/ano informado.
- * Usa o valor do mes anterior ja persistido em bt_historico_assiduidade.
+ * Usa o valor do mes anterior ja persistido em historico_assiduidade.
  */
 export async function GET(request: NextRequest) {
   return withAuth(request, async (req) => {
@@ -36,9 +36,9 @@ export async function GET(request: NextRequest) {
         query(
           `SELECT c.id, c.nome, c.data_admissao, c.bloqueado_assiduidade,
                   cg.nome AS cargo_nome, d.nome AS departamento_nome
-           FROM bluepoint.bt_colaboradores c
-           LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-           LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
+           FROM people.colaboradores c
+           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
            WHERE c.status = 'ativo'`,
         ),
         buscarPontosMes(mes, ano),
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
           const mesAnt = mes === 1 ? 12 : mes - 1;
           const anoAnt = mes === 1 ? ano - 1 : ano;
           const ant = await query(
-            `SELECT valor_total FROM bluepoint.bt_historico_assiduidade
+            `SELECT valor_total FROM people.historico_assiduidade
              WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
             [col.id, mesAnt, anoAnt],
           );

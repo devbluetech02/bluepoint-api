@@ -23,8 +23,8 @@ export async function POST(request: NextRequest) {
       // Buscar colaboradores com biometria cadastrada
       const biometriaResult = await query(
         `SELECT b.colaborador_id, b.qualidade, c.nome, c.email
-         FROM bt_biometria_facial b
-         JOIN bluepoint.bt_colaboradores c ON b.colaborador_id = c.id
+         FROM biometria_facial b
+         JOIN people.colaboradores c ON b.colaborador_id = c.id
          WHERE c.status = 'ativo'
          LIMIT 1` // Simulação - em produção compararia o encoding
       );
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
       if (confianca >= 0.85) {
         // Buscar todas as marcações do dia para detecção automática de tipo
         const marcacoesHoje = await query(
-          `SELECT tipo FROM bluepoint.bt_marcacoes
+          `SELECT tipo FROM people.marcacoes
            WHERE colaborador_id = $1 AND DATE(data_hora) = CURRENT_DATE
            ORDER BY data_hora ASC`,
           [colaborador.colaborador_id]
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         }
 
         const marcacaoResult = await query(
-          `INSERT INTO bluepoint.bt_marcacoes (colaborador_id, data_hora, tipo, latitude, longitude, metodo)
+          `INSERT INTO people.marcacoes (colaborador_id, data_hora, tipo, latitude, longitude, metodo)
            VALUES ($1, NOW(), $2, $3, $4, 'biometria')
            RETURNING id, data_hora, tipo`,
           [

@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id, nome FROM bluepoint.bt_colaboradores WHERE id = $1 AND status = 'ativo'`,
+        `SELECT id, nome FROM people.colaboradores WHERE id = $1 AND status = 'ativo'`,
         [data.colaboradorId]
       );
 
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
       // Buscar saldo atual
       const saldoResult = await query(
-        `SELECT saldo_atual FROM bt_banco_horas
+        `SELECT saldo_atual FROM banco_horas
          WHERE colaborador_id = $1
          ORDER BY criado_em DESC
          LIMIT 1`,
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir ajuste
       const result = await query(
-        `INSERT INTO bt_banco_horas (
+        `INSERT INTO banco_horas (
           colaborador_id, data, tipo, descricao, horas, saldo_anterior, saldo_atual, observacao, criado_por
         ) VALUES ($1, $2, 'ajuste', $3, $4, $5, $6, $7, $8)
         RETURNING id`,

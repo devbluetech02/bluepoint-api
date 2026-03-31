@@ -148,10 +148,10 @@ export async function GET(request: NextRequest) {
              c.departamento_id, d.nome AS departamento_nome,
              c.empresa_id, e.nome_fantasia AS empresa_nome,
              c.jornada_id
-           FROM bluepoint.bt_colaboradores c
-           LEFT JOIN bluepoint.bt_cargos cg       ON c.cargo_id        = cg.id
-           LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-           LEFT JOIN bluepoint.bt_empresas e      ON c.empresa_id      = e.id
+           FROM people.colaboradores c
+           LEFT JOIN people.cargos cg       ON c.cargo_id        = cg.id
+           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+           LEFT JOIN people.empresas e      ON c.empresa_id      = e.id
            ${where}
            ORDER BY c.nome ASC`,
           params
@@ -188,7 +188,7 @@ export async function GET(request: NextRequest) {
         // ---------- Buscar marcações de hoje ----------
         const marcResult = await query(
           `SELECT colaborador_id, data_hora, tipo
-           FROM bluepoint.bt_marcacoes
+           FROM people.marcacoes
            WHERE colaborador_id = ANY($1)
              AND data_hora::date = $2::date
            ORDER BY data_hora ASC`,
@@ -211,7 +211,7 @@ export async function GET(request: NextRequest) {
 
           const horResult = await query(
             `SELECT jornada_id, dia_semana, dias_semana, folga
-             FROM bluepoint.bt_jornada_horarios
+             FROM people.jornada_horarios
              WHERE jornada_id = ANY($1)`,
             [jornadaIds]
           );
@@ -246,7 +246,7 @@ export async function GET(request: NextRequest) {
         // ---------- Verificar feriados ----------
         const feriadosResult = await query(
           `SELECT data::text AS data, recorrente
-           FROM bluepoint.bt_feriados
+           FROM people.feriados
            WHERE (recorrente = false AND data = $1::date)
               OR recorrente = true`,
           [hoje]

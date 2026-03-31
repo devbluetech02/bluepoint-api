@@ -19,7 +19,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT id, nome FROM bt_feriados WHERE id = $1`,
+        `SELECT id, nome FROM feriados WHERE id = $1`,
         [feriadoId]
       );
 
@@ -30,7 +30,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       const feriado = result.rows[0];
 
       // Excluir
-      await query(`DELETE FROM bt_feriados WHERE id = $1`, [feriadoId]);
+      await query(`DELETE FROM feriados WHERE id = $1`, [feriadoId]);
 
       // Registrar auditoria
       await registrarAuditoria({

@@ -30,7 +30,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       const data = validation.data;
 
       const atualResult = await query(
-        `SELECT * FROM bluepoint.bt_prestadores WHERE id = $1`,
+        `SELECT * FROM people.prestadores WHERE id = $1`,
         [prestadorId]
       );
 
@@ -42,7 +42,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       if (data.cnpjCpf) {
         const cnpjExiste = await query(
-          `SELECT id FROM bluepoint.bt_prestadores WHERE cnpj_cpf = $1 AND id != $2`,
+          `SELECT id FROM people.prestadores WHERE cnpj_cpf = $1 AND id != $2`,
           [data.cnpjCpf, prestadorId]
         );
         if (cnpjExiste.rows.length > 0) {
@@ -83,12 +83,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
       values.push(prestadorId);
 
       await query(
-        `UPDATE bluepoint.bt_prestadores SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
+        `UPDATE people.prestadores SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`,
         values
       );
 
       const updatedResult = await query(
-        `SELECT * FROM bluepoint.bt_prestadores WHERE id = $1`,
+        `SELECT * FROM people.prestadores WHERE id = $1`,
         [prestadorId]
       );
       const row = updatedResult.rows[0];

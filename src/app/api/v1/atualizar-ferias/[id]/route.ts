@@ -34,8 +34,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       const existente = await query(
         `SELECT pf.*, c.nome as colaborador_nome
-         FROM bluepoint.bt_periodos_ferias pf
-         JOIN bluepoint.bt_colaboradores c ON pf.colaborador_id = c.id
+         FROM people.periodos_ferias pf
+         JOIN people.colaboradores c ON pf.colaborador_id = c.id
          WHERE pf.id = $1`,
         [feriasId]
       );
@@ -54,7 +54,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       if (data.dataInicio || data.dataFim) {
         const sobreposicao = await query(
-          `SELECT id FROM bluepoint.bt_periodos_ferias
+          `SELECT id FROM people.periodos_ferias
            WHERE colaborador_id = $1
              AND id != $2
              AND data_inicio <= $3::date
@@ -92,7 +92,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       params_query.push(feriasId);
 
       const result = await query(
-        `UPDATE bluepoint.bt_periodos_ferias
+        `UPDATE people.periodos_ferias
          SET ${sets.join(', ')}
          WHERE id = $${pi}
          RETURNING id, colaborador_id, data_inicio, data_fim, observacao`,

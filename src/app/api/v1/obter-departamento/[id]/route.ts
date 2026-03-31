@@ -27,9 +27,9 @@ export async function GET(request: NextRequest, { params }: Params) {
           d.*,
           g.id as gestor_id,
           g.nome as gestor_nome,
-          (SELECT COUNT(*) FROM bluepoint.bt_colaboradores WHERE departamento_id = d.id AND status = 'ativo') as colaboradores
-        FROM bt_departamentos d
-        LEFT JOIN bluepoint.bt_colaboradores g ON d.gestor_id = g.id
+          (SELECT COUNT(*) FROM people.colaboradores WHERE departamento_id = d.id AND status = 'ativo') as colaboradores
+        FROM departamentos d
+        LEFT JOIN people.colaboradores g ON d.gestor_id = g.id
         WHERE d.id = $1`,
         [departamentoId]
       );

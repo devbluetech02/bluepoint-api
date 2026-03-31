@@ -15,7 +15,7 @@ export async function GET(
       if (isNaN(alertaId)) return errorResponse('ID invalido', 400);
 
       const result = await query(
-        'SELECT ai.*, e.nome_fantasia as empresa_nome FROM bluepoint.bt_alertas_inteligentes ai LEFT JOIN bluepoint.bt_empresas e ON ai.empresa_id = e.id WHERE ai.id = $1',
+        'SELECT ai.*, e.nome_fantasia as empresa_nome FROM people.alertas_inteligentes ai LEFT JOIN people.empresas e ON ai.empresa_id = e.id WHERE ai.id = $1',
         [alertaId]
       );
 

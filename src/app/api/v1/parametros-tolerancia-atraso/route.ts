@@ -21,8 +21,8 @@ export async function GET(request: NextRequest) {
           `SELECT p.id, p.tolerancia_periodo_min, p.tolerancia_diario_max_min, p.ativo,
                   p.atualizado_em, p.atualizado_por,
                   c.id AS usuario_id, c.nome AS usuario_nome
-           FROM bluepoint.bt_parametros_tolerancia_atraso p
-           LEFT JOIN bluepoint.bt_colaboradores c ON p.atualizado_por = c.id
+           FROM people.parametros_tolerancia_atraso p
+           LEFT JOIN people.colaboradores c ON p.atualizado_por = c.id
            ORDER BY p.id DESC
            LIMIT 1`
         );
@@ -78,7 +78,7 @@ export async function PUT(request: NextRequest) {
       const data = validation.data;
 
       const existeResult = await query(
-        `SELECT id FROM bluepoint.bt_parametros_tolerancia_atraso ORDER BY id DESC LIMIT 1`
+        `SELECT id FROM people.parametros_tolerancia_atraso ORDER BY id DESC LIMIT 1`
       );
 
       let result;
@@ -89,7 +89,7 @@ export async function PUT(request: NextRequest) {
         acao = 'editar';
 
         result = await query(
-          `UPDATE bluepoint.bt_parametros_tolerancia_atraso
+          `UPDATE people.parametros_tolerancia_atraso
            SET tolerancia_periodo_min = $1,
                tolerancia_diario_max_min = $2,
                ativo = $3,
@@ -102,7 +102,7 @@ export async function PUT(request: NextRequest) {
         acao = 'criar';
 
         result = await query(
-          `INSERT INTO bluepoint.bt_parametros_tolerancia_atraso
+          `INSERT INTO people.parametros_tolerancia_atraso
              (tolerancia_periodo_min, tolerancia_diario_max_min, ativo, atualizado_por)
            VALUES ($1, $2, $3, $4)
            RETURNING id, tolerancia_periodo_min, tolerancia_diario_max_min, ativo, atualizado_em`,

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
         async () => {
           const result = await query(
             `SELECT id, codigo, nome, descricao, modulo, acao
-             FROM bt_permissoes
+             FROM permissoes
              ORDER BY modulo, acao`
           );
 
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       }
 
       const existente = await query(
-        `SELECT id FROM bt_permissoes WHERE codigo = $1`,
+        `SELECT id FROM permissoes WHERE codigo = $1`,
         [codigo]
       );
       if (existente.rows.length > 0) {
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await query(
-        `INSERT INTO bt_permissoes (codigo, nome, descricao, modulo, acao)
+        `INSERT INTO permissoes (codigo, nome, descricao, modulo, acao)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING id, codigo, nome, descricao, modulo, acao, criado_em`,
         [codigo, nome, descricao || null, modulo, acao]

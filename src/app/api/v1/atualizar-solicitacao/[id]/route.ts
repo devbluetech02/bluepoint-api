@@ -30,7 +30,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se solicitação existe e pertence ao usuário
       const solicitacaoResult = await query(
-        `SELECT * FROM bt_solicitacoes WHERE id = $1`,
+        `SELECT * FROM solicitacoes WHERE id = $1`,
         [solicitacaoId]
       );
 
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Atualizar
       await query(
-        `UPDATE bt_solicitacoes SET
+        `UPDATE solicitacoes SET
           data_evento = COALESCE($1, data_evento),
           descricao = COALESCE($2, descricao),
           justificativa = COALESCE($3, justificativa),

@@ -10,7 +10,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bluepoint-api
+    container_name: people-api
     restart: unless-stopped
     ports:
       - "${API_PORT:-3000}:3000"
@@ -20,9 +20,9 @@ services:
       # Database (PostgreSQL vetorizado no host 10.1.3.216)
       - DB_HOST=${DB_HOST}
       - DB_PORT=${DB_PORT:-5437}
-      - DB_USERNAME=${DB_USERNAME:-bluepoint}
+      - DB_USERNAME=${DB_USERNAME:-people}
       - DB_PASSWORD=${DB_PASSWORD}
-      - DB_DATABASE=${DB_DATABASE:-bluepoint_vector}
+      - DB_DATABASE=${DB_DATABASE:-people_vector}
       - DB_SSLMODE=${DB_SSLMODE:-disable}
       # JWT
       - JWT_SECRET=${JWT_SECRET}
@@ -40,7 +40,7 @@ services:
       - MINIO_PORT=${MINIO_PORT:-9100}
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-local-minio-key}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-local-minio-secret}
-      - MINIO_BUCKET=${MINIO_BUCKET:-bluepoint}
+      - MINIO_BUCKET=${MINIO_BUCKET:-people}
       - MINIO_USE_SSL=${MINIO_USE_SSL:-false}
       # Redis (cache próprio do stack)
       - REDIS_HOST=${REDIS_HOST:-redis}
@@ -56,6 +56,8 @@ services:
       - ONESIGNAL_REST_API_KEY=${ONESIGNAL_REST_API_KEY:-}
       - PUSH_ICON_URL=${PUSH_ICON_URL:-}
       - PUSH_SMALL_ICON=${PUSH_SMALL_ICON:-}
+      # Jitsi Meet
+      - JITSI_APP_SECRET=${JITSI_APP_SECRET}
       # Gemini (IA)
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       # OpenRouter / extração NFe PDF (OPENAI_*)
@@ -68,7 +70,7 @@ services:
       face-service:
         condition: service_healthy
     networks:
-      - bluepoint-network
+      - people-network
       - pgbouncer-network
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/v1/health').then(r => { if (!r.ok) process.exit(1); }).catch(() => process.exit(1))"]
@@ -82,14 +84,14 @@ services:
   # =====================================================
   redis:
     image: redis:7-alpine
-    container_name: bluepoint-redis
+    container_name: people-redis
     restart: unless-stopped
     # Porta 6379 só na rede interna (API acessa por REDIS_HOST=redis)
     command: redis-server
     volumes:
-      - bluepoint-redis-data:/data
+      - people-redis-data:/data
     networks:
-      - bluepoint-network
+      - people-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -103,14 +105,14 @@ services:
     build:
       context: ./face-service
       dockerfile: Dockerfile
-    container_name: bluepoint-face-service
+    container_name: people-face-service
     restart: unless-stopped
     deploy:
       resources:
         limits:
           memory: 4G
     networks:
-      - bluepoint-network
+      - people-network
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s
@@ -122,7 +124,7 @@ services:
 # Networks
 # =====================================================
 networks:
-  bluepoint-network:
+  people-network:
     driver: bridge
   pgbouncer-network:
     external: true
@@ -132,4 +134,4 @@ networks:
 # Volumes (persistência do Redis)
 # =====================================================
 volumes:
-  bluepoint-redis-data:
+  people-redis-data:

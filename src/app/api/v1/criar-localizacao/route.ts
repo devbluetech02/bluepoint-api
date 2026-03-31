@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       const data = validation.data;
 
       const result = await query(
-        `INSERT INTO bt_localizacoes (
+        `INSERT INTO localizacoes (
           nome, tipo, 
           endereco_cep, endereco_logradouro, endereco_numero, 
           endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado,
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       const localizacao = result.rows[0];
 
       await invalidateLocalizacaoCache();
-      await embedTableRowAfterInsert('bt_localizacoes', localizacao.id);
+      await embedTableRowAfterInsert('localizacoes', localizacao.id);
 
       // Registrar auditoria
       await registrarAuditoria({

@@ -91,7 +91,7 @@ export const API_CATEGORIES: ApiCategory[] = [
               data: {
                 token: 'eyJhbGciOi...',
                 refreshToken: 'abc123...',
-                usuario: { id: 1, nome: 'Administrador', email: 'admin@bluepoint.com', tipo: 'admin', foto: null },
+                usuario: { id: 1, nome: 'Administrador', email: 'admin@people.com', tipo: 'admin', foto: null },
               },
             },
           },
@@ -1010,7 +1010,7 @@ Todos usam o mesmo header Authorization: Bearer <token>`,
           example: { imagem: 'data:image/jpeg;base64,/9j/4AAQ...' },
         },
         responses: {
-          success: { status: 200, description: 'Face verificada', example: { success: true, data: { identificado: true, tipo: 'bluepoint', colaborador: { id: 1, nome: 'João' }, confianca: 0.89 } } },
+          success: { status: 200, description: 'Face verificada', example: { success: true, data: { identificado: true, tipo: 'people', colaborador: { id: 1, nome: 'João' }, confianca: 0.89 } } },
           errors: [{ status: 400, code: 'FACE_NOT_DETECTED', message: 'Nenhuma face detectada' }],
         },
       },

@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
       const { nome, cbo, descricao } = validation.data;
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_cargos (nome, cbo, descricao)
+        `INSERT INTO people.cargos (nome, cbo, descricao)
          VALUES ($1, $2, $3)
          RETURNING id, nome`,
         [nome, cbo || null, descricao || null]
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       const cargo = result.rows[0];
 
       await invalidateCache(CACHE_KEYS.CARGOS);
-      await embedTableRowAfterInsert('bt_cargos', cargo.id);
+      await embedTableRowAfterInsert('cargos', cargo.id);
 
       await registrarAuditoria({
         usuarioId: user.userId,

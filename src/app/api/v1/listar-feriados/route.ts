@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bt_feriados ${whereClause}`,
+          `SELECT COUNT(*) as total FROM feriados ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
         const dataParams = [...params, limite, offset];
         const result = await query(
           `SELECT id, nome, data, tipo, recorrente, abrangencia
-           FROM bt_feriados
+           FROM feriados
            ${whereClause}
            ORDER BY data ASC
            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

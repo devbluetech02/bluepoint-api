@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
         // Contar total
         const countResult = await query(
-          `SELECT COUNT(*) as total FROM bluepoint.bt_colaboradores c ${whereClause}`,
+          `SELECT COUNT(*) as total FROM people.colaboradores c ${whereClause}`,
           params
         );
         const total = parseInt(countResult.rows[0].total);
@@ -79,12 +79,12 @@ export async function GET(request: NextRequest) {
             e.nome_fantasia as empresa_nome_fantasia,
             CASE WHEN bf.id IS NOT NULL THEN true ELSE false END as tem_biometria,
             bf.data_cadastro as biometria_cadastrada_em
-          FROM bluepoint.bt_colaboradores c
-          LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-          LEFT JOIN bluepoint.bt_departamentos d ON c.departamento_id = d.id
-          LEFT JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
-          LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
-          LEFT JOIN bluepoint.bt_biometria_facial bf ON c.id = bf.colaborador_id
+          FROM people.colaboradores c
+          LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+          LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+          LEFT JOIN people.jornadas j ON c.jornada_id = j.id
+          LEFT JOIN people.empresas e ON c.empresa_id = e.id
+          LEFT JOIN people.biometria_facial bf ON c.id = bf.colaborador_id
           ${whereClause}
           ORDER BY c.${orderBy} ${orderDir}
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
           if (ano >= 2020 && ano <= 2100 && mes >= 1 && mes <= 12) {
             mesRefBeneficios = mesReferencia;
             const parametrosRes = await query(
-              `SELECT horas_minimas_para_vale_alimentacao FROM bluepoint.bt_parametros_beneficios ORDER BY id DESC LIMIT 1`
+              `SELECT horas_minimas_para_vale_alimentacao FROM people.parametros_beneficios ORDER BY id DESC LIMIT 1`
             );
             const horasMin = parametrosRes.rows[0]
               ? Number(parametrosRes.rows[0].horas_minimas_para_vale_alimentacao)

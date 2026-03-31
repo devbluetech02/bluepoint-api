@@ -24,8 +24,8 @@ export async function POST(request: NextRequest) {
       const marcacaoResult = await query(
         `SELECT m.id, m.data_hora, m.tipo, m.colaborador_id, m.ocorrencia_portal_id,
                 c.nome as colaborador_nome
-         FROM bluepoint.bt_marcacoes m
-         JOIN bluepoint.bt_colaboradores c ON m.colaborador_id = c.id
+         FROM people.marcacoes m
+         JOIN people.colaboradores c ON m.colaborador_id = c.id
          WHERE m.id = $1 AND m.colaborador_id = $2`,
         [data.marcacaoId, user.userId]
       );
@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
 
       // Verificar se já existe justificativa de atraso para esta marcação
       const existeResult = await query(
-        `SELECT id FROM bt_solicitacoes
+        `SELECT id FROM solicitacoes
          WHERE colaborador_id = $1
            AND tipo = 'outros'
            AND dados_adicionais->>'marcacaoId' = $2
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       // Verificar anexo se informado
       if (data.anexoId) {
         const anexoResult = await query(
-          `SELECT id FROM bt_anexos WHERE id = $1 AND colaborador_id = $2`,
+          `SELECT id FROM anexos WHERE id = $1 AND colaborador_id = $2`,
           [data.anexoId, user.userId]
         );
 
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
 
       // Criar solicitação tipo 'outros' com dados_adicionais identificando como justificativa de atraso
       const result = await client.query(
-        `INSERT INTO bt_solicitacoes (
+        `INSERT INTO solicitacoes (
           colaborador_id, tipo, data_evento, descricao, justificativa, dados_adicionais
         ) VALUES ($1, 'outros', $2, $3, $4, $5)
         RETURNING id`,
@@ -96,21 +96,21 @@ export async function POST(request: NextRequest) {
       // Vincular anexo se informado
       if (data.anexoId) {
         await client.query(
-          `UPDATE bt_anexos SET solicitacao_id = $1 WHERE id = $2`,
+          `UPDATE anexos SET solicitacao_id = $1 WHERE id = $2`,
           [solicitacaoId, data.anexoId]
         );
       }
 
       // Registrar histórico
       await client.query(
-        `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+        `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
          VALUES ($1, 'pendente', $2, 'Justificativa de atraso criada pelo colaborador')`,
         [solicitacaoId, user.userId]
       );
 
       // Atualizar justificativa na própria marcação
       await client.query(
-        `UPDATE bluepoint.bt_marcacoes
+        `UPDATE people.marcacoes
          SET justificativa = $1, atualizado_em = NOW()
          WHERE id = $2`,
         [data.justificativa, data.marcacaoId]

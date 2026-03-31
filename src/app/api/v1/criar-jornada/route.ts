@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
 
       // Inserir jornada
       const jornadaResult = await client.query(
-        `INSERT INTO bluepoint.bt_jornadas (nome, descricao, tipo, dias_repeticao, carga_horaria_semanal, tolerancia_entrada, tolerancia_saida)
+        `INSERT INTO people.jornadas (nome, descricao, tipo, dias_repeticao, carga_horaria_semanal, tolerancia_entrada, tolerancia_saida)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING id, nome, tipo`,
         [
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
       // Inserir horários
       for (const h of data.horarios) {
         await client.query(
-          `INSERT INTO bluepoint.bt_jornada_horarios (jornada_id, dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga)
+          `INSERT INTO people.jornada_horarios (jornada_id, dia_semana, sequencia, quantidade_dias, dias_semana, periodos, folga)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
             jornada.id, 
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       await client.query('COMMIT');
 
       await invalidateJornadaCache();
-      await embedTableRowAfterInsert('bt_jornadas', jornada.id);
+      await embedTableRowAfterInsert('jornadas', jornada.id);
 
       await registrarAuditoria({
         usuarioId: user.userId,

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
-        `SELECT id FROM bluepoint.bt_colaboradores WHERE id = $1`,
+        `SELECT id FROM people.colaboradores WHERE id = $1`,
         [colaboradorId]
       );
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       // Contar total
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM bt_banco_horas ${whereClause}`,
+        `SELECT COUNT(*) as total FROM banco_horas ${whereClause}`,
         params_query
       );
       const total = parseInt(countResult.rows[0].total);
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dataParams = [...params_query, limite, offset];
       const result = await query(
         `SELECT id, data, tipo, descricao, horas, saldo_anterior, saldo_atual, observacao, criado_em
-         FROM bt_banco_horas
+         FROM banco_horas
          ${whereClause}
          ORDER BY criado_em DESC
          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,

@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       const { modeloId, codigo, descricao } = validation.data;
 
       const modeloResult = await query(
-        `SELECT id FROM bluepoint.bt_modelos_exportacao WHERE id = $1`,
+        `SELECT id FROM people.modelos_exportacao WHERE id = $1`,
         [modeloId]
       );
 
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       }
 
       const result = await query(
-        `INSERT INTO bluepoint.bt_codigos_exportacao (modelo_id, codigo, descricao)
+        `INSERT INTO people.codigos_exportacao (modelo_id, codigo, descricao)
          VALUES ($1, $2, $3)
          RETURNING id, modelo_id, codigo, descricao, status_arquivo, status_econtador, criado_em`,
         [modeloId, codigo, descricao || null]

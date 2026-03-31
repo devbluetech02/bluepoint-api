@@ -47,8 +47,8 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
 
     const colabResult = await query(
       `SELECT c.jornada_id, j.tolerancia_entrada
-       FROM bluepoint.bt_colaboradores c
-       LEFT JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
+       FROM people.colaboradores c
+       LEFT JOIN people.jornadas j ON c.jornada_id = j.id
        WHERE c.id = $1 AND c.status = 'ativo'`,
       [colaboradorId]
     );
@@ -62,7 +62,7 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
 
     const diaSemana = agora.getDay();
     const horarioResult = await query(
-      `SELECT periodos, folga FROM bluepoint.bt_jornada_horarios
+      `SELECT periodos, folga FROM people.jornada_horarios
        WHERE jornada_id = $1 AND (
          dia_semana = $2 
          OR (dia_semana IS NULL AND dias_semana @> $3::jsonb)
@@ -103,7 +103,7 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
 
     const parametroResult = await query(
       `SELECT id, minutos_tolerancia, dias_permitidos_por_mes
-       FROM bluepoint.bt_parametros_hora_extra
+       FROM people.parametros_hora_extra
        WHERE ativo = TRUE
        ORDER BY id DESC
        LIMIT 1`
@@ -122,7 +122,7 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
 
     const utilizadosResult = await query(
       `SELECT COUNT(*) AS total
-       FROM bluepoint.bt_historico_tolerancia_hora_extra
+       FROM people.historico_tolerancia_hora_extra
        WHERE colaborador_id = $1
          AND data BETWEEN $2::date AND $3::date
          AND consumiu_tolerancia = TRUE`,
@@ -138,14 +138,14 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
 
     if (minutosHoraExtra <= parametro.minutos_tolerancia && diasRestantes > 0) {
       const jaConsumiu = await query(
-        `SELECT id FROM bluepoint.bt_historico_tolerancia_hora_extra
+        `SELECT id FROM people.historico_tolerancia_hora_extra
          WHERE colaborador_id = $1 AND data = $2::date`,
         [colaboradorId, hoje]
       );
 
       if (jaConsumiu.rows.length === 0) {
         await query(
-          `INSERT INTO bluepoint.bt_historico_tolerancia_hora_extra
+          `INSERT INTO people.historico_tolerancia_hora_extra
              (colaborador_id, data, minutos_hora_extra, consumiu_tolerancia, parametro_id)
            VALUES ($1, $2::date, $3, TRUE, $4)`,
           [colaboradorId, hoje, minutosHoraExtra, parametro.id]
@@ -178,7 +178,7 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
       // Verificar se já existe qualquer solicitação de HE (manual ou automática) para este colaborador/data
       // Evita duplicação: ex. entrada antecipada já criou automática, saída tardia não deve criar outra
       const existente = await query(
-        `SELECT id, origem FROM bt_solicitacoes
+        `SELECT id, origem FROM solicitacoes
          WHERE colaborador_id = $1
            AND tipo = 'hora_extra'
            AND data_evento = $2::date
@@ -206,7 +206,7 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
         const descricao = `Hora extra automática (entrada antecipada): ${horaInicio} às ${horaFim} (${totalHoras}h) — ${motivo}`;
 
         const solicitacaoResult = await client.query(
-          `INSERT INTO bt_solicitacoes (
+          `INSERT INTO solicitacoes (
             colaborador_id, tipo, data_evento, descricao, justificativa, origem, dados_adicionais
           ) VALUES ($1, 'hora_extra', $2::date, $3, $4, 'automatica', $5)
           RETURNING id, status, data_solicitacao`,
@@ -231,20 +231,20 @@ export async function verificarEAplicarToleranciaHoraExtraEntrada(
         const solicitacao = solicitacaoResult.rows[0];
 
         await client.query(
-          `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+          `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
            VALUES ($1, 'pendente', $2, 'Solicitação de hora extra (entrada antecipada) gerada automaticamente pelo sistema')`,
           [solicitacao.id, userId]
         );
 
         const jaRegistrou = await client.query(
-          `SELECT id FROM bt_historico_tolerancia_hora_extra
+          `SELECT id FROM historico_tolerancia_hora_extra
            WHERE colaborador_id = $1 AND data = $2::date`,
           [colaboradorId, hoje]
         );
 
         if (jaRegistrou.rows.length === 0) {
           await client.query(
-            `INSERT INTO bt_historico_tolerancia_hora_extra
+            `INSERT INTO historico_tolerancia_hora_extra
                (colaborador_id, data, minutos_hora_extra, consumiu_tolerancia, parametro_id)
              VALUES ($1, $2::date, $3, FALSE, $4)`,
             [colaboradorId, hoje, minutosHoraExtra, parametro.id]
@@ -318,8 +318,8 @@ export async function verificarEAplicarToleranciaHoraExtra(
     // 1. Buscar jornada do colaborador
     const colabResult = await query(
       `SELECT c.jornada_id, j.tolerancia_saida
-       FROM bluepoint.bt_colaboradores c
-       LEFT JOIN bluepoint.bt_jornadas j ON c.jornada_id = j.id
+       FROM people.colaboradores c
+       LEFT JOIN people.jornadas j ON c.jornada_id = j.id
        WHERE c.id = $1 AND c.status = 'ativo'`,
       [colaboradorId]
     );
@@ -334,7 +334,7 @@ export async function verificarEAplicarToleranciaHoraExtra(
     // 2. Buscar horário previsto de saída para hoje
     const diaSemana = agora.getDay();
     const horarioResult = await query(
-      `SELECT periodos, folga FROM bluepoint.bt_jornada_horarios
+      `SELECT periodos, folga FROM people.jornada_horarios
        WHERE jornada_id = $1 AND (
          dia_semana = $2 
          OR (dia_semana IS NULL AND dias_semana @> $3::jsonb)
@@ -382,7 +382,7 @@ export async function verificarEAplicarToleranciaHoraExtra(
     // 4. Buscar parâmetros de tolerância de hora extra
     const parametroResult = await query(
       `SELECT id, minutos_tolerancia, dias_permitidos_por_mes
-       FROM bluepoint.bt_parametros_hora_extra
+       FROM people.parametros_hora_extra
        WHERE ativo = TRUE
        ORDER BY id DESC
        LIMIT 1`
@@ -402,7 +402,7 @@ export async function verificarEAplicarToleranciaHoraExtra(
     // 5. Contar dias de tolerância já utilizados no mês
     const utilizadosResult = await query(
       `SELECT COUNT(*) AS total
-       FROM bluepoint.bt_historico_tolerancia_hora_extra
+       FROM people.historico_tolerancia_hora_extra
        WHERE colaborador_id = $1
          AND data BETWEEN $2::date AND $3::date
          AND consumiu_tolerancia = TRUE`,
@@ -420,14 +420,14 @@ export async function verificarEAplicarToleranciaHoraExtra(
     if (minutosHoraExtra <= parametro.minutos_tolerancia && diasRestantes > 0) {
       // ---- CONSUMIR TOLERÂNCIA ----
       const jaConsumiu = await query(
-        `SELECT id FROM bluepoint.bt_historico_tolerancia_hora_extra
+        `SELECT id FROM people.historico_tolerancia_hora_extra
          WHERE colaborador_id = $1 AND data = $2::date`,
         [colaboradorId, hoje]
       );
 
       if (jaConsumiu.rows.length === 0) {
         await query(
-          `INSERT INTO bluepoint.bt_historico_tolerancia_hora_extra
+          `INSERT INTO people.historico_tolerancia_hora_extra
              (colaborador_id, data, minutos_hora_extra, consumiu_tolerancia, parametro_id)
            VALUES ($1, $2::date, $3, TRUE, $4)`,
           [colaboradorId, hoje, minutosHoraExtra, parametro.id]
@@ -461,7 +461,7 @@ export async function verificarEAplicarToleranciaHoraExtra(
       // Verificar se já existe qualquer solicitação de HE (manual ou automática) para este colaborador/data
       // Evita duplicação: ex. entrada antecipada já criou automática, saída tardia não deve criar outra
       const existente = await query(
-        `SELECT id, origem FROM bt_solicitacoes
+        `SELECT id, origem FROM solicitacoes
          WHERE colaborador_id = $1
            AND tipo = 'hora_extra'
            AND data_evento = $2::date
@@ -489,7 +489,7 @@ export async function verificarEAplicarToleranciaHoraExtra(
         const descricao = `Hora extra automática: ${horaInicio} às ${horaFim} (${totalHoras}h) — ${motivo}`;
 
         const solicitacaoResult = await client.query(
-          `INSERT INTO bt_solicitacoes (
+          `INSERT INTO solicitacoes (
             colaborador_id, tipo, data_evento, descricao, justificativa, origem, dados_adicionais
           ) VALUES ($1, 'hora_extra', $2::date, $3, $4, 'automatica', $5)
           RETURNING id, status, data_solicitacao`,
@@ -513,21 +513,21 @@ export async function verificarEAplicarToleranciaHoraExtra(
         const solicitacao = solicitacaoResult.rows[0];
 
         await client.query(
-          `INSERT INTO bt_solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
+          `INSERT INTO solicitacoes_historico (solicitacao_id, status_novo, usuario_id, observacao)
            VALUES ($1, 'pendente', $2, 'Solicitação de hora extra gerada automaticamente pelo sistema')`,
           [solicitacao.id, userId]
         );
 
         // Registrar no histórico de tolerância (como não consumida)
         const jaRegistrou = await client.query(
-          `SELECT id FROM bt_historico_tolerancia_hora_extra
+          `SELECT id FROM historico_tolerancia_hora_extra
            WHERE colaborador_id = $1 AND data = $2::date`,
           [colaboradorId, hoje]
         );
 
         if (jaRegistrou.rows.length === 0) {
           await client.query(
-            `INSERT INTO bt_historico_tolerancia_hora_extra
+            `INSERT INTO historico_tolerancia_hora_extra
                (colaborador_id, data, minutos_hora_extra, consumiu_tolerancia, parametro_id)
              VALUES ($1, $2::date, $3, FALSE, $4)`,
             [colaboradorId, hoje, minutosHoraExtra, parametro.id]

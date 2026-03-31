@@ -67,7 +67,7 @@ export async function DELETE(request: NextRequest) {
 
       // Verificar se existe cadastro com este prefixo e ID
       const existeResult = await query(
-        `SELECT id, colaborador_id, external_id FROM bluepoint.bt_biometria_facial 
+        `SELECT id, colaborador_id, external_id FROM people.biometria_facial 
          WHERE external_id ? $1 AND external_id ->> $1 = $2`,
         [prefixo, id]
       );
@@ -85,11 +85,11 @@ export async function DELETE(request: NextRequest) {
 
       // Se só tem este external_id e não tem colaborador_id, deletar registro
       if (Object.keys(externalIds).length === 1 && !registro.colaborador_id) {
-        await query(`DELETE FROM bluepoint.bt_biometria_facial WHERE id = $1`, [registro.id]);
+        await query(`DELETE FROM people.biometria_facial WHERE id = $1`, [registro.id]);
       } else {
         // Remover apenas esta chave do JSONB
         await query(
-          `UPDATE bluepoint.bt_biometria_facial 
+          `UPDATE people.biometria_facial 
            SET external_id = external_id - $1, atualizado_em = NOW()
            WHERE id = $2`,
           [prefixo, registro.id]

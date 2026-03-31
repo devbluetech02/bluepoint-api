@@ -37,9 +37,9 @@ export async function buscarDadosColaboradorParaCusto(
        cg.salario_medio,
        e.nome_fantasia AS empresa,
        e.id AS empresa_id
-     FROM bluepoint.bt_colaboradores c
-     LEFT JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
-     LEFT JOIN bluepoint.bt_empresas e ON c.empresa_id = e.id
+     FROM people.colaboradores c
+     LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+     LEFT JOIN people.empresas e ON c.empresa_id = e.id
      WHERE c.id = $1`,
     [colaboradorId]
   );
@@ -182,7 +182,7 @@ export async function calcularAcumuladoMesGestor(gestorId: number): Promise<{ to
     `SELECT
        COALESCE(SUM((dados_adicionais->>'custo_aprovado')::numeric), 0) AS total,
        COUNT(*)::int AS qtd
-     FROM bluepoint.bt_solicitacoes
+     FROM people.solicitacoes
      WHERE tipo = 'hora_extra'
        AND status = 'aprovada'
        AND aprovador_id = $1
@@ -204,8 +204,8 @@ export async function calcularAcumuladoMesGestor(gestorId: number): Promise<{ to
 export async function obterSaldoGestor(gestorId: number): Promise<SaldoGestor | null> {
   const limiteResult = await query(
     `SELECT l.limite_mensal, l.pode_extrapolar, c.nome AS gestor_nome
-     FROM bluepoint.bt_limites_he_gestores l
-     JOIN bluepoint.bt_colaboradores c ON l.gestor_id = c.id
+     FROM people.limites_he_gestores l
+     JOIN people.colaboradores c ON l.gestor_id = c.id
      WHERE l.gestor_id = $1`,
     [gestorId]
   );
@@ -260,8 +260,8 @@ export async function verificarLimiteMensalGestor(
 ): Promise<VerificacaoLimiteGestor | null> {
   const limiteResult = await query(
     `SELECT l.limite_mensal, l.pode_extrapolar, c.nome AS gestor_nome
-     FROM bluepoint.bt_limites_he_gestores l
-     JOIN bluepoint.bt_colaboradores c ON l.gestor_id = c.id
+     FROM people.limites_he_gestores l
+     JOIN people.colaboradores c ON l.gestor_id = c.id
      WHERE l.gestor_id = $1`,
     [gestorId]
   );
@@ -273,8 +273,8 @@ export async function verificarLimiteMensalGestor(
 
   const dadosColab = await query(
     `SELECT cg.valor_hora_extra_75, cg.salario_medio
-     FROM bluepoint.bt_colaboradores c
-     JOIN bluepoint.bt_cargos cg ON c.cargo_id = cg.id
+     FROM people.colaboradores c
+     JOIN people.cargos cg ON c.cargo_id = cg.id
      WHERE c.id = $1`,
     [colaboradorId]
   );
@@ -332,7 +332,7 @@ export async function salvarCustoHoraExtra(
   solicitacaoOriginalId?: number
 ): Promise<void> {
   await query(
-    `INSERT INTO bluepoint.bt_custo_horas_extras (
+    `INSERT INTO people.custo_horas_extras (
        solicitacao_id, solicitacao_original_id, colaborador_id, cargo_id, empresa_id,
        horas_extras, valor_he_base, valor_dsr, valor_13, valor_ferias,
        um_terco_ferias, valor_fgts, valor_inss, custo_dia, custo_mes, custo_ano

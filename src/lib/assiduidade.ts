@@ -1,9 +1,9 @@
 /**
  * Regras de negocio para calculo de assiduidade (bonus mensal configuravel).
- * Schema: bluepoint — tabelas bt_historico_assiduidade, bt_parametros_assiduidade.
+ * Schema: people — tabelas historico_assiduidade, parametros_assiduidade.
  *
  * Os pontos de ocorrencia (gravidade) vem de uma API externa.
- * Os parametros (limites, valores, cargos excluidos) vem de bt_parametros_assiduidade.
+ * Os parametros (limites, valores, cargos excluidos) vem de parametros_assiduidade.
  *
  * Cadeia cronologica: cada mes depende do valor do mes anterior.
  * Quando ha meses faltantes, o sistema preenche a cadeia inteira
@@ -54,7 +54,7 @@ export async function obterParametrosAssiduidade(): Promise<ParametrosAssiduidad
       `SELECT limite_pontos_zerar, min_dias_admissao_mes,
               valor_inicial, incremento_mensal, valor_maximo,
               cargos_excluidos, ativo
-       FROM bluepoint.bt_parametros_assiduidade
+       FROM people.parametros_assiduidade
        ORDER BY id DESC LIMIT 1`,
     );
 
@@ -271,7 +271,7 @@ export async function calcularCadeiaColaborador(
 
   const existentes = await dbQuery(
     `SELECT mes, ano, valor_total
-     FROM bluepoint.bt_historico_assiduidade
+     FROM people.historico_assiduidade
      WHERE colaborador_id = $1 ORDER BY ano, mes`,
     [colaborador.id],
   );
@@ -291,7 +291,7 @@ export async function calcularCadeiaColaborador(
       if (mes === mesAlvo && ano === anoAlvo) {
         const reg = await dbQuery(
           `SELECT total_pontos, valor_total, dias_trabalhados, ocorrencias_periodo, observacoes
-           FROM bluepoint.bt_historico_assiduidade
+           FROM people.historico_assiduidade
            WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
           [colaborador.id, mes, ano],
         );
@@ -375,7 +375,7 @@ async function persistirRegistro(
   },
 ): Promise<void> {
   await dbQuery(
-    `INSERT INTO bluepoint.bt_historico_assiduidade (
+    `INSERT INTO people.historico_assiduidade (
        colaborador_id, mes, ano,
        total_pontos, valor_ponto, valor_base, valor_bonus, valor_total,
        dias_trabalhados, ocorrencias_periodo, pontuacao_ocorrencias,
