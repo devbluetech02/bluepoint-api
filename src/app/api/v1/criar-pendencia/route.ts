@@ -5,7 +5,7 @@ import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { criarPendenciaSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidatePendenciaCache } from '@/lib/cache';
-import { criarNotificacao } from '@/lib/notificacoes';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -77,18 +77,17 @@ export async function POST(request: NextRequest) {
       await client.query('COMMIT');
 
       if (data.destinatarioId) {
-        await criarNotificacao({
+        const prioridadeLabel: Record<string, string> = { critica: '🔴 Crítica', alta: '🟠 Alta', media: 'Média', baixa: 'Baixa' };
+        const prioLabel = prioridadeLabel[data.prioridade] ?? data.prioridade;
+        criarNotificacaoComPush({
           usuarioId: data.destinatarioId,
           tipo: 'solicitacao',
-          titulo: 'Nova pendência para resolução',
-          mensagem: `${data.titulo} - ${data.descricao}`,
+          titulo: `Nova pendência — ${prioLabel}`,
+          mensagem: `${data.titulo}: ${data.descricao}`,
           link: `/pendencias/${pendencia.id}`,
-          metadados: {
-            acao: 'pendencia_criada',
-            pendenciaId: pendencia.id,
-            prioridade: data.prioridade,
-          },
-        });
+          metadados: { acao: 'pendencia_criada', pendenciaId: pendencia.id, prioridade: data.prioridade },
+          pushSeveridade: data.prioridade === 'critica' ? 'critico' : data.prioridade === 'alta' ? 'atencao' : 'info',
+        }).catch((err) => console.error('[Notificação] Erro ao notificar pendência:', err));
       }
 
       await invalidatePendenciaCache(pendencia.id, data.destinatarioId ?? undefined);

@@ -4,6 +4,7 @@ import { createdResponse, errorResponse, serverErrorResponse, validationErrorRes
 import { withGestor } from '@/lib/middleware';
 import { designarFeriasSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -103,6 +104,17 @@ export async function POST(request: NextRequest) {
         entidadeTipo: 'ferias',
         dadosNovos: { id: periodo.id, colaboradorId, dataInicio, dataFim, dias, solicitacaoId },
       }));
+
+      const fmtDate = (d: string) => new Date(d + 'T12:00:00').toLocaleDateString('pt-BR');
+      criarNotificacaoComPush({
+        usuarioId: colaboradorId,
+        tipo: 'solicitacao',
+        titulo: 'Férias designadas',
+        mensagem: `Suas férias foram designadas: ${fmtDate(dataInicio)} a ${fmtDate(dataFim)} (${dias} dia${dias > 1 ? 's' : ''}).${observacao ? ` Obs: ${observacao}.` : ''}`,
+        link: '/ferias',
+        metadados: { acao: 'ferias_designadas', periodoId: periodo.id, dataInicio, dataFim, dias, solicitacaoId },
+        pushSeveridade: 'info',
+      }).catch((err) => console.error('[Notificação] Erro ao notificar férias:', err));
 
       return createdResponse({
         id: periodo.id,

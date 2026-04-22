@@ -5,6 +5,7 @@ import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { resolverPendenciaSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidatePendenciaCache } from '@/lib/cache';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -78,6 +79,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       );
 
       await client.query('COMMIT');
+
+      // Notificar o criador da pendência se for diferente de quem resolveu
+      const resolvedByUserId = isApiKeyAuth(user) ? null : user.userId;
+      if (pendencia.criada_por_id && pendencia.criada_por_id !== resolvedByUserId) {
+        criarNotificacaoComPush({
+          usuarioId: pendencia.criada_por_id,
+          tipo: 'solicitacao',
+          titulo: status === 'aprovada' ? 'Pendência resolvida' : 'Pendência encerrada',
+          mensagem: `"${pendencia.titulo}" foi marcada como ${status}.${observacao ? ` Obs: "${observacao}".` : ''}`,
+          link: `/pendencias/${pendenciaId}`,
+          metadados: { acao: 'pendencia_resolvida', pendenciaId, status },
+          pushSeveridade: 'info',
+        }).catch((err) => console.error('[Notificação] Erro ao notificar resolução de pendência:', err));
+      }
 
       await invalidatePendenciaCache(pendenciaId, pendencia.destinatario_id ?? undefined);
 

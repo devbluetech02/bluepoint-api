@@ -1,35 +1,30 @@
 import { NextRequest } from 'next/server';
 import { notFoundResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
-import { withGestor } from '@/lib/middleware';
+import { withAdmissao } from '@/lib/middleware';
 import {
   buildFormularioAdmissaoPublicLink,
+  fetchDocumentosAdmissao,
   fetchFormularioAdmissaoAtivo,
   mapCamposParaApi,
-  mapDocumentosRequeridosParaApi,
 } from '@/lib/formulario-admissao';
 
-function buildPublicLink(request: NextRequest, token: string | null): string | null {
-  if (!token) return null;
-  return buildFormularioAdmissaoPublicLink(request, token);
-}
-
 export async function GET(request: NextRequest) {
-  return withGestor(request, async () => {
+  return withAdmissao(request, async () => {
     try {
       const row = await fetchFormularioAdmissaoAtivo();
       if (!row) {
         return notFoundResponse('Formulário de admissão não encontrado');
       }
 
-      const documentosRequeridos = await mapDocumentosRequeridosParaApi(row.documentos_requeridos ?? []);
+      const documentosRequeridos = await fetchDocumentosAdmissao(row.documentos_requeridos);
 
       return successResponse({
         id: row.id,
         titulo: row.titulo,
         descricao: row.descricao,
         ativo: row.ativo,
-        linkPublico: buildPublicLink(request, row.token_publico),
-        campos: mapCamposParaApi(row.campos),
+        linkPublico: row.token_publico ? buildFormularioAdmissaoPublicLink(request, row.token_publico) : null,
+        campos: mapCamposParaApi(row.campos, true),
         documentosRequeridos,
       });
     } catch (error) {

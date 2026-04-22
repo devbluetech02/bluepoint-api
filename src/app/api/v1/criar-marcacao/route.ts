@@ -6,6 +6,7 @@ import { criarMarcacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateMarcacaoCache } from '@/lib/cache';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -66,6 +67,22 @@ export async function POST(request: NextRequest) {
           dataHora: data.dataHora,
         },
       });
+
+      const tipoLabel: Record<string, string> = {
+        entrada: 'entrada', saida: 'saída', inicio_intervalo: 'início de intervalo', fim_intervalo: 'fim de intervalo',
+      };
+      const horaFormatada = new Date(marcacao.data_hora).toLocaleTimeString('pt-BR', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
+      });
+      criarNotificacaoComPush({
+        usuarioId: data.colaboradorId,
+        tipo: 'marcacao',
+        titulo: 'Marcação registrada pelo administrador',
+        mensagem: `Uma marcação de ${tipoLabel[marcacao.tipo] ?? marcacao.tipo} foi adicionada às ${horaFormatada} pelo administrador.`,
+        link: '/marcacoes',
+        metadados: { acao: 'marcacao_manual', marcacaoId: marcacao.id, tipo: marcacao.tipo },
+        pushSeveridade: 'info',
+      }).catch((err) => console.error('[Notificação] Erro ao notificar marcação manual:', err));
 
       return createdResponse({
         id: marcacao.id,

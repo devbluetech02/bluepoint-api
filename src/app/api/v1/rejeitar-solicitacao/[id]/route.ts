@@ -5,7 +5,7 @@ import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { rejeitarSolicitacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidateSolicitacaoCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
-import { criarNotificacao } from '@/lib/notificacoes';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -85,32 +85,47 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           );
         }
 
-        criarNotificacao({
+        criarNotificacaoComPush({
           usuarioId: solicitacao.colaborador_id,
           tipo: 'solicitacao',
           titulo: 'Contestação de relatório recusada',
           mensagem: `Sua contestação do relatório ${dados.mes}/${dados.ano} foi recusada. Motivo: "${motivo}".`,
           link: `/relatorios`,
           metadados: { acao: 'contestacao_recusada', solicitacaoId, motivo },
+          pushSeveridade: 'atencao',
         }).catch((err) => console.error('[Notificação] Erro ao notificar rejeição de contestação:', err));
       }
 
-      // Notificar colaborador sobre rejeição de atraso
-      if (solicitacao.tipo === 'atraso') {
-        criarNotificacao({
-          usuarioId: solicitacao.colaborador_id,
-          tipo: 'solicitacao',
-          titulo: 'Solicitação de atraso recusada',
-          mensagem:
-            `Seu gestor recusou a solicitação de registro de ponto com atraso. ` +
-            `Motivo: "${motivo}". O ponto não foi registrado.`,
-          link: `/solicitacoes/${solicitacaoId}`,
-          metadados: {
-            acao: 'atraso_recusado',
-            solicitacaoId,
-            motivo,
-          },
-        }).catch((err) => console.error('[Notificação] Erro ao notificar rejeição:', err));
+      // Notificar colaborador sobre rejeição — todos os tipos com push
+      {
+        const titulosRejeicao: Record<string, string> = {
+          atraso: 'Solicitação de atraso recusada',
+          ajuste_ponto: 'Ajuste de ponto recusado',
+          hora_extra: 'Hora extra recusada',
+          ferias: 'Solicitação de férias recusada',
+          atestado: 'Atestado recusado',
+        };
+        const nomeTipo: Record<string, string> = {
+          atraso: 'atraso',
+          ajuste_ponto: 'ajuste de ponto',
+          hora_extra: 'hora extra',
+          ferias: 'férias',
+          atestado: 'atestado médico',
+        };
+        // contestacao já é tratada no bloco acima
+        if (solicitacao.tipo !== 'contestacao') {
+          const titulo = titulosRejeicao[solicitacao.tipo] ?? 'Solicitação recusada';
+          const tipo = nomeTipo[solicitacao.tipo] ?? solicitacao.tipo;
+          criarNotificacaoComPush({
+            usuarioId: solicitacao.colaborador_id,
+            tipo: 'solicitacao',
+            titulo,
+            mensagem: `Sua solicitação de ${tipo} foi recusada. Motivo: "${motivo}".`,
+            link: `/solicitacoes/${solicitacaoId}`,
+            metadados: { acao: 'solicitacao_rejeitada', solicitacaoId, tipo: solicitacao.tipo, motivo },
+            pushSeveridade: 'atencao',
+          }).catch((err) => console.error('[Notificação] Erro ao notificar rejeição:', err));
+        }
       }
 
       // Invalidar cache de solicitações e horas extras

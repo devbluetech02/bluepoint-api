@@ -161,12 +161,11 @@ export async function POST(request: NextRequest) {
       const result = await query(
         `INSERT INTO people.marcacoes (
           colaborador_id, empresa_id, data_hora, tipo, latitude, longitude, metodo, foto_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ) VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7)
         RETURNING id, data_hora`,
         [
           data.colaboradorId,
           data.empresaId || null,
-          agora,
           evento.tipoMarcacao,
           data.localizacao?.latitude || null,
           data.localizacao?.longitude || null,

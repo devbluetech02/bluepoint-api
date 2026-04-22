@@ -2,7 +2,6 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse, successResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
-import { validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateMarcacaoCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { uploadArquivo } from '@/lib/storage';
@@ -28,6 +27,8 @@ const registrarPontoIndividualSchema = z.object({
     latitude: z.number(),
     longitude: z.number(),
   }).optional(),
+  origem: z.string().optional(),
+  dispositivoCodigo: z.string().length(6).optional(),
 });
 
 /**
@@ -75,7 +76,17 @@ export async function POST(request: NextRequest) {
       const colaborador = colaboradorResult.rows[0];
 
       // Verificar permissão de ponto pelo celular
-      if (!colaborador.permite_ponto_mobile) {
+      // Totem com código de dispositivo válido e ativo ignora a restrição
+      let dispositivoTotemValido = false;
+      if (data.origem === 'totem' && data.dispositivoCodigo) {
+        const dispResult = await query(
+          `SELECT id FROM people.dispositivos WHERE codigo = $1 AND status = 'ativo'`,
+          [data.dispositivoCodigo.toUpperCase()]
+        );
+        dispositivoTotemValido = dispResult.rows.length > 0;
+      }
+
+      if (!dispositivoTotemValido && !colaborador.permite_ponto_mobile) {
         return errorResponse('Este colaborador não tem permissão para marcar ponto pelo celular', 403);
       }
 
@@ -92,23 +103,6 @@ export async function POST(request: NextRequest) {
 
       // Determinar proximo evento
       const evento = await determinarProximoEvento(user.userId, jornada);
-
-      // Validar sequencia de marcacoes
-      const ultimaMarcacao = evento.marcacoesHoje.length > 0
-        ? evento.marcacoesHoje[evento.marcacoesHoje.length - 1]
-        : null;
-
-      if (evento.tipoMarcacao === 'entrada' || evento.tipoMarcacao === 'retorno') {
-        if (ultimaMarcacao && (ultimaMarcacao.tipo === 'entrada' || ultimaMarcacao.tipo === 'retorno')) {
-          return errorResponse('Já existe uma entrada registrada. Registre a saída primeiro.', 400);
-        }
-      }
-
-      if (evento.tipoMarcacao === 'saida' || evento.tipoMarcacao === 'almoco') {
-        if (!ultimaMarcacao || (ultimaMarcacao.tipo === 'saida' || ultimaMarcacao.tipo === 'almoco')) {
-          return errorResponse('Registre a entrada primeiro.', 400);
-        }
-      }
 
       // Buscar parametros globais de tolerancia
       const parametros = await obterParametrosTolerancia();
@@ -174,12 +168,11 @@ export async function POST(request: NextRequest) {
       const result = await query(
         `INSERT INTO people.marcacoes (
           colaborador_id, empresa_id, data_hora, tipo, latitude, longitude, metodo, foto_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ) VALUES ($1, $2, NOW(), $3, $4, $5, $6, $7)
         RETURNING id, data_hora`,
         [
           user.userId,
           colaborador.empresa_id || null,
-          agora,
           evento.tipoMarcacao,
           data.localizacao?.latitude || null,
           data.localizacao?.longitude || null,

@@ -5,6 +5,7 @@ import { createdResponse, errorResponse, serverErrorResponse, validationErrorRes
 import { isApiKeyAuth, withAuth } from '@/lib/middleware';
 import { agendarReuniaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -75,6 +76,25 @@ export async function POST(request: NextRequest) {
 
       await client.query('COMMIT');
       inTransaction = false;
+
+      // Notificar convidados (exceto o anfitrião)
+      const dataFormatada = dataInicio.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+      for (const colaboradorId of data.participantesIds) {
+        if (colaboradorId === user.userId) continue;
+        criarNotificacaoComPush({
+          usuarioId: colaboradorId,
+          tipo: 'lembrete',
+          titulo: 'Você foi convidado para uma reunião',
+          mensagem: `"${data.titulo}" — ${dataFormatada}`,
+          link: `/reuniao/${sala}`,
+          metadados: { acao: 'reuniao_convidado', reuniaoId: reuniao.id, sala },
+          pushSeveridade: 'info',
+        }).catch((err) => console.error('[Notificação] Erro ao notificar reunião:', err));
+      }
 
       await registrarAuditoria(buildAuditParams(request, user, {
         acao: 'criar',

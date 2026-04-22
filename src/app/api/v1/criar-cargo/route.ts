@@ -11,6 +11,13 @@ const criarCargoSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
+  diasTeste: z
+    .number()
+    .int('diasTeste deve ser inteiro')
+    .min(0, 'diasTeste não pode ser negativo')
+    .max(365, 'diasTeste não pode exceder 365')
+    .optional()
+    .nullable(),
 });
 
 export async function POST(request: NextRequest) {
@@ -29,13 +36,13 @@ export async function POST(request: NextRequest) {
         return validationErrorResponse(errors);
       }
 
-      const { nome, cbo, descricao } = validation.data;
+      const { nome, cbo, descricao, diasTeste } = validation.data;
 
       const result = await query(
-        `INSERT INTO people.cargos (nome, cbo, descricao)
-         VALUES ($1, $2, $3)
+        `INSERT INTO people.cargos (nome, cbo, descricao, dias_teste)
+         VALUES ($1, $2, $3, $4)
          RETURNING id, nome`,
-        [nome, cbo || null, descricao || null]
+        [nome, cbo || null, descricao || null, diasTeste ?? null]
       );
 
       const cargo = result.rows[0];
@@ -50,7 +57,7 @@ export async function POST(request: NextRequest) {
         descricao: `Cargo criado: ${cargo.nome}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
-        dadosNovos: { id: cargo.id, nome, cbo, descricao },
+        dadosNovos: { id: cargo.id, nome, cbo, descricao, diasTeste: diasTeste ?? null },
       });
 
       return createdResponse({

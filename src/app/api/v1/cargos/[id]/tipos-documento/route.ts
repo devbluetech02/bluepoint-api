@@ -40,12 +40,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
 
       const result = await query(
-        `SELECT t.id, t.codigo, t.nome_exibicao, t.validade_meses, t.obrigatorio_padrao, t.categoria,
+        `SELECT t.id, t.codigo, t.nome_exibicao, t.validade_meses, t.obrigatorio_padrao, t.categorias,
                 COALESCE(c.obrigatorio, t.obrigatorio_padrao) AS obrigatorio
          FROM people.tipos_documento_colaborador t
          LEFT JOIN people.cargo_tipo_documento c
            ON c.tipo_documento_id = t.id AND c.cargo_id = $1
-         WHERE t.categoria = 'operacional'
+         WHERE 'operacional' = ANY(t.categorias)
          ORDER BY t.id ASC`,
         [cargoId]
       );
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         validade_meses: number | null;
         obrigatorio_padrao: boolean;
         obrigatorio: boolean;
-        categoria: 'operacional' | 'admissao';
+        categorias: ('operacional' | 'admissao')[];
       };
       const tipos = (result.rows as TipoRow[]).map((row) => ({
         id: row.id,
@@ -66,7 +66,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         validadeMeses: row.validade_meses,
         obrigatorioPadrao: row.obrigatorio_padrao,
         obrigatorio: row.obrigatorio,
-        categoria: row.categoria,
+        categorias: row.categorias,
       }));
 
       return successResponse({
@@ -135,7 +135,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
           `SELECT id
            FROM people.tipos_documento_colaborador
            WHERE id = ANY($1::int[])
-             AND categoria = 'operacional'`,
+             AND 'operacional' = ANY(categorias)`,
           [ids]
         );
         const idsPermitidos = new Set((permitidosResult.rows as { id: number }[]).map((r) => r.id));

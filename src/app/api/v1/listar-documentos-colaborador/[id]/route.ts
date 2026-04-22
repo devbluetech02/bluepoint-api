@@ -33,7 +33,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dados = await cacheAside(cacheKey, async () => {
         const result = await query(
           `SELECT d.id, d.tipo, d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho, d.data_upload, d.data_validade,
-                  t.codigo AS tipo_codigo, t.nome_exibicao AS tipo_nome_exibicao, t.validade_meses, t.categoria AS tipo_categoria
+                  t.codigo AS tipo_codigo, t.nome_exibicao AS tipo_nome_exibicao, t.validade_meses, t.categorias AS tipo_categorias
            FROM people.documentos_colaborador d
            LEFT JOIN people.tipos_documento_colaborador t ON t.id = d.tipo_documento_id
            WHERE d.colaborador_id = $1
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           tipo_codigo: string | null;
           tipo_nome_exibicao: string | null;
           validade_meses: number | null;
-          tipo_categoria: 'operacional' | 'admissao' | null;
+          tipo_categorias: ('operacional' | 'admissao')[] | null;
         };
         const documentos = (result.rows as DocRow[]).map((doc) => {
           const vencido = doc.data_validade != null && doc.data_validade < hoje;
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest, { params }: Params) {
             tipo: doc.tipo,
             tipoDocumentoId: doc.tipo_documento_id,
             tipoNomeExibicao: doc.tipo_nome_exibicao ?? doc.tipo,
-            categoria: doc.tipo_categoria ?? 'operacional',
+            categorias: doc.tipo_categorias ?? ['operacional'],
             nome: doc.nome,
             url: doc.url,
             tamanho: doc.tamanho,
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest, { params }: Params) {
             `SELECT t.id, t.codigo, COALESCE(ct.obrigatorio, t.obrigatorio_padrao) AS obrigatorio
              FROM people.tipos_documento_colaborador t
              LEFT JOIN people.cargo_tipo_documento ct ON ct.tipo_documento_id = t.id AND ct.cargo_id = $1
-             WHERE t.categoria = 'operacional'
+             WHERE 'operacional' = ANY(t.categorias)
              ORDER BY t.id`,
             [cargoId]
           );
@@ -111,7 +111,7 @@ export async function GET(request: NextRequest, { params }: Params) {
           const todosTiposResult = await query(
             `SELECT id, codigo, obrigatorio_padrao
              FROM people.tipos_documento_colaborador
-             WHERE categoria = 'operacional'
+             WHERE 'operacional' = ANY(categorias)
              ORDER BY id`
           );
           type TipoPadraoRow = { id: number; codigo: string; obrigatorio_padrao: boolean };

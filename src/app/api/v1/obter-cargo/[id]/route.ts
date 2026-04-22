@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dados = await cacheAside(cacheKey, async () => {
 
       const result = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, valor_hora_extra_75, created_at, updated_at
+        `SELECT id, nome, cbo, descricao, salario_medio, dias_teste, created_at, updated_at
          FROM people.cargos
          WHERE id = $1`,
         [cargoId]
@@ -35,13 +35,27 @@ export async function GET(request: NextRequest, { params }: Params) {
 
       const cargo = result.rows[0];
 
+      const examesResult = await query(
+        `SELECT e.id, e.nome
+         FROM people.cargos_exames ce
+         JOIN people.exames e ON e.id = ce.exame_id
+         WHERE ce.cargo_id = $1
+         ORDER BY e.nome ASC`,
+        [cargoId]
+      );
+      const exames = (examesResult.rows as { id: number; nome: string }[]).map((r) => ({
+        id: r.id,
+        nome: r.nome,
+      }));
+
       return {
         id: cargo.id,
         nome: cargo.nome,
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
-        valorHoraExtra75: cargo.valor_hora_extra_75 ? parseFloat(cargo.valor_hora_extra_75) : null,
+        diasTeste: cargo.dias_teste ?? null,
+        exames,
         criadoEm: cargo.created_at,
         atualizadoEm: cargo.updated_at,
       };

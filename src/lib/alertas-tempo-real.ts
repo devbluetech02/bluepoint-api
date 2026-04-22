@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { criarNotificacao } from '@/lib/notificacoes';
+import { enviarPushParaColaboradores } from '@/lib/push-colaborador';
 import { sendEmail } from '@/lib/email';
 import { cacheGet, cacheSet } from '@/lib/cache';
 
@@ -41,6 +42,8 @@ async function dispararAlerta(alerta: DadosAlerta): Promise<void> {
       'SELECT id, email, nome FROM people.colaboradores WHERE tipo = \'admin\' AND status = \'ativo\''
     );
 
+    const adminIds = admins.rows.map((a) => (a as { id: number }).id);
+
     for (const admin of admins.rows) {
       await criarNotificacao({
         usuarioId: admin.id,
@@ -60,6 +63,16 @@ async function dispararAlerta(alerta: DadosAlerta): Promise<void> {
           html: '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;color:#333;line-height:1.6"><div style="max-width:600px;margin:0 auto;padding:20px"><div style="background:' + cor + ';color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0"><h2 style="margin:0">ALERTA CRITICO</h2></div><div style="background:#f9fafb;padding:30px;border-radius:0 0 8px 8px"><h3>' + alerta.titulo + '</h3><p>' + alerta.mensagem + '</p><p style="text-align:center;margin-top:20px"><a href="' + base + '/alertas-inteligentes" style="display:inline-block;background:#1e40af;color:white;padding:12px 30px;text-decoration:none;border-radius:6px">Ver Detalhes</a></p></div></div></body></html>',
         });
       }
+    }
+
+    if (adminIds.length > 0) {
+      enviarPushParaColaboradores(adminIds, {
+        titulo: alerta.titulo,
+        mensagem: alerta.mensagem,
+        severidade: alerta.severidade,
+        data: { tipo: 'alerta_tempo_real', categoria: alerta.categoria, empresaId: alerta.empresaId },
+        url: '/alertas-inteligentes',
+      }).catch(err => console.error('[Alerta Tempo Real] Erro ao enviar push para admins:', err));
     }
   } catch (error) {
     console.error('[Alerta Tempo Real] Erro ao disparar:', error);

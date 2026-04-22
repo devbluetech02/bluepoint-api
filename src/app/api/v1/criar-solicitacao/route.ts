@@ -7,6 +7,8 @@ import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateSolicitacaoCache } from '@/lib/cache';
 import { calcularCustoHoraExtra, salvarCustoHoraExtra } from '@/lib/custoHorasExtrasService';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
+import { obterFotoColaborador } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -137,6 +139,14 @@ export async function POST(request: NextRequest) {
 
       await embedTableRowAfterInsert('solicitacoes', solicitacao.id);
 
+      // Notificar gestores sobre a nova solicitação (fire-and-forget)
+      notificarGestoresSobreSolicitacao({
+        solicitacaoId: solicitacao.id,
+        tipo: data.tipo,
+        colaboradorId: user.userId,
+        gestorIdEspecifico: data.tipo === 'hora_extra' && data.gestorId ? data.gestorId : undefined,
+      }).catch((err) => console.error('[Notificação] Erro ao notificar gestores:', err));
+
       // Calcular e salvar custos de HE (fora da transação - não bloqueia criação)
       const da = dadosAdicionais as Record<string, unknown>;
       if (data.tipo === 'hora_extra' && typeof da.horaInicio === 'string' && typeof da.horaFim === 'string') {
@@ -184,4 +194,94 @@ export async function POST(request: NextRequest) {
       client.release();
     }
   });
+}
+
+const NOMES_TIPO: Record<string, string> = {
+  ajuste_ponto: 'ajuste de ponto',
+  ferias: 'férias',
+  atestado: 'atestado médico',
+  ausencia: 'ausência',
+  hora_extra: 'hora extra',
+  atraso: 'registro de atraso',
+  outros: 'solicitação',
+};
+
+async function notificarGestoresSobreSolicitacao(opts: {
+  solicitacaoId: number;
+  tipo: string;
+  colaboradorId: number;
+  gestorIdEspecifico?: number;
+}): Promise<void> {
+  const { solicitacaoId, tipo, colaboradorId, gestorIdEspecifico } = opts;
+
+  // Buscar dados do colaborador
+  const colabResult = await query(
+    `SELECT nome, empresa_id, departamento_id FROM people.colaboradores WHERE id = $1`,
+    [colaboradorId]
+  );
+  if (colabResult.rows.length === 0) return;
+  const { nome: colabNome, empresa_id, departamento_id } = colabResult.rows[0];
+
+  // Buscar foto do colaborador (pode ser null)
+  const fotoUrl = await obterFotoColaborador(colaboradorId).catch(() => null);
+
+  // Determinar quais gestores notificar
+  let gestorIds: number[];
+
+  if (gestorIdEspecifico) {
+    // Hora extra: notifica apenas o gestor escolhido pelo colaborador
+    gestorIds = [gestorIdEspecifico];
+  } else {
+    // Demais tipos: liderancas do departamento + todos admins/gestores
+    const ids = new Set<number>();
+
+    if (empresa_id && departamento_id) {
+      const liderResult = await query(
+        `SELECT supervisor_ids, coordenador_ids, gerente_ids
+         FROM people.liderancas_departamento
+         WHERE empresa_id = $1 AND departamento_id = $2`,
+        [empresa_id, departamento_id]
+      );
+      if (liderResult.rows.length > 0) {
+        const l = liderResult.rows[0];
+        for (const id of [...(l.supervisor_ids ?? []), ...(l.coordenador_ids ?? []), ...(l.gerente_ids ?? [])]) {
+          ids.add(id);
+        }
+      }
+    }
+
+    const adminsResult = await query(
+      `SELECT id FROM people.colaboradores WHERE tipo IN ('admin', 'gestor') AND status = 'ativo'`
+    );
+    for (const row of adminsResult.rows) ids.add(row.id);
+
+    gestorIds = [...ids];
+  }
+
+  // Nunca notificar o próprio solicitante
+  gestorIds = gestorIds.filter((id) => id !== colaboradorId);
+  if (gestorIds.length === 0) return;
+
+  const nomeTipo = NOMES_TIPO[tipo] ?? 'solicitação';
+  const titulo = `Nova solicitação de ${nomeTipo}`;
+  const mensagem = `${colabNome} enviou uma solicitação de ${nomeTipo} aguardando aprovação.`;
+
+  for (const gestorId of gestorIds) {
+    criarNotificacaoComPush({
+      usuarioId: gestorId,
+      tipo: 'solicitacao',
+      titulo,
+      mensagem,
+      link: `/solicitacoes/${solicitacaoId}`,
+      metadados: {
+        acao: 'nova_solicitacao',
+        solicitacaoId,
+        tipo,
+        colaboradorId,
+        colaboradorNome: colabNome,
+      },
+      pushSeveridade: 'atencao',
+      fotoUrl: fotoUrl ?? undefined,
+    }).catch((err) => console.error('[Notificação] Erro ao notificar gestor:', err));
+  }
 }

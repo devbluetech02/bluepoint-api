@@ -10,6 +10,7 @@ import { withGestor } from '@/lib/middleware';
 import { uploadDocumentoColaborador } from '@/lib/storage';
 import { invalidateDocumentosColaboradorCache } from '@/lib/cache';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15 MB
 const EXTENSOES_PERMITIDAS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx']);
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
 
       const tipoResult = await query(
-        `SELECT id, codigo, nome_exibicao, validade_meses, categoria
+        `SELECT id, codigo, nome_exibicao, validade_meses
          FROM people.tipos_documento_colaborador
          WHERE id = $1`,
         [tipoDocumentoId]
@@ -69,14 +70,6 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       const codigoTipo = tipoResult.rows[0].codigo as string;
       const validadeMeses = tipoResult.rows[0].validade_meses as number | null;
-      const categoriaTipo = tipoResult.rows[0].categoria as string;
-
-      if (categoriaTipo !== 'operacional') {
-        return errorResponse(
-          'Este endpoint aceita apenas tipos de documento da categoria "operacional"',
-          400
-        );
-      }
 
       if (arquivo.size > MAX_FILE_SIZE) {
         return errorResponse('Arquivo muito grande. Máximo 15 MB.', 400);
@@ -154,6 +147,20 @@ export async function POST(request: NextRequest, { params }: Params) {
               (new Date(row.data_validade).getTime() - new Date(hoje).getTime()) /
                 (24 * 60 * 60 * 1000)
             );
+
+      const nomeExibicao = tipoResult.rows[0].nome_exibicao as string;
+      const validadeMsg = row.data_validade
+        ? ` Válido até ${new Date(row.data_validade).toLocaleDateString('pt-BR')}.`
+        : '';
+      criarNotificacaoComPush({
+        usuarioId: colaboradorId,
+        tipo: 'sistema',
+        titulo: 'Novo documento adicionado',
+        mensagem: `O documento "${nomeExibicao}" foi adicionado à sua pasta.${validadeMsg}`,
+        link: '/documentos',
+        metadados: { acao: 'documento_adicionado', documentoId: row.id, tipo: codigoTipo },
+        pushSeveridade: 'info',
+      }).catch((err) => console.error('[Notificação] Erro ao notificar documento:', err));
 
       return createdResponse({
         id: row.id,

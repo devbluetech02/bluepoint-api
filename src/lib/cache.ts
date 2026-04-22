@@ -4,6 +4,7 @@ import Redis from 'ioredis';
 const REDIS_HOST = process.env.REDIS_HOST || 'portal_do_empregado-redis-1';
 const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
+const REDIS_TLS = process.env.REDIS_TLS === 'true';
 
 // TTLs padrão (em segundos)
 export const CACHE_TTL = {
@@ -57,6 +58,7 @@ export const CACHE_KEYS = {
   PARAMETROS_HORA_EXTRA: 'parametros_hora_extra:',
   PARAMETROS_BENEFICIOS: 'parametros_beneficios:',
   PARAMETROS_ASSIDUIDADE: 'parametros_assiduidade:',
+  PARAMETROS_RH: 'parametros_rh:',
   TOLERANCIA_HORA_EXTRA: 'tolerancia_hora_extra:',
   SOLICITACOES_HORAS_EXTRAS: 'solicitacoes_horas_extras:',
   CUSTO_HORAS_EXTRAS: 'custo_horas_extras:',
@@ -146,6 +148,7 @@ export function getRedis(): Redis | null {
       host: string;
       port: number;
       password?: string;
+      tls?: object;
       maxRetriesPerRequest: number;
       lazyConnect: boolean;
       connectTimeout: number;
@@ -169,18 +172,14 @@ export function getRedis(): Redis | null {
       options.password = REDIS_PASSWORD;
     }
 
-    redis = new Redis(options);
+    if (REDIS_TLS) {
+      options.tls = { rejectUnauthorized: false };
+    }
 
-    redis.on('connect', () => {
-      console.log('Redis conectado');
-    });
+    redis = new Redis(options);
 
     redis.on('error', (err: Error) => {
       console.warn('Redis erro:', err.message);
-    });
-
-    redis.on('close', () => {
-      console.log('Redis desconectado');
     });
 
     // Conectar
@@ -658,6 +657,10 @@ export async function invalidateParametrosAssiduidadeCache(): Promise<void> {
   await cacheDelPattern(`${CACHE_KEYS.PARAMETROS_ASSIDUIDADE}*`);
 }
 
+export async function invalidateParametrosRhCache(): Promise<void> {
+  await cacheDelPattern(`${CACHE_KEYS.PARAMETROS_RH}*`);
+}
+
 /**
  * Invalida cache relacionado a tolerância de hora extra de um colaborador
  */
@@ -745,7 +748,6 @@ export async function invalidateAllCache(): Promise<void> {
 
   try {
     await client.flushdb();
-    console.log('Cache completamente limpo');
   } catch (error) {
     console.warn('Flush cache error:', error);
   }

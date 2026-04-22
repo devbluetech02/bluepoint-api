@@ -72,11 +72,30 @@ export function gerarUrlInterna(caminho: string): string {
 }
 
 /**
- * Gera URL pública via proxy da API
- * Formato: /storage/{caminho}
+ * Gera URL pública via proxy da API.
+ * Formato: {PUBLIC_STORAGE_URL}/api/v1/storage/{caminho}
+ *
+ * Ordem de resolução:
+ *   1. PUBLIC_STORAGE_URL (dedicada — preferível)
+ *   2. BASE_URL (compatibilidade com config antigo)
+ *   3. http://localhost:3003 (apenas em dev)
+ *
+ * Em produção, se nenhuma das duas primeiras estiver setada, lança erro
+ * para evitar persistir URLs com `localhost` no banco.
  */
 export function gerarUrlPublica(caminho: string): string {
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3003';
+  const configurado = process.env.PUBLIC_STORAGE_URL || process.env.BASE_URL;
+
+  if (!configurado) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'PUBLIC_STORAGE_URL (ou BASE_URL) não configurada — URL pública não pode ser gerada em produção'
+      );
+    }
+    console.warn('[storage] PUBLIC_STORAGE_URL/BASE_URL não setada, usando fallback localhost (apenas dev)');
+  }
+
+  const baseUrl = (configurado || 'http://localhost:3003').replace(/\/+$/, '');
   return `${baseUrl}/api/v1/storage/${encodeURIComponent(caminho)}`;
 }
 

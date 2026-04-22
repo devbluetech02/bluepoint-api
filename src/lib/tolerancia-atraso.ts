@@ -136,6 +136,7 @@ export async function determinarProximoEvento(
 
   const marcacoes = marcacoesResult.rows;
   const periodos = jornada.periodos;
+  const numPeriodos = periodos.length;
 
   if (marcacoes.length === 0) {
     return {
@@ -148,52 +149,23 @@ export async function determinarProximoEvento(
 
   const ultimaMarcacao = marcacoes[marcacoes.length - 1];
 
-  // Padrão completo esperado para 2 períodos:
-  // entrada → almoco → retorno → saida
-  // Para 1 período: entrada → saida
-  const numPeriodos = periodos.length;
-
   if (numPeriodos >= 2) {
-    // 2+ períodos (manhã + tarde com almoço)
-    const sequencia = ['entrada', 'almoco', 'retorno', 'saida'];
-    const index = marcacoes.length; // próximo evento na sequência
+    // Jornada com almoço: entrada → almoco → retorno → saida → (repete)
+    // Usa o tipo da última marcação para inferir o próximo — robusto contra contagens erradas.
+    type ProximoEvento = { tipo: 'entrada' | 'almoco' | 'retorno' | 'saida'; horario: string | null; periodoIndex: number };
+    const proxima: Record<string, ProximoEvento> = {
+      entrada: { tipo: 'almoco',  horario: periodos[0]?.saida || null,               periodoIndex: 0 },
+      almoco:  { tipo: 'retorno', horario: periodos[1]?.entrada || null,              periodoIndex: 1 },
+      retorno: { tipo: 'saida',   horario: periodos[numPeriodos - 1]?.saida || null,  periodoIndex: numPeriodos - 1 },
+      saida:   { tipo: 'entrada', horario: periodos[0]?.entrada || null,              periodoIndex: 0 },
+    };
 
-    if (index >= sequencia.length) {
-      return {
-        tipoMarcacao: 'saida',
-        horarioPrevisto: periodos[numPeriodos - 1]?.saida || null,
-        periodoIndex: numPeriodos - 1,
-        marcacoesHoje: marcacoes,
-      };
-    }
+    const next = proxima[ultimaMarcacao.tipo] ?? { tipo: 'entrada' as const, horario: periodos[0]?.entrada || null, periodoIndex: 0 };
 
-    const tipo = sequencia[index] as 'entrada' | 'saida' | 'almoco' | 'retorno';
-    let horarioPrevisto: string | null = null;
-    let periodoIndex = 0;
-
-    switch (tipo) {
-      case 'entrada':
-        horarioPrevisto = periodos[0]?.entrada;
-        periodoIndex = 0;
-        break;
-      case 'almoco':
-        horarioPrevisto = periodos[0]?.saida;
-        periodoIndex = 0;
-        break;
-      case 'retorno':
-        horarioPrevisto = periodos[1]?.entrada;
-        periodoIndex = 1;
-        break;
-      case 'saida':
-        horarioPrevisto = periodos[numPeriodos - 1]?.saida;
-        periodoIndex = numPeriodos - 1;
-        break;
-    }
-
-    return { tipoMarcacao: tipo, horarioPrevisto, periodoIndex, marcacoesHoje: marcacoes };
+    return { tipoMarcacao: next.tipo, horarioPrevisto: next.horario, periodoIndex: next.periodoIndex, marcacoesHoje: marcacoes };
   }
 
-  // 1 período simples: entrada → saida
+  // Jornada sem almoço: entrada → saida → entrada → saida
   if (ultimaMarcacao.tipo === 'entrada' || ultimaMarcacao.tipo === 'retorno') {
     return {
       tipoMarcacao: 'saida',

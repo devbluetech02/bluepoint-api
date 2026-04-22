@@ -19,12 +19,21 @@ export interface DadosColaboradorCusto {
   cargo_id: number;
   empresa: string;
   empresa_id: number;
-  valor_hora_extra_75: number;
+  /** Valor da HE 75% derivado on-the-fly a partir de salario_medio / 220 * 1.75. */
+  valorHe75: number;
+}
+
+/** Calcula o valor da hora extra 75% a partir do salário: salario / 220 * 1.75 (CLT). */
+function calcularValorHe75(salarioMedio: string | number | null | undefined): number | null {
+  if (salarioMedio === null || salarioMedio === undefined) return null;
+  const salario = typeof salarioMedio === 'string' ? parseFloat(salarioMedio) : salarioMedio;
+  if (!salario || salario <= 0) return null;
+  return parseFloat(((salario / 220) * 1.75).toFixed(2));
 }
 
 /**
  * Busca dados necessários do colaborador para cálculo de custos:
- * cargo, empresa e valor da hora extra 75%.
+ * cargo, empresa e valor da hora extra 75% (derivado do salário).
  */
 export async function buscarDadosColaboradorParaCusto(
   colaboradorId: number
@@ -33,7 +42,6 @@ export async function buscarDadosColaboradorParaCusto(
     `SELECT
        cg.nome AS cargo,
        cg.id AS cargo_id,
-       cg.valor_hora_extra_75,
        cg.salario_medio,
        e.nome_fantasia AS empresa,
        e.id AS empresa_id
@@ -47,17 +55,7 @@ export async function buscarDadosColaboradorParaCusto(
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
-
-  let valorHe75: number | null = null;
-
-  if (row.valor_hora_extra_75) {
-    valorHe75 = parseFloat(row.valor_hora_extra_75);
-  } else if (row.salario_medio) {
-    // CLT: 220h mensais, adicional de 75%
-    const salario = parseFloat(row.salario_medio);
-    valorHe75 = parseFloat(((salario / 220) * 1.75).toFixed(2));
-  }
-
+  const valorHe75 = calcularValorHe75(row.salario_medio);
   if (!valorHe75) return null;
 
   return {
@@ -65,7 +63,7 @@ export async function buscarDadosColaboradorParaCusto(
     cargo_id: row.cargo_id,
     empresa: row.empresa || 'N/A',
     empresa_id: row.empresa_id,
-    valor_hora_extra_75: valorHe75,
+    valorHe75,
   };
 }
 
@@ -77,7 +75,7 @@ export function calcularHorasDecimais(horarioInicio: string, horarioFim: string)
   const [hIni, mIni] = horarioInicio.split(':').map(Number);
   const [hFim, mFim] = horarioFim.split(':').map(Number);
 
-  let minutosInicio = hIni * 60 + mIni;
+  const minutosInicio = hIni * 60 + mIni;
   let minutosFim = hFim * 60 + mFim;
 
   if (minutosFim < minutosInicio) {
@@ -95,7 +93,7 @@ export function calcularHorasDecimais(horarioInicio: string, horarioFim: string)
  * Calcula todos os componentes de custo de hora extra conforme legislação trabalhista brasileira.
  *
  * Fórmula:
- *   valor_he_base   = horasDecimal × valor_hora_extra_75
+ *   valor_he_base   = horasDecimal × valorHe75
  *   dsr             = valor_he_base / 6
  *   13º             = (valor_he_base + dsr) / 12
  *   férias           = (valor_he_base + dsr) / 12
@@ -109,9 +107,9 @@ export function calcularHorasDecimais(horarioInicio: string, horarioFim: string)
  */
 export function calcularComponentesCusto(
   horasDecimais: number,
-  valorHoraExtra75: number
+  valorHe75: number
 ): CustoHoraExtra {
-  const valor_he_base = horasDecimais * valorHoraExtra75;
+  const valor_he_base = horasDecimais * valorHe75;
   const valor_dsr = valor_he_base / 6;
   const valor_13 = (valor_he_base + valor_dsr) / 12;
   const valor_ferias = (valor_he_base + valor_dsr) / 12;
@@ -145,7 +143,7 @@ export function calcularComponentesCusto(
 
 /**
  * Pipeline completo: busca dados do colaborador, calcula horas e custos.
- * Retorna null se o colaborador não tem cargo com valor_hora_extra_75 configurado.
+ * Retorna null se o colaborador não tem cargo com salário configurado (base do cálculo HE75).
  */
 export async function calcularCustoHoraExtra(
   colaboradorId: number,
@@ -158,7 +156,7 @@ export async function calcularCustoHoraExtra(
   const horasDecimais = calcularHorasDecimais(horarioInicio, horarioFim);
   if (horasDecimais <= 0) return null;
 
-  const custos = calcularComponentesCusto(horasDecimais, dados.valor_hora_extra_75);
+  const custos = calcularComponentesCusto(horasDecimais, dados.valorHe75);
 
   return { ...custos, ...dados };
 }
@@ -272,7 +270,7 @@ export async function verificarLimiteMensalGestor(
   const limiteMensal = parseFloat(limite_mensal);
 
   const dadosColab = await query(
-    `SELECT cg.valor_hora_extra_75, cg.salario_medio
+    `SELECT cg.salario_medio
      FROM people.colaboradores c
      JOIN people.cargos cg ON c.cargo_id = cg.id
      WHERE c.id = $1`,
@@ -283,16 +281,7 @@ export async function verificarLimiteMensalGestor(
     return null;
   }
 
-  const row = dadosColab.rows[0];
-  let valorHe75: number | null = null;
-
-  if (row.valor_hora_extra_75) {
-    valorHe75 = parseFloat(row.valor_hora_extra_75);
-  } else if (row.salario_medio) {
-    const salario = parseFloat(row.salario_medio);
-    valorHe75 = parseFloat(((salario / 220) * 1.75).toFixed(2));
-  }
-
+  const valorHe75 = calcularValorHe75(dadosColab.rows[0].salario_medio);
   if (!valorHe75) {
     return null;
   }

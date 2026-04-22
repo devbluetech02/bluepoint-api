@@ -21,6 +21,7 @@ import {
 } from '@/lib/tolerancia-atraso';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { tipoPontoBiometriaSchema } from '@/lib/validation';
+import { uploadArquivo } from '@/lib/storage';
 import { z } from 'zod';
 
 const verificarFaceSchema = z.object({
@@ -31,6 +32,7 @@ const verificarFaceSchema = z.object({
   tipoPonto: tipoPontoBiometriaSchema,
   latitude: z.number().optional(),
   longitude: z.number().optional(),
+  origem: z.string().optional(),
 });
 
 // Interface para encoding cacheado
@@ -170,7 +172,8 @@ async function registrarPonto(
   dispositivo: Dispositivo,
   latitude?: number,
   longitude?: number,
-  clientIp?: string
+  clientIp?: string,
+  fotoUrl?: string | null
 ): Promise<{ sucesso: boolean; marcacaoId?: number; tipo?: 'entrada' | 'saida' | 'almoco' | 'retorno'; sequencia?: number; erro?: string }> {
   try {
     // Verificar permissão do dispositivo
@@ -189,8 +192,8 @@ async function registrarPonto(
     const result = await query(
       `INSERT INTO people.marcacoes (
         colaborador_id, data_hora, tipo, latitude, longitude,
-        metodo, dispositivo_id, empresa_id, criado_em
-      ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', $5, $6, NOW())
+        metodo, dispositivo_id, empresa_id, foto_url, criado_em
+      ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', $5, $6, $7, NOW())
       RETURNING id`,
       [
         colaboradorId,
@@ -199,6 +202,7 @@ async function registrarPonto(
         longitude || null,
         dispositivo.id,
         dispositivo.empresa_id,
+        fotoUrl || null,
       ]
     );
 
@@ -233,17 +237,18 @@ async function registrarPontoBiometriaDispositivoNaoAutorizado(
   empresaId: number | null,
   tipo: 'entrada' | 'saida' | 'almoco' | 'retorno',
   latitude?: number,
-  longitude?: number
+  longitude?: number,
+  fotoUrl?: string | null
 ): Promise<{ sucesso: boolean; marcacaoId?: number; tipo?: 'entrada' | 'saida' | 'almoco' | 'retorno'; sequencia?: number; erro?: string }> {
   try {
     const sequencia = await contarMarcacoesDia(colaboradorId) + 1;
     const result = await query(
       `INSERT INTO people.marcacoes (
         colaborador_id, data_hora, tipo, latitude, longitude,
-        metodo, dispositivo_id, empresa_id, criado_em
-      ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', NULL, $5, NOW())
+        metodo, dispositivo_id, empresa_id, foto_url, criado_em
+      ) VALUES ($1, NOW(), $2, $3, $4, 'biometria', NULL, $5, $6, NOW())
       RETURNING id`,
-      [colaboradorId, tipo, latitude ?? null, longitude ?? null, empresaId]
+      [colaboradorId, tipo, latitude ?? null, longitude ?? null, empresaId, fotoUrl || null]
     );
 
     const marcacaoId = result.rows[0].id;
@@ -306,7 +311,7 @@ export async function POST(request: NextRequest) {
       }, 422, rateLimitHeaders);
     }
 
-    const { imagem, dispositivoCodigo, registrarPonto: deveRegistrarPonto, tipoPonto, latitude, longitude } = validation.data;
+    const { imagem, dispositivoCodigo, registrarPonto: deveRegistrarPonto, tipoPonto, latitude, longitude, origem } = validation.data;
 
     // Código de dispositivo inexistente (DEVICE_NOT_FOUND) não bloqueia: registra ponto após face + colaborador válido.
     // Dispositivo inativo/bloqueado continua sendo rejeitado aqui.
@@ -362,19 +367,19 @@ export async function POST(request: NextRequest) {
       }, 400, rateLimitHeaders);
     }
 
-    // Threshold mínimo de qualidade - aceita qualidade mais baixa para câmeras inferiores
-    if (qualidade < 0.15) {
+    // Threshold mínimo de qualidade - apenas rejeita se o detector não encontrou face alguma
+    if (qualidade < 0.05) {
       return jsonResponse({
         success: false,
-        error: 'Qualidade da imagem muito baixa para identificação segura',
+        error: 'Nenhuma face detectada na imagem',
         code: 'LOW_QUALITY',
         qualidade,
         qualidadeDetalhada,
-        dica: 'Melhore a iluminação, aproxime o rosto da câmera e mantenha-o centralizado.',
+        dica: 'Certifique-se de que há um rosto visível na imagem.',
       }, 400, rateLimitHeaders);
     }
 
-    // Usar threshold dinâmico baseado na qualidade (ArcFace é muito mais estável)
+    // Usar threshold dinâmico baseado na qualidade
     const thresholdEfetivo = calcularThresholdDinamico(qualidade);
     
     console.log(`[Verificar Face] Qualidade: ${qualidade}, Threshold: ${thresholdEfetivo.toFixed(3)}`);
@@ -732,8 +737,9 @@ export async function POST(request: NextRequest) {
 
     // Se tem colaborador_id, busca dados do colaborador BluePoint
     const colaboradorResult = await query(
-      `SELECT 
+      `SELECT
         c.id, c.nome, c.email, c.tipo, c.foto_url, c.cargo_id, c.empresa_id,
+        c.permite_ponto_mobile,
         cg.nome as cargo_nome,
         d.nome as departamento_nome
        FROM people.colaboradores c
@@ -752,6 +758,15 @@ export async function POST(request: NextRequest) {
     }
 
     const colaborador = colaboradorResult.rows[0];
+
+    // Verificar permissão de ponto pelo celular quando registrarPonto=true (totem sempre permitido)
+    if (deveRegistrarPonto && origem !== 'totem' && !colaborador.permite_ponto_mobile) {
+      return jsonResponse({
+        success: false,
+        error: 'Este colaborador não tem permissão para marcar ponto pelo celular',
+        code: 'MOBILE_PUNCH_NOT_ALLOWED',
+      }, 403, rateLimitHeaders);
+    }
 
     // Gerar tokens JWT
     const tokenPayload = {
@@ -782,7 +797,7 @@ export async function POST(request: NextRequest) {
       mensagem: string;
     } | null = null;
 
-    const podeRegistrarPontoBiometria = deveRegistrarPonto && (dispositivo || dispositivoCodigoNaoCadastrado);
+    const podeRegistrarPontoBiometria = deveRegistrarPonto && (dispositivo || dispositivoCodigoNaoCadastrado || !dispositivoCodigo);
 
     if (podeRegistrarPontoBiometria) {
       let tipoFinal: 'entrada' | 'saida' | 'almoco' | 'retorno';
@@ -865,6 +880,29 @@ export async function POST(request: NextRequest) {
 
       // Se NÃO precisa aprovação, registra ponto normalmente
       if (!atrasoInfo) {
+        // Upload da foto capturada na biometria (best-effort, não bloqueia)
+        let fotoUrl: string | null = null;
+        try {
+          const base64Data = imagem.replace(/^data:image\/\w+;base64,/, '');
+          const buffer = Buffer.from(base64Data, 'base64');
+
+          let extensao = 'jpg';
+          let contentType = 'image/jpeg';
+          if (imagem.startsWith('data:image/png')) {
+            extensao = 'png';
+            contentType = 'image/png';
+          }
+
+          const agora = new Date();
+          const dataFormatada = agora.toISOString().split('T')[0];
+          const timestamp = agora.getTime();
+          const caminho = `marcacoes/${colaborador.id}/${dataFormatada}/${timestamp}_${tipoFinal}_biometria.${extensao}`;
+
+          fotoUrl = await uploadArquivo(caminho, buffer, contentType);
+        } catch (uploadError) {
+          console.warn('[Verificar Face] Erro ao fazer upload da foto (não bloqueante):', uploadError);
+        }
+
         const resultadoPonto = dispositivo
           ? await registrarPonto(
               colaborador.id,
@@ -872,14 +910,16 @@ export async function POST(request: NextRequest) {
               dispositivo,
               latitude,
               longitude,
-              clientIp
+              clientIp,
+              fotoUrl
             )
           : await registrarPontoBiometriaDispositivoNaoAutorizado(
               colaborador.id,
               colaborador.empresa_id ?? null,
               tipoFinal,
               latitude,
-              longitude
+              longitude,
+              fotoUrl
             );
 
         if (resultadoPonto.sucesso) {

@@ -5,6 +5,7 @@ import { JWTPayload } from '@/lib/auth';
 import { extractFaceEncoding, encodingToBuffer } from '@/lib/face-recognition';
 import { registrarAuditoria } from '@/lib/audit';
 import { cacheDel, checkRateLimit, CACHE_KEYS } from '@/lib/cache';
+import { uploadArquivo } from '@/lib/storage';
 import { z } from 'zod';
 
 // Schema de validação - agora só precisa do CPF e imagem
@@ -206,6 +207,39 @@ export async function POST(request: NextRequest) {
       const encodingBuffer = encodingToBuffer(encoding);
       const jaTemBiometria = colaborador.face_registrada;
 
+      // Upload da foto de referência para o MinIO
+      let fotoReferenciaUrl: string | null = null;
+      try {
+        const base64Data = imagem.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+
+        let extensao = 'jpg';
+        let contentType = 'image/jpeg';
+        if (imagem.startsWith('data:image/png')) {
+          extensao = 'png';
+          contentType = 'image/png';
+        } else if (imagem.startsWith('data:image/webp')) {
+          extensao = 'webp';
+          contentType = 'image/webp';
+        }
+
+        const agora = new Date();
+        const dataFormatada = agora.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
+        const horaFormatada = agora.toLocaleTimeString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          hour12: false,
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).replace(/:/g, '-');
+
+        const caminho = `biometria/${colaborador.id}/${dataFormatada}_${horaFormatada}.${extensao}`;
+        fotoReferenciaUrl = await uploadArquivo(caminho, buffer, contentType);
+      } catch (uploadError) {
+        console.warn('[Cadastrar Face CPF] Erro ao salvar foto de referência:', uploadError);
+        // Continua mesmo se falhar — o encoding é o mais importante
+      }
+
       // Verificar se já existe registro
       const existeResult = await query(
         `SELECT id FROM people.biometria_facial WHERE colaborador_id = $1`,
@@ -215,17 +249,17 @@ export async function POST(request: NextRequest) {
       if (existeResult.rows.length > 0) {
         // Atualizar registro existente
         await query(
-          `UPDATE people.biometria_facial 
-           SET encoding = $1, qualidade = $2, atualizado_em = NOW()
-           WHERE colaborador_id = $3`,
-          [encodingBuffer, qualidade, colaborador.id]
+          `UPDATE people.biometria_facial
+           SET encoding = $1, qualidade = $2, foto_referencia_url = $3, atualizado_em = NOW()
+           WHERE colaborador_id = $4`,
+          [encodingBuffer, qualidade, fotoReferenciaUrl, colaborador.id]
         );
       } else {
         // Criar novo registro
         await query(
-          `INSERT INTO people.biometria_facial (colaborador_id, encoding, qualidade)
-           VALUES ($1, $2, $3)`,
-          [colaborador.id, encodingBuffer, qualidade]
+          `INSERT INTO people.biometria_facial (colaborador_id, encoding, qualidade, foto_referencia_url)
+           VALUES ($1, $2, $3, $4)`,
+          [colaborador.id, encodingBuffer, qualidade, fotoReferenciaUrl]
         );
       }
 

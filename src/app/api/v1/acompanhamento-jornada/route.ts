@@ -380,7 +380,7 @@ export async function GET(request: NextRequest) {
           } else {
             // Dia passado
             status =
-              marcDia.length > 0 && horasTrabalhadas >= horasEsperadas
+              marcDia.length > 0 && horasEsperadas > 0 && horasTrabalhadas >= horasEsperadas
                 ? 'completo'
                 : 'incompleto';
           }

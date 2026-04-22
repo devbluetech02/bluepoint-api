@@ -5,7 +5,7 @@ import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { aprovarSolicitacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { invalidateSolicitacaoCache, invalidateMarcacaoCache, invalidateLimitesHeEmpresasCache, invalidateLimitesHeDepartamentosCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
-import { criarNotificacao } from '@/lib/notificacoes';
+import { criarNotificacao, criarNotificacaoComPush } from '@/lib/notificacoes';
 import { registrarOcorrenciaAtraso } from '@/lib/ocorrencias-externas';
 import { calcularCustoHoraExtra, salvarCustoHoraExtra } from '@/lib/custoHorasExtrasService';
 
@@ -374,8 +374,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
         acoes.push(`Ponto registrado automaticamente (${dados.tipoMarcacao || 'entrada'} às ${horarioRegistro.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' })})`);
 
-        // Notificar colaborador que o ponto foi registrado
-        criarNotificacao({
+        // Notificar colaborador que o ponto foi registrado (DB + push)
+        criarNotificacaoComPush({
           usuarioId: solicitacao.colaborador_id,
           tipo: 'solicitacao',
           titulo: 'Atraso aprovado — Ponto registrado',
@@ -388,6 +388,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             solicitacaoId,
             marcacaoId: novaMarcacaoId,
           },
+          pushSeveridade: 'info',
         }).catch((err) => console.error('[Notificação] Erro ao notificar colaborador:', err));
 
         // Registrar ocorrência de atraso no Portal do Colaborador (async, não bloqueia)
@@ -400,6 +401,36 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
 
       await client.query('COMMIT');
+
+      // Notificar o solicitante para todos os tipos (exceto 'atraso' que já notifica acima)
+      if (solicitacao.tipo !== 'atraso') {
+        const titulosAprovacao: Record<string, string> = {
+          ajuste_ponto: 'Ajuste de ponto aprovado',
+          hora_extra: 'Hora extra aprovada',
+          ferias: 'Férias aprovadas',
+          contestacao: 'Contestação aprovada',
+          atestado: 'Atestado aceito',
+        };
+        const nomeTipo: Record<string, string> = {
+          ajuste_ponto: 'ajuste de ponto',
+          hora_extra: 'hora extra',
+          ferias: 'férias',
+          contestacao: 'contestação de relatório',
+          atestado: 'atestado médico',
+        };
+        const titulo = titulosAprovacao[solicitacao.tipo] ?? 'Solicitação aprovada';
+        const tipo = nomeTipo[solicitacao.tipo] ?? solicitacao.tipo;
+        const obs = observacao ? ` Obs: "${observacao}".` : '';
+        criarNotificacaoComPush({
+          usuarioId: solicitacao.colaborador_id,
+          tipo: 'solicitacao',
+          titulo,
+          mensagem: `Sua solicitação de ${tipo} foi aprovada.${obs}`,
+          link: `/solicitacoes/${solicitacaoId}`,
+          metadados: { acao: 'solicitacao_aprovada', solicitacaoId, tipo: solicitacao.tipo },
+          pushSeveridade: 'info',
+        }).catch((err) => console.error('[Notificação] Erro ao notificar aprovação:', err));
+      }
 
       // Invalidar cache de solicitações
       await invalidateSolicitacaoCache(solicitacaoId, solicitacao.colaborador_id);

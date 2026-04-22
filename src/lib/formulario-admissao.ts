@@ -1,13 +1,6 @@
 import type { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 
-/** PostgreSQL undefined_column — happens if migration 006 was not applied yet. */
-export function isMissingDocumentosRequeridosColumn(error: unknown): boolean {
-  const e = error as { code?: string; message?: string };
-  if (e?.code !== '42703') return false;
-  return typeof e.message === 'string' && e.message.includes('documentos_requeridos');
-}
-
 export type FormularioAdmissaoAtivoRow = {
   id: string;
   titulo: string;
@@ -18,37 +11,120 @@ export type FormularioAdmissaoAtivoRow = {
   documentos_requeridos: unknown;
 };
 
-/**
- * Loads the latest active admission form. Works before/after migration 006 (documentos_requeridos).
- */
 export async function fetchFormularioAdmissaoAtivo(): Promise<FormularioAdmissaoAtivoRow | null> {
-  const withDocs = `SELECT id, titulo, descricao, campos, token_publico, ativo, documentos_requeridos
+  const result = await query(
+    `SELECT id, titulo, descricao, campos, token_publico, ativo, documentos_requeridos
      FROM people.formularios_admissao
      WHERE ativo = true
      ORDER BY atualizado_em DESC
-     LIMIT 1`;
-  const withoutDocs = `SELECT id, titulo, descricao, campos, token_publico, ativo
-     FROM people.formularios_admissao
-     WHERE ativo = true
-     ORDER BY atualizado_em DESC
-     LIMIT 1`;
+     LIMIT 1`
+  );
+  if (result.rows.length === 0) return null;
+  return result.rows[0] as FormularioAdmissaoAtivoRow;
+}
 
-  try {
-    const result = await query(withDocs);
-    if (result.rows.length === 0) return null;
-    return result.rows[0] as FormularioAdmissaoAtivoRow;
-  } catch (err) {
-    if (!isMissingDocumentosRequeridosColumn(err)) throw err;
-    const result = await query(withoutDocs);
-    if (result.rows.length === 0) return null;
-    const row = result.rows[0] as Omit<FormularioAdmissaoAtivoRow, 'documentos_requeridos'>;
-    return { ...row, documentos_requeridos: [] };
+export async function fetchFormularioAdmissaoPorToken(
+  token: string
+): Promise<FormularioAdmissaoAtivoRow | null> {
+  const result = await query(
+    `SELECT id, titulo, descricao, campos, token_publico, ativo, documentos_requeridos
+     FROM people.formularios_admissao
+     WHERE token_publico = $1
+     LIMIT 1`,
+    [token]
+  );
+  if (result.rows.length === 0) return null;
+  return result.rows[0] as FormularioAdmissaoAtivoRow;
+}
+
+export interface DocumentoRequeridoApi {
+  tipoDocumentoId: number;
+  codigo: string;
+  label: string;
+  obrigatorio: boolean;
+  cargosOpcoes: string[];
+}
+
+/**
+ * Recebe o JSONB documentos_requeridos do formulário e enriquece com codigo/label da tabela de tipos.
+ * Se vazio, retorna todos os documentos de admissão sem restrição de cargo.
+ */
+export async function fetchDocumentosAdmissao(raw: unknown): Promise<DocumentoRequeridoApi[]> {
+  const items = parseDocumentosRequeridos(raw);
+
+  if (items.length === 0) {
+    // Nenhuma config salva — retorna todos os tipos de admissão
+    const result = await query(
+      `SELECT id, codigo, nome_exibicao, obrigatorio_padrao
+       FROM people.tipos_documento_colaborador
+       WHERE 'admissao' = ANY(categorias)
+       ORDER BY id`
+    );
+    return (result.rows as { id: number; codigo: string; nome_exibicao: string; obrigatorio_padrao: boolean }[]).map(
+      (row) => ({
+        tipoDocumentoId: row.id,
+        codigo: row.codigo,
+        label: row.nome_exibicao,
+        obrigatorio: row.obrigatorio_padrao,
+        cargosOpcoes: [],
+      })
+    );
   }
+
+  // Busca label/codigo dos tipos referenciados
+  const ids = [...new Set(items.map((i) => i.tipoDocumentoId))];
+  const tiposResult = await query(
+    `SELECT id, codigo, nome_exibicao
+     FROM people.tipos_documento_colaborador
+     WHERE id = ANY($1::int[])`,
+    [ids]
+  );
+  const byId = new Map(
+    (tiposResult.rows as { id: number; codigo: string; nome_exibicao: string }[]).map((r) => [
+      r.id,
+      r,
+    ])
+  );
+
+  return items.map((item) => {
+    const tipo = byId.get(item.tipoDocumentoId);
+    return {
+      tipoDocumentoId: item.tipoDocumentoId,
+      codigo: tipo?.codigo ?? '',
+      label: tipo?.nome_exibicao ?? '',
+      obrigatorio: item.obrigatorio,
+      cargosOpcoes: item.cargosOpcoes,
+    };
+  });
+}
+
+function parseDocumentosRequeridos(
+  raw: unknown
+): { tipoDocumentoId: number; obrigatorio: boolean; cargosOpcoes: string[] }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => {
+      const item = (entry ?? {}) as Record<string, unknown>;
+      const id =
+        typeof item.tipoDocumentoId === 'number'
+          ? item.tipoDocumentoId
+          : typeof item.tipo_documento_id === 'number'
+            ? item.tipo_documento_id
+            : null;
+      if (!id || !Number.isInteger(id) || id < 1) return null;
+      return {
+        tipoDocumentoId: id,
+        obrigatorio: Boolean(item.obrigatorio),
+        cargosOpcoes: Array.isArray(item.cargosOpcoes)
+          ? item.cargosOpcoes.filter((v): v is string => typeof v === 'string')
+          : [],
+      };
+    })
+    .filter((x): x is { tipoDocumentoId: number; obrigatorio: boolean; cargosOpcoes: string[] } => x !== null);
 }
 
 /**
  * Base URL for links sent to candidates (browser-openable).
- * Prefer env; never use 0.0.0.0 as hostname (invalid in browsers).
  */
 export function resolveFormularioAdmissaoPublicBaseUrl(request: NextRequest): string {
   const fromEnv =
@@ -56,14 +132,10 @@ export function resolveFormularioAdmissaoPublicBaseUrl(request: NextRequest): st
     (process.env.FRONTEND_URL || '').trim() ||
     (process.env.APP_BASE_URL || '').trim() ||
     (process.env.NEXT_PUBLIC_APP_URL || '').trim();
-  if (fromEnv) {
-    return fromEnv.replace(/\/$/, '');
-  }
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'Configure FORMULARIO_ADMISSAO_FRONTEND_URL ou FRONTEND_URL para gerar link público de admissão'
-    );
+    console.warn('[formulario-admissao] FORMULARIO_ADMISSAO_FRONTEND_URL não configurada; usando host da requisição');
   }
 
   const forwardedHost = request.headers.get('x-forwarded-host');
@@ -72,18 +144,15 @@ export function resolveFormularioAdmissaoPublicBaseUrl(request: NextRequest): st
     request.headers.get('x-forwarded-proto')?.split(',')[0].trim() ||
     urlForProto.protocol.replace(':', '');
   if (forwardedHost) {
-    const host = forwardedHost.split(',')[0].trim();
-    return `${forwardedProto}://${host}`.replace(/\/$/, '');
+    return `${forwardedProto}://${forwardedHost.split(',')[0].trim()}`.replace(/\/$/, '');
   }
 
-  const url = urlForProto;
-  const hostname = url.hostname;
+  const hostname = urlForProto.hostname;
   if (hostname === '0.0.0.0' || hostname === '::' || hostname === '[::]') {
-    const port = url.port ? `:${url.port}` : '';
-    return `${url.protocol}//localhost${port}`.replace(/\/$/, '');
+    const port = urlForProto.port ? `:${urlForProto.port}` : '';
+    return `${urlForProto.protocol}//localhost${port}`.replace(/\/$/, '');
   }
-
-  return url.origin;
+  return urlForProto.origin;
 }
 
 function resolveFormularioAdmissaoFrontendPath(): string {
@@ -98,13 +167,6 @@ export function buildFormularioAdmissaoPublicLink(request: NextRequest, token: s
   const url = new URL(path, `${baseUrl}/`);
   url.searchParams.set('token', token);
   return url.toString();
-}
-
-export interface DocumentoRequeridoApi {
-  tipoDocumentoId: number;
-  codigo: string;
-  label: string;
-  obrigatorio: boolean;
 }
 
 export interface FormularioCampoApi {
@@ -142,10 +204,9 @@ export function mapCamposParaBanco(campos: FormularioCampoApi[]): FormularioCamp
   }));
 }
 
-export function mapCamposParaApi(campos: unknown): FormularioCampoApi[] {
+export function mapCamposParaApi(campos: unknown, apenasAtivos = false): FormularioCampoApi[] {
   if (!Array.isArray(campos)) return [];
-
-  return campos.map((campo) => {
+  const mapped = campos.map((campo) => {
     const item = (campo ?? {}) as Record<string, unknown>;
     return {
       id: typeof item.id === 'string' ? item.id : null,
@@ -163,54 +224,5 @@ export function mapCamposParaApi(campos: unknown): FormularioCampoApi[] {
             : null,
     };
   });
-}
-
-export function parseDocumentosRequeridosItems(raw: unknown): { tipoDocumentoId: number; obrigatorio: boolean }[] {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map((entry) => {
-      const item = (entry ?? {}) as Record<string, unknown>;
-      const idRaw =
-        typeof item.tipoDocumentoId === 'number'
-          ? item.tipoDocumentoId
-          : typeof item.tipo_documento_id === 'number'
-            ? item.tipo_documento_id
-            : null;
-      if (idRaw == null || !Number.isInteger(idRaw) || idRaw < 1) return null;
-      return {
-        tipoDocumentoId: idRaw,
-        obrigatorio: item.obrigatorio === undefined ? false : Boolean(item.obrigatorio),
-      };
-    })
-    .filter((x): x is { tipoDocumentoId: number; obrigatorio: boolean } => x !== null);
-}
-
-export async function mapDocumentosRequeridosParaApi(raw: unknown): Promise<DocumentoRequeridoApi[]> {
-  const items = parseDocumentosRequeridosItems(raw);
-  if (items.length === 0) return [];
-
-  const ids = [...new Set(items.map((i) => i.tipoDocumentoId))];
-  const result = await query(
-    `SELECT id, codigo, nome_exibicao
-     FROM people.tipos_documento_colaborador
-     WHERE id = ANY($1::int[])
-       AND categoria = 'admissao'`,
-    [ids]
-  );
-
-  const byId = new Map<number, { codigo: string; nome_exibicao: string }>();
-  for (const row of result.rows as { id: number; codigo: string; nome_exibicao: string }[]) {
-    byId.set(row.id, { codigo: row.codigo, nome_exibicao: row.nome_exibicao });
-  }
-
-  return items.map((item) => {
-    const t = byId.get(item.tipoDocumentoId);
-    return {
-      tipoDocumentoId: item.tipoDocumentoId,
-      codigo: t?.codigo ?? '',
-      label: t?.nome_exibicao ?? '',
-      obrigatorio: item.obrigatorio,
-    };
-  });
+  return apenasAtivos ? mapped.filter((c) => c.ativo) : mapped;
 }

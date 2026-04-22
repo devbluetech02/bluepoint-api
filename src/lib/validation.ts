@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+// Helper: converte DD/MM/YYYY para YYYY-MM-DD (aceita ambos os formatos)
+const toISODate = (val: string): string => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(val);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : val;
+};
+
 // =====================================================
 // SCHEMAS DE AUTENTICAÇÃO
 // =====================================================
@@ -7,6 +13,19 @@ import { z } from 'zod';
 export const loginSchema = z.object({
   email: z.string().email('Email inválido'),
   senha: z.string().min(1, 'Senha é obrigatória'),
+});
+
+export const loginCpfSchema = z.object({
+  cpf: z.string().min(11, 'CPF inválido').max(14),
+});
+
+export const criarUsuarioProvisorioSchema = z.object({
+  nome:           z.string().min(3, 'Nome deve ter no mínimo 3 caracteres').max(255),
+  cpf:            z.string().min(11, 'CPF inválido').max(14),
+  empresaId:      z.number().int().positive('empresaId deve ser um inteiro positivo'),
+  cargoId:        z.number().int().positive('cargoId deve ser um inteiro positivo'),
+  departamentoId: z.number().int().positive('departamentoId deve ser um inteiro positivo'),
+  jornadaId:      z.number().int().positive('jornadaId deve ser um inteiro positivo'),
 });
 
 export const refreshTokenSchema = z.object({
@@ -55,9 +74,9 @@ export const criarColaboradorSchema = z.object({
   departamentoId: z.number().int().positive().optional().nullable(),
   jornadaId: z.number().int().positive().optional().nullable(),
   cargoId: z.number().int().positive().optional().nullable(),
-  dataAdmissao: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data de admissão inválida'),
-  dataNascimento: z.string().refine((val) => !val || !isNaN(Date.parse(val)), 'Data de nascimento inválida').optional().nullable(),
-  dataDesligamento: z.string().refine((val) => !val || !isNaN(Date.parse(val)), 'Data de desligamento inválida').optional().nullable(),
+  dataAdmissao: z.string().transform(toISODate).refine((val) => !isNaN(Date.parse(val)), 'Data de admissão inválida'),
+  dataNascimento: z.string().transform(toISODate).refine((val) => !val || !isNaN(Date.parse(val)), 'Data de nascimento inválida').optional().nullable(),
+  dataDesligamento: z.string().transform(toISODate).refine((val) => !val || !isNaN(Date.parse(val)), 'Data de desligamento inválida').optional().nullable(),
   permitePontoMobile: z.boolean().optional().default(false),
   permitePontoQualquerEmpresa: z.boolean().optional().default(false),
   valeAlimentacao: z.boolean().optional().default(false),
@@ -422,6 +441,19 @@ export const parametrosBeneficiosSchema = z.object({
   valorValeAlimentacaoCoordenador: z.number().min(0, 'Valor VA coordenador deve ser >= 0'),
   horasMinimasParaValeAlimentacao: z.number().min(0, 'Horas mínimas deve ser >= 0').max(24, 'Horas mínimas deve ser <= 24'),
   diasUteisMes: z.number().int().min(1, 'Dias úteis deve ser >= 1').max(31, 'Dias úteis deve ser <= 31'),
+  descontoFaltaAlimentacao: z.number().min(0, 'Desconto deve ser >= 0').optional(),
+  descontoFaltaCombustivel: z.number().min(0, 'Desconto deve ser >= 0').optional(),
+});
+
+// =====================================================
+// SCHEMAS DE PARÂMETROS DE RH
+// =====================================================
+
+export const parametrosRhSchema = z.object({
+  telefoneRh: z.string().max(30, 'Telefone deve ter no máximo 30 caracteres').optional(),
+  emailRh: z.string().max(120, 'E-mail deve ter no máximo 120 caracteres').optional(),
+  diasExperienciaPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(365, 'Dias deve ser <= 365').optional(),
+  diasProrrogacaoPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(365, 'Dias deve ser <= 365').optional(),
 });
 
 // =====================================================
@@ -772,7 +804,7 @@ export const agendarReuniaoSchema = z.object({
 export const formularioAdmissaoCampoSchema = z.object({
   id: z.string().optional().nullable(),
   label: z.string().min(1, 'Label é obrigatório').max(255),
-  tipo: z.string().min(1, 'Tipo é obrigatório').max(50),
+  tipo: z.enum(['text', 'number', 'email', 'phone', 'cpf', 'date', 'select', 'checkbox', 'file', 'exam_schedule', 'photo', 'face_capture'] as const),
   obrigatorio: z.boolean().default(false),
   ativo: z.boolean().default(true),
   ordem: z.number().int().min(1, 'Ordem deve ser maior que 0'),
@@ -780,9 +812,10 @@ export const formularioAdmissaoCampoSchema = z.object({
   secaoNome: z.string().max(255).optional().nullable(),
 });
 
-export const formularioAdmissaoDocumentoRequeridoSchema = z.object({
+const formularioDocumentoRequeridoSchema = z.object({
   tipoDocumentoId: z.number().int().positive('tipoDocumentoId inválido'),
   obrigatorio: z.boolean().default(false),
+  cargosOpcoes: z.array(z.string()).optional().default([]),
 });
 
 export const salvarFormularioAdmissaoSchema = z.object({
@@ -790,7 +823,7 @@ export const salvarFormularioAdmissaoSchema = z.object({
   titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255),
   descricao: z.string().max(2000).optional().nullable(),
   campos: z.array(formularioAdmissaoCampoSchema).min(1, 'Pelo menos 1 campo é obrigatório'),
-  documentosRequeridos: z.array(formularioAdmissaoDocumentoRequeridoSchema).optional().default([]),
+  documentosRequeridos: z.array(formularioDocumentoRequeridoSchema).optional().default([]),
 });
 
 export const gerarLinkFormularioAdmissaoSchema = z.object({

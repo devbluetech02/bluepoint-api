@@ -168,3 +168,28 @@ export function extractTokenFromHeader(authHeader: string | null): string | null
   }
   return authHeader.substring(7);
 }
+
+// =====================================================
+// AUTENTICAÇÃO PROVISÓRIA (sem senha, apenas CPF)
+// =====================================================
+
+const JWT_PROVISORIO_EXPIRES_IN = (process.env.JWT_PROVISORIO_EXPIRES_IN || '8h') as SignOptions['expiresIn'];
+
+/**
+ * Gera um JWT de acesso restrito para usuários provisórios.
+ * O tipo 'provisorio' diferencia este token dos demais e permite
+ * que o middleware bloqueie rotas não autorizadas.
+ */
+export function generateProvisionalToken(user: {
+  id: number;
+  nome: string;
+  cpf: string;
+}): string {
+  const payload: JWTPayload = {
+    userId: user.id,
+    email: `provisorio_${user.cpf}@sistema`,
+    tipo: 'provisorio',
+    nome: user.nome,
+  };
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_PROVISORIO_EXPIRES_IN });
+}

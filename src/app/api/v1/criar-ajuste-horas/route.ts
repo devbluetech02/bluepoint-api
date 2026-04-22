@@ -4,6 +4,7 @@ import { createdResponse, errorResponse, serverErrorResponse, validationErrorRes
 import { withGestor } from '@/lib/middleware';
 import { criarAjusteHorasSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -78,6 +79,28 @@ export async function POST(request: NextRequest) {
           saldoAtual,
         },
       });
+
+      // Formatar horas para exibição (ex: +2h30min)
+      const horasAbs = Math.abs(horas);
+      const h = Math.floor(horasAbs);
+      const min = Math.round((horasAbs - h) * 60);
+      const sinal = horas >= 0 ? '+' : '-';
+      const horasFormatadas = min > 0 ? `${sinal}${h}h${min}min` : `${sinal}${h}h`;
+      const saldoAbs = Math.abs(saldoAtual);
+      const sh = Math.floor(saldoAbs);
+      const smin = Math.round((saldoAbs - sh) * 60);
+      const ssinal = saldoAtual >= 0 ? '+' : '-';
+      const saldoFormatado = smin > 0 ? `${ssinal}${sh}h${smin}min` : `${ssinal}${sh}h`;
+
+      criarNotificacaoComPush({
+        usuarioId: data.colaboradorId,
+        tipo: 'sistema',
+        titulo: 'Banco de horas ajustado',
+        mensagem: `Seu banco de horas foi ajustado: ${horasFormatadas}${data.motivo ? ` (${data.motivo})` : ''}. Novo saldo: ${saldoFormatado}.`,
+        link: '/banco-horas',
+        metadados: { acao: 'ajuste_horas', tipo: data.tipo, horas, saldoAtual },
+        pushSeveridade: saldoAtual < 0 ? 'atencao' : 'info',
+      }).catch((err) => console.error('[Notificação] Erro ao notificar ajuste de horas:', err));
 
       return createdResponse({
         id: result.rows[0].id,

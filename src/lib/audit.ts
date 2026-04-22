@@ -1,12 +1,13 @@
 import { query } from './db';
 import { embedTableRowAfterInsert } from './embeddings';
 
-export type AuditAction = 
+export type AuditAction =
   | 'login'
   | 'logout'
   | 'criar'
   | 'editar'
   | 'excluir'
+  | 'deletar'
   | 'resolver'
   | 'visualizar'
   | 'exportar'
@@ -70,7 +71,10 @@ export type AuditModule =
   | 'contratos_prestador'
   | 'nfes_prestador'
   | 'gestao_pessoas'
-  | 'reunioes';
+  | 'reunioes'
+  | 'usuarios_provisorios'
+  | 'clinicas'
+  | 'admissao';
 
 export interface AuditLogParams {
   usuarioId?: number | null;
@@ -143,10 +147,23 @@ export async function registrarAuditoria(params: AuditLogParams): Promise<void> 
     );
     const id = result.rows[0]?.id;
     if (id != null) {
-      embedTableRowAfterInsert('auditoria', id).catch(() => {});
+      embedTableRowAfterInsert('auditoria', id).catch((embedError) => {
+        console.error('[AUDIT] Falha ao indexar auditoria para embeddings', {
+          auditId: id,
+          acao: params.acao,
+          modulo: params.modulo,
+          error: embedError instanceof Error ? embedError.message : String(embedError),
+        });
+      });
     }
   } catch (error) {
-    console.error('Erro ao registrar auditoria:', error);
+    console.error('[AUDIT] Erro ao registrar auditoria', {
+      acao: params.acao,
+      modulo: params.modulo,
+      entidadeId: params.entidadeId ?? null,
+      usuarioId: params.usuarioId ?? null,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

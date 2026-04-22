@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
+import { enviarPushParaColaborador, type PushSeveridade } from '@/lib/push-colaborador';
 
 type TipoNotificacao = 'sistema' | 'solicitacao' | 'marcacao' | 'alerta' | 'lembrete';
 
@@ -43,6 +44,34 @@ export async function criarNotificacao(params: CriarNotificacaoParams): Promise<
 }
 
 /**
+ * Cria notificação no banco E envia push OneSignal simultaneamente.
+ * O push é fire-and-forget — falha não impede a criação da notificação no banco.
+ *
+ * Esta é a função preferida para notificar colaboradores sobre eventos no app.
+ * Escalabilidade: futuramente consulta people.parametros_notificacoes para
+ * respeitar as preferências do usuário antes de enviar o push.
+ */
+export async function criarNotificacaoComPush(
+  params: CriarNotificacaoParams & { pushSeveridade?: PushSeveridade; fotoUrl?: string }
+): Promise<number | null> {
+  const id = await criarNotificacao(params);
+
+  enviarPushParaColaborador(params.usuarioId, {
+    titulo: params.titulo,
+    mensagem: params.mensagem,
+    severidade: params.pushSeveridade ?? 'info',
+    data: {
+      ...params.metadados,
+      notificacaoId: id,
+    },
+    url: params.link,
+    fotoUrl: params.fotoUrl,
+  }).catch((err) => console.error('[Push] Erro ao enviar push para colaborador:', err));
+
+  return id;
+}
+
+/**
  * Cria notificação de atraso para o colaborador justificar.
  * Os metadados incluem tudo que o app mobile precisa para montar a tela de justificativa.
  */
@@ -52,7 +81,7 @@ export async function notificarAtrasoParaJustificar(params: {
   minutosAtraso: number;
   dataOcorrencia: string;
 }): Promise<number | null> {
-  return criarNotificacao({
+  return criarNotificacaoComPush({
     usuarioId: params.colaboradorId,
     tipo: 'alerta',
     titulo: 'Atraso registrado — Justifique',
@@ -66,5 +95,6 @@ export async function notificarAtrasoParaJustificar(params: {
       minutosAtraso: params.minutosAtraso,
       dataOcorrencia: params.dataOcorrencia,
     },
+    pushSeveridade: 'atencao',
   });
 }

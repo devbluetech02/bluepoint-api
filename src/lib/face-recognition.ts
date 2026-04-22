@@ -22,7 +22,42 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://face-service:50
 const MATCH_THRESHOLD = 0.4;
 
 // Timeout para chamadas ao serviço (ms)
-const SERVICE_TIMEOUT = 30000;
+// /extract p99 real ≈ 500ms. 8s cobre picos sem enfileirar requests que
+// travariam o health-check do container.
+const SERVICE_TIMEOUT = 8000;
+
+// Circuit breaker — se o microserviço engasgar, falha rápido em vez de
+// segurar requests pendurando 8s cada e derrubando o health-check da task.
+const CB_FAILURE_THRESHOLD = 5;   // falhas consecutivas para abrir
+const CB_OPEN_DURATION_MS = 30_000; // quanto tempo fica aberto
+let cbFailures = 0;
+let cbOpenedAt = 0;
+
+function cbIsOpen(): boolean {
+  if (cbOpenedAt === 0) return false;
+  if (Date.now() - cbOpenedAt >= CB_OPEN_DURATION_MS) {
+    // half-open: permite próxima tentativa para sondar recuperação
+    cbOpenedAt = 0;
+    cbFailures = 0;
+    return false;
+  }
+  return true;
+}
+
+function cbRecordFailure(): void {
+  cbFailures += 1;
+  if (cbFailures >= CB_FAILURE_THRESHOLD && cbOpenedAt === 0) {
+    cbOpenedAt = Date.now();
+    console.warn(`[Face Recognition] Circuit breaker aberto após ${cbFailures} falhas consecutivas`);
+  }
+}
+
+function cbRecordSuccess(): void {
+  if (cbFailures > 0 || cbOpenedAt !== 0) {
+    cbFailures = 0;
+    cbOpenedAt = 0;
+  }
+}
 
 // ==========================================
 // TIPOS
@@ -65,6 +100,10 @@ interface ServiceExtractResponse {
  * Faz uma chamada HTTP ao microserviço Python
  */
 async function callFaceService<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+  if (cbIsOpen()) {
+    throw new Error('Face service unavailable (circuit breaker open)');
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SERVICE_TIMEOUT);
 
@@ -81,8 +120,11 @@ async function callFaceService<T>(endpoint: string, body: Record<string, unknown
       throw new Error(errorData?.detail || `Face service error: ${response.status}`);
     }
 
-    return await response.json() as T;
+    const result = await response.json() as T;
+    cbRecordSuccess();
+    return result;
   } catch (error) {
+    cbRecordFailure();
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Face service timeout');
     }
@@ -247,11 +289,13 @@ export function getMatchThreshold(): number {
  * Com ArcFace, o threshold é muito mais estável - variação mínima
  */
 export function calcularThresholdDinamico(qualidade: number): number {
-  // ArcFace é robusto: threshold praticamente fixo
-  // Pequeno ajuste para qualidade muito baixa
-  if (qualidade >= 0.6) return MATCH_THRESHOLD;
-  if (qualidade >= 0.4) return MATCH_THRESHOLD + 0.03;
-  return MATCH_THRESHOLD + 0.05; // máximo 0.45 para qualidade muito baixa
+  // Threshold adaptativo: quanto pior a qualidade, mais flexível o threshold.
+  // Com AdaFace os embeddings de baixa qualidade ainda convergem bem para a mesma pessoa.
+  if (qualidade >= 0.7) return MATCH_THRESHOLD;         // ótima qualidade: 0.40
+  if (qualidade >= 0.5) return MATCH_THRESHOLD + 0.04;  // boa qualidade: 0.44
+  if (qualidade >= 0.3) return MATCH_THRESHOLD + 0.08;  // baixa qualidade: 0.48
+  if (qualidade >= 0.15) return MATCH_THRESHOLD + 0.12; // muito baixa: 0.52
+  return MATCH_THRESHOLD + 0.15;                        // limite extremo: 0.55
 }
 
 // ==========================================
@@ -259,18 +303,19 @@ export function calcularThresholdDinamico(qualidade: number): number {
 // ==========================================
 
 // Máximo de encodings aprendidos por pessoa
-const MAX_ENCODINGS_APRENDIDOS = 15;
+const MAX_ENCODINGS_APRENDIDOS = 40;
 
 // Distância mínima entre encodings para considerar "diverso" (evita redundância)
-// Se a distância for menor que isso, o encoding é muito parecido com um existente → não salvar
-const DIVERSIDADE_MINIMA = 0.08;
+// Reduzido para capturar variações sutis de ângulo e iluminação
+const DIVERSIDADE_MINIMA = 0.04;
 
 // Confiança mínima para auto-aprender (distância máxima aceita)
-// Só aprende de matches com alta confiança (< 0.30 de distância)
-const AUTO_APRENDER_MAX_DISTANCIA = 0.30;
+// Aprende de qualquer match válido (dentro do threshold), não só matches perfeitos
+const AUTO_APRENDER_MAX_DISTANCIA = 0.42;
 
 // Qualidade mínima da imagem para auto-aprender
-const AUTO_APRENDER_MIN_QUALIDADE = 0.35;
+// Baixo deliberadamente: condições difíceis são exatamente o que queremos aprender
+const AUTO_APRENDER_MIN_QUALIDADE = 0.12;
 
 /**
  * Verifica se um encoding é suficientemente diverso em relação aos existentes.

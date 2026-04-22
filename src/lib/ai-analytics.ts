@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { criarNotificacao } from '@/lib/notificacoes';
+import { enviarPushParaColaboradores } from '@/lib/push-colaborador';
 import { sendEmail } from '@/lib/email';
 
 interface MetricasEmpresa {
@@ -189,6 +190,7 @@ async function notificarAdmins(alertas: AlertaGerado[]): Promise<void> {
   const criticos = alertas.filter(a => a.severidade === 'critico');
   const atencao = alertas.filter(a => a.severidade === 'atencao');
   const info = alertas.filter(a => a.severidade === 'info');
+  const adminIds: number[] = admins.rows.map((a) => (a as { id: number }).id);
 
   for (const admin of admins.rows) {
     const partes = [
@@ -215,6 +217,22 @@ async function notificarAdmins(alertas: AlertaGerado[]): Promise<void> {
         html: '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;color:#333;line-height:1.6"><div style="max-width:650px;margin:0 auto;padding:20px"><div style="background:#1e40af;color:white;padding:20px;text-align:center;border-radius:8px 8px 0 0"><h1 style="margin:0">BluePoint - Alertas Inteligentes</h1></div><div style="background:#f9fafb;padding:30px;border-radius:0 0 8px 8px"><h2 style="color:#1e40af">Ola, ' + admin.nome + '!</h2><p>Detectamos <strong>' + alertas.length + ' alerta(s)</strong>, sendo <strong style="color:#dc2626">' + criticos.length + ' critico(s)</strong>.</p><h3 style="color:#dc2626;border-bottom:2px solid #dc2626;padding-bottom:8px">Alertas Criticos</h3><ul style="padding-left:20px">' + listaCrit + '</ul>' + listaAtc + '<p style="text-align:center;margin-top:30px"><a href="' + base + '/alertas-inteligentes" style="display:inline-block;background:#1e40af;color:white;padding:12px 30px;text-decoration:none;border-radius:6px">Ver Alertas</a></p></div><div style="text-align:center;margin-top:20px;font-size:12px;color:#6b7280"><p>BluePoint - IA Analytics</p></div></div></body></html>',
       });
     }
+  }
+
+  if (adminIds.length > 0) {
+    const severidadeGlobal = criticos.length > 0 ? 'critico' : atencao.length > 0 ? 'atencao' : 'info';
+    const partes = [
+      criticos.length > 0 ? criticos.length + ' critico(s)' : '',
+      atencao.length > 0 ? atencao.length + ' de atencao' : '',
+      info.length > 0 ? info.length + ' informativo(s)' : '',
+    ].filter(Boolean);
+    enviarPushParaColaboradores(adminIds, {
+      titulo: 'Analise Inteligente: ' + alertas.length + ' alerta(s)',
+      mensagem: partes.join(', '),
+      severidade: severidadeGlobal,
+      data: { tipo: 'ai_analytics', total: alertas.length, criticos: criticos.length },
+      url: '/alertas-inteligentes',
+    }).catch(err => console.error('[AI Analytics] Erro ao enviar push para admins:', err));
   }
 }
 

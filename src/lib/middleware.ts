@@ -176,6 +176,17 @@ export async function withGestor(
   return withRole(request, [...TIPOS_GESTAO], handler);
 }
 
+/**
+ * Middleware para endpoints de admissão
+ * Aceita gestores/admin E usuários provisórios (tipo='provisorio')
+ */
+export async function withAdmissao(
+  request: NextRequest,
+  handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
+): Promise<Response> {
+  return withRole(request, [...TIPOS_GESTAO, 'provisorio'], handler);
+}
+
 // =====================================================
 // MIDDLEWARE DE VERIFICAÇÃO DE PERMISSÃO GRANULAR
 // =====================================================

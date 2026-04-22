@@ -15,6 +15,8 @@ interface PushVisual {
   uppercase: boolean;
 }
 
+const APP_ICON_URL = 'https://people-api.valerisapp.com.br/images/icone.png';
+
 export const PUSH_VISUAL: Record<string, PushVisual> = {
   critico: {
     android_accent_color: 'FFDC2626',
@@ -22,7 +24,7 @@ export const PUSH_VISUAL: Record<string, PushVisual> = {
     emoji: '\u{1F6A8}',
     cor: '#DC2626',
     big_picture: 'https://placehold.co/1280x256/DC2626/FFFFFF/png?text=%F0%9F%9A%A8+ALERTA+CRITICO&font=roboto',
-    large_icon: 'https://placehold.co/256x256/DC2626/FFFFFF/png?text=%21&font=roboto',
+    large_icon: APP_ICON_URL,
     uppercase: true,
   },
   atencao: {
@@ -31,7 +33,7 @@ export const PUSH_VISUAL: Record<string, PushVisual> = {
     emoji: '\u{26A0}\u{FE0F}',
     cor: '#F59E0B',
     big_picture: 'https://placehold.co/1280x256/F59E0B/000000/png?text=%E2%9A%A0%EF%B8%8F+ATENCAO&font=roboto',
-    large_icon: 'https://placehold.co/256x256/F59E0B/000000/png?text=%21&font=roboto',
+    large_icon: APP_ICON_URL,
     uppercase: false,
   },
   info: {
@@ -40,7 +42,7 @@ export const PUSH_VISUAL: Record<string, PushVisual> = {
     emoji: '\u{2139}\u{FE0F}',
     cor: '#3B82F6',
     big_picture: 'https://placehold.co/1280x256/3B82F6/FFFFFF/png?text=%E2%84%B9%EF%B8%8F+INFORMATIVO&font=roboto',
-    large_icon: 'https://placehold.co/256x256/3B82F6/FFFFFF/png?text=i&font=roboto',
+    large_icon: APP_ICON_URL,
     uppercase: false,
   },
   atualizacao: {
@@ -49,7 +51,7 @@ export const PUSH_VISUAL: Record<string, PushVisual> = {
     emoji: '\u{1F4F2}',
     cor: '#1E40AF',
     big_picture: 'https://placehold.co/1280x256/1E40AF/FFFFFF/png?text=%F0%9F%93%B2+NOVA+VERSAO+DISPONIVEL&font=roboto',
-    large_icon: 'https://placehold.co/256x256/1E40AF/FFFFFF/png?text=%E2%87%A9&font=roboto',
+    large_icon: APP_ICON_URL,
     uppercase: false,
   },
 };
@@ -61,6 +63,7 @@ export function buildPushPayload(opts: {
   visual: PushVisual;
   data?: Record<string, unknown>;
   url?: string;
+  fotoUrl?: string;
 }): Record<string, unknown> {
   const rawHeading = opts.visual.emoji + ' ' + opts.headingText;
   const rawContent = opts.contentText;
@@ -69,7 +72,7 @@ export function buildPushPayload(opts: {
   const content = opts.visual.uppercase ? rawContent.toUpperCase() : rawContent;
 
   const customIcon = process.env.PUSH_ICON_URL;
-  const largeIcon = customIcon || opts.visual.large_icon;
+  const largeIcon = opts.fotoUrl || customIcon || opts.visual.large_icon;
 
   const payload: Record<string, unknown> = {
     app_id: opts.appId,
@@ -77,15 +80,22 @@ export function buildPushPayload(opts: {
     headings: { en: heading, pt: heading },
     contents: { en: content, pt: content },
     priority: opts.visual.priority,
+    // Android
     android_accent_color: opts.visual.android_accent_color,
     big_picture: opts.visual.big_picture,
     large_icon: largeIcon,
+    // iOS
+    ios_attachments: { banner: opts.visual.big_picture },
+    ios_sound: 'default',
+    ios_badge_type: 'Increase',
+    ios_badge_count: 1,
+    // Web
     chrome_web_image: opts.visual.big_picture,
     chrome_web_icon: customIcon || undefined,
-    ...(opts.url ? { url: opts.url } : {}),
     data: {
       cor: opts.visual.cor,
       uppercase: opts.visual.uppercase,
+      ...(opts.url ? { route: opts.url } : {}),
       ...opts.data,
     },
   };
@@ -107,7 +117,13 @@ export async function sendPush(apiKey: string, payload: Record<string, unknown>)
     },
     body: JSON.stringify(payload),
   });
-  const body = await resp.json();
+  const text = await resp.text();
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = text;
+  }
   return { ok: resp.ok, status: resp.status, body };
 }
 
@@ -116,7 +132,6 @@ const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'people-mobile'];
 
 export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlDownload: string): Promise<void> {
   if (!APPS_COM_PUSH_NOVA_VERSAO.includes(nomeApp)) {
-    console.log('[OneSignal] Push nova versao NAO enviado: app nao elegivel para push de nova versao:', nomeApp);
     return; // Push de nova versão só para BluePoint Mobile; Station não notifica
   }
 
@@ -144,8 +159,6 @@ export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlD
     const result = await sendPush(apiKey, payload);
     if (!result.ok) {
       console.error('[OneSignal] Erro push nova versao ' + result.status + ':', JSON.stringify(result.body));
-    } else {
-      console.log('[OneSignal] Push nova versao enviado: ' + titulo + ' v' + versao + ' (id: ' + (result.body as Record<string, string>).id + ')');
     }
   } catch (error) {
     console.error('[OneSignal] Falha push nova versao:', error);

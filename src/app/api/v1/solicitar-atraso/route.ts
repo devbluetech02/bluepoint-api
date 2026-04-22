@@ -4,8 +4,8 @@ import { withAuth } from '@/lib/middleware';
 import { solicitarAtrasoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateSolicitacaoCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
-import { criarNotificacao } from '@/lib/notificacoes';
-import { uploadArquivo } from '@/lib/storage';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
+import { uploadArquivo, obterFotoColaborador } from '@/lib/storage';
 import {
   obterJornadaDoDia,
   obterParametrosTolerancia,
@@ -153,15 +153,15 @@ export async function POST(request: NextRequest) {
         empresaId: data.empresaId || undefined,
       });
 
-      // Notificar gestor
-      await criarNotificacao({
+      // Notificar gestor com push + foto do colaborador
+      const fotoPerfilUrl = await obterFotoColaborador(data.colaboradorId).catch(() => null);
+      criarNotificacaoComPush({
         usuarioId: gestor.id,
         tipo: 'solicitacao',
         titulo: 'Solicitação de registro com atraso',
         mensagem:
-          `${colaborador.nome} está com ${analise.atrasoMinutos} minutos de atraso ` +
-          `(previsto: ${analise.horarioPrevisto}, tentativa: ${analise.horarioTentativa}) ` +
-          `e solicita autorização para registro de ponto. Justificativa: "${data.justificativa}"`,
+          `${colaborador.nome} está com ${analise.atrasoMinutos}min de atraso ` +
+          `e solicita autorização para registro de ponto.`,
         link: `/solicitacoes/${solicitacaoId}`,
         metadados: {
           acao: 'aprovar_atraso',
@@ -173,7 +173,9 @@ export async function POST(request: NextRequest) {
           horarioTentativa: analise.horarioTentativa,
           tipoMarcacao: evento.tipoMarcacao,
         },
-      });
+        pushSeveridade: 'atencao',
+        fotoUrl: fotoPerfilUrl ?? undefined,
+      }).catch((err) => console.error('[Notificação] Erro ao notificar gestor atraso:', err));
 
       // Invalidar cache
       await invalidateSolicitacaoCache(solicitacaoId, data.colaboradorId);

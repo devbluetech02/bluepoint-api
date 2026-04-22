@@ -13,6 +13,8 @@ const DEFAULTS = {
   valorValeAlimentacaoCoordenador: 1000,
   horasMinimasParaValeAlimentacao: 6,
   diasUteisMes: 22,
+  descontoFaltaAlimentacao: 0,
+  descontoFaltaCombustivel: 0,
 };
 
 // =====================================================
@@ -29,7 +31,8 @@ export async function GET(request: NextRequest) {
         const result = await query(
           `SELECT id, valor_vale_transporte, valor_vale_alimentacao_colaborador,
                   valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
-                  horas_minimas_para_vale_alimentacao, dias_uteis_mes
+                  horas_minimas_para_vale_alimentacao, dias_uteis_mes,
+                  desconto_falta_alimentacao, desconto_falta_combustivel
            FROM people.parametros_beneficios
            ORDER BY id DESC
            LIMIT 1`
@@ -47,6 +50,8 @@ export async function GET(request: NextRequest) {
           valorValeAlimentacaoCoordenador: Number(row.valor_vale_alimentacao_coordenador),
           horasMinimasParaValeAlimentacao: Number(row.horas_minimas_para_vale_alimentacao),
           diasUteisMes: Number(row.dias_uteis_mes),
+          descontoFaltaAlimentacao: Number(row.desconto_falta_alimentacao),
+          descontoFaltaCombustivel: Number(row.desconto_falta_combustivel),
         };
       }, CACHE_TTL.LONG);
 
@@ -92,11 +97,14 @@ export async function PUT(request: NextRequest) {
                valor_vale_alimentacao_coordenador = $4,
                horas_minimas_para_vale_alimentacao = $5,
                dias_uteis_mes = $6,
-               atualizado_por = $7
-           WHERE id = $8
+               desconto_falta_alimentacao = COALESCE($7, desconto_falta_alimentacao),
+               desconto_falta_combustivel = COALESCE($8, desconto_falta_combustivel),
+               atualizado_por = $9
+           WHERE id = $10
            RETURNING id, valor_vale_transporte, valor_vale_alimentacao_colaborador,
                      valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
-                     horas_minimas_para_vale_alimentacao, dias_uteis_mes`,
+                     horas_minimas_para_vale_alimentacao, dias_uteis_mes,
+                     desconto_falta_alimentacao, desconto_falta_combustivel`,
           [
             data.valorValeTransporte,
             data.valorValeAlimentacaoColaborador,
@@ -104,6 +112,8 @@ export async function PUT(request: NextRequest) {
             data.valorValeAlimentacaoCoordenador,
             data.horasMinimasParaValeAlimentacao,
             data.diasUteisMes,
+            data.descontoFaltaAlimentacao ?? null,
+            data.descontoFaltaCombustivel ?? null,
             user.userId,
             parametroId,
           ]
@@ -113,11 +123,13 @@ export async function PUT(request: NextRequest) {
           `INSERT INTO people.parametros_beneficios (
              valor_vale_transporte, valor_vale_alimentacao_colaborador,
              valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
-             horas_minimas_para_vale_alimentacao, dias_uteis_mes, atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+             horas_minimas_para_vale_alimentacao, dias_uteis_mes,
+             desconto_falta_alimentacao, desconto_falta_combustivel, atualizado_por
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id, valor_vale_transporte, valor_vale_alimentacao_colaborador,
                      valor_vale_alimentacao_supervisor, valor_vale_alimentacao_coordenador,
-                     horas_minimas_para_vale_alimentacao, dias_uteis_mes`,
+                     horas_minimas_para_vale_alimentacao, dias_uteis_mes,
+                     desconto_falta_alimentacao, desconto_falta_combustivel`,
           [
             data.valorValeTransporte,
             data.valorValeAlimentacaoColaborador,
@@ -125,6 +137,8 @@ export async function PUT(request: NextRequest) {
             data.valorValeAlimentacaoCoordenador,
             data.horasMinimasParaValeAlimentacao,
             data.diasUteisMes,
+            data.descontoFaltaAlimentacao ?? 0,
+            data.descontoFaltaCombustivel ?? 0,
             user.userId,
           ]
         );
@@ -138,6 +152,8 @@ export async function PUT(request: NextRequest) {
         valorValeAlimentacaoCoordenador: Number(parametro.valor_vale_alimentacao_coordenador),
         horasMinimasParaValeAlimentacao: Number(parametro.horas_minimas_para_vale_alimentacao),
         diasUteisMes: Number(parametro.dias_uteis_mes),
+        descontoFaltaAlimentacao: Number(parametro.desconto_falta_alimentacao),
+        descontoFaltaCombustivel: Number(parametro.desconto_falta_combustivel),
       };
 
       await invalidateParametrosBeneficiosCache();

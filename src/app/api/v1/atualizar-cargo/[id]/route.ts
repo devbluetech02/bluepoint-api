@@ -11,7 +11,13 @@ const atualizarCargoSchema = z.object({
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
   salarioMedio: z.number().min(0, 'Salário médio não pode ser negativo').optional().nullable(),
-  valorHoraExtra75: z.number().min(0, 'Valor HE 75% não pode ser negativo').optional().nullable(),
+  diasTeste: z
+    .number()
+    .int('diasTeste deve ser inteiro')
+    .min(0, 'diasTeste não pode ser negativo')
+    .max(365, 'diasTeste não pode exceder 365')
+    .optional()
+    .nullable(),
 });
 
 interface Params {
@@ -43,7 +49,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, valor_hora_extra_75 FROM people.cargos WHERE id = $1`,
+        `SELECT id, nome, cbo, descricao, salario_medio, dias_teste FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -52,7 +58,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioMedio, valorHoraExtra75 } = validation.data;
+      const { nome, cbo, descricao, salarioMedio, diasTeste } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -79,9 +85,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
         values.push(salarioMedio);
         paramIndex++;
       }
-      if (valorHoraExtra75 !== undefined) {
-        updates.push(`valor_hora_extra_75 = $${paramIndex}`);
-        values.push(valorHoraExtra75);
+      if (diasTeste !== undefined) {
+        updates.push(`dias_teste = $${paramIndex}`);
+        values.push(diasTeste);
         paramIndex++;
       }
 
@@ -104,7 +110,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosAnteriores: cargoAntigo,
-        dadosNovos: { nome, cbo, descricao, salarioMedio, valorHoraExtra75 },
+        dadosNovos: { nome, cbo, descricao, salarioMedio, diasTeste },
       });
 
       return successResponse({
@@ -113,7 +119,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
-        valorHoraExtra75: cargo.valor_hora_extra_75 ? parseFloat(cargo.valor_hora_extra_75) : null,
+        diasTeste: cargo.dias_teste ?? null,
         mensagem: 'Cargo atualizado com sucesso',
       });
     } catch (error) {

@@ -3,6 +3,7 @@ import { query } from '@/lib/db';
 import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
 /**
  * GET /api/v1/assiduidade/bloquear-colaborador
@@ -64,6 +65,18 @@ export async function POST(request: NextRequest) {
         entidadeId: colaboradorId,
         entidadeTipo: 'colaborador',
       }));
+
+      criarNotificacaoComPush({
+        usuarioId: colaboradorId,
+        tipo: 'alerta',
+        titulo: bloquear ? 'Registro de ponto bloqueado' : 'Registro de ponto normalizado',
+        mensagem: bloquear
+          ? 'Seu registro de ponto foi bloqueado pela administração. Entre em contato com seu gestor para mais informações.'
+          : 'Seu acesso ao registro de ponto foi normalizado pela administração.',
+        link: '/assiduidade',
+        metadados: { acao: bloquear ? 'ponto_bloqueado' : 'ponto_desbloqueado' },
+        pushSeveridade: bloquear ? 'critico' : 'info',
+      }).catch((err) => console.error('[Notificação] Erro ao notificar bloqueio:', err));
 
       return successResponse({
         colaborador_id: colaboradorId,
