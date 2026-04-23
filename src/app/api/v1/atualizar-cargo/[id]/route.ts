@@ -11,13 +11,7 @@ const atualizarCargoSchema = z.object({
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
   salarioMedio: z.number().min(0, 'Salário médio não pode ser negativo').optional().nullable(),
-  diasTeste: z
-    .number()
-    .int('diasTeste deve ser inteiro')
-    .min(0, 'diasTeste não pode ser negativo')
-    .max(365, 'diasTeste não pode exceder 365')
-    .optional()
-    .nullable(),
+  // diasTeste foi movido para usuarios_provisorios. Zod descarta silenciosamente.
 });
 
 interface Params {
@@ -49,7 +43,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, dias_teste FROM people.cargos WHERE id = $1`,
+        `SELECT id, nome, cbo, descricao, salario_medio FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -58,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioMedio, diasTeste } = validation.data;
+      const { nome, cbo, descricao, salarioMedio } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -85,11 +79,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
         values.push(salarioMedio);
         paramIndex++;
       }
-      if (diasTeste !== undefined) {
-        updates.push(`dias_teste = $${paramIndex}`);
-        values.push(diasTeste);
-        paramIndex++;
-      }
 
       values.push(cargoId);
 
@@ -110,7 +99,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosAnteriores: cargoAntigo,
-        dadosNovos: { nome, cbo, descricao, salarioMedio, diasTeste },
+        dadosNovos: { nome, cbo, descricao, salarioMedio },
       });
 
       return successResponse({
@@ -119,7 +108,6 @@ export async function PUT(request: NextRequest, { params }: Params) {
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
-        diasTeste: cargo.dias_teste ?? null,
         mensagem: 'Cargo atualizado com sucesso',
       });
     } catch (error) {

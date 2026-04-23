@@ -459,6 +459,115 @@ export async function registrarOcorrenciaAtraso(params: {
 }
 
 // =====================================================
+// REGISTRAR READMISSÃO DE EX-COLABORADOR
+// =====================================================
+
+/**
+ * Registra uma ocorrência "Readmissão" no Portal do Colaborador quando um
+ * ex-colaborador (status='inativo' no BluePoint) é readmitido via fluxo de admissão.
+ *
+ * Busca o colaborador no Portal pelo nome e o tipo de ocorrência que contenha
+ * "readmiss" (case-insensitive). Se qualquer um dos dois falhar, a ocorrência
+ * não é registrada — fail-silent pra não travar a transição admitido.
+ */
+export async function registrarOcorrenciaReadmissao(params: {
+  nomeColaborador: string;
+  cpf: string;
+  dataReadmissao: string;              // YYYY-MM-DD
+  dataDesligamentoAnterior: string | null;
+}): Promise<OcorrenciaResponse | null> {
+  if (!PORTAL_API_KEY) {
+    console.warn('[Ocorrência] PORTAL_COLABORADOR_API_KEY não configurada. Readmissão não registrada.');
+    return null;
+  }
+
+  try {
+    const colaboradorPortal = await buscarColaboradorNoPortal(params.nomeColaborador);
+    if (!colaboradorPortal) {
+      console.warn(
+        `[Ocorrência] Colaborador "${params.nomeColaborador}" não encontrado no Portal — readmissão não registrada.`
+      );
+      return null;
+    }
+
+    const tipoResponse = await fetchComTimeout(
+      `${PORTAL_BASE_URL}/api/external/ocorrencias/tipos?categoria=classificados`,
+      { method: 'GET', headers: { 'X-API-Key': PORTAL_API_KEY } }
+    );
+    let tipoReadmissaoId: number | null = null;
+    if (tipoResponse.ok) {
+      const tiposJson: TiposResponse = await tipoResponse.json();
+      const tipo = tiposJson.data?.classificados?.find((t) =>
+        t.tipo.toLowerCase().includes('readmiss')
+      );
+      tipoReadmissaoId = tipo?.id ?? null;
+    }
+    if (!tipoReadmissaoId) {
+      console.warn(
+        '[Ocorrência] Tipo "Readmissão" não encontrado no Portal — ocorrência não registrada. ' +
+        'Cadastre um tipo com a palavra "readmiss" no nome pra habilitar esse evento na timeline.'
+      );
+      return null;
+    }
+
+    const descDesligamento = params.dataDesligamentoAnterior
+      ? formatarDataBr_(params.dataDesligamentoAnterior)
+      : 'data desconhecida';
+
+    const payload: CriarOcorrenciaPayload = {
+      colaborador_id: colaboradorPortal.portalId,
+      tipo_ocorrencia_id: tipoReadmissaoId,
+      data_ocorrencia: params.dataReadmissao,
+      descricao: `Colaborador readmitido após desligamento em ${descDesligamento}.`,
+      origem: 'BluePoint - Admissão',
+      usuario_criador_nome: 'BluePoint API (Automático)',
+    };
+
+    const response = await fetchComTimeout(
+      `${PORTAL_BASE_URL}/api/external/ocorrencias`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': PORTAL_API_KEY,
+        },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    if (!response.ok) {
+      const text = await response.text();
+      console.warn(
+        `[Ocorrência] Portal retornou HTTP ${response.status} ao criar readmissão: ${text.substring(0, 200)}`
+      );
+      return null;
+    }
+
+    const data: OcorrenciaResponse = await response.json();
+    if (data.success && data.data?.id) {
+      console.warn(
+        `[Ocorrência] ✓ Readmissão registrada: ocorrência #${data.data.id} ` +
+        `- ${params.nomeColaborador} (CPF ${params.cpf})`
+      );
+    }
+    return data;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('[Ocorrência] Timeout ao registrar readmissão no Portal.');
+    } else {
+      console.error('[Ocorrência] Erro ao registrar readmissão no Portal:', error);
+    }
+    return null;
+  }
+}
+
+function formatarDataBr_(iso: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!match) return iso;
+  return `${match[3]}/${match[2]}/${match[1]}`;
+}
+
+// =====================================================
 // ENVIAR JUSTIFICATIVA DE ATRASO AO PORTAL
 // =====================================================
 

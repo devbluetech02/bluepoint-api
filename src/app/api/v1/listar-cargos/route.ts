@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
           // Buscar cargos
           const dataParams = [...params, limite, offset];
           const dataResult = await query(
-            `SELECT id, nome, cbo, descricao, salario_medio, dias_teste, created_at, updated_at
+            `SELECT id, nome, cbo, descricao, salario_medio, created_at, updated_at
              FROM people.cargos
              ${whereClause}
              ORDER BY nome ASC
@@ -76,7 +76,6 @@ export async function GET(request: NextRequest) {
             cbo: cargo.cbo,
             descricao: cargo.descricao,
             salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
-            diasTeste: cargo.dias_teste ?? null,
             exames: examesPorCargo.get(cargo.id) ?? [],
             criadoEm: cargo.created_at,
             atualizadoEm: cargo.updated_at,

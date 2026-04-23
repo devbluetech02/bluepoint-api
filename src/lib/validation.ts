@@ -26,6 +26,13 @@ export const criarUsuarioProvisorioSchema = z.object({
   cargoId:        z.number().int().positive('cargoId deve ser um inteiro positivo'),
   departamentoId: z.number().int().positive('departamentoId deve ser um inteiro positivo'),
   jornadaId:      z.number().int().positive('jornadaId deve ser um inteiro positivo'),
+  diasTeste:      z
+    .number()
+    .int('diasTeste deve ser inteiro')
+    .min(0, 'diasTeste não pode ser negativo')
+    .max(365, 'diasTeste não pode exceder 365')
+    .optional()
+    .nullable(),
 });
 
 export const refreshTokenSchema = z.object({

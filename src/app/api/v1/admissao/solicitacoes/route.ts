@@ -74,15 +74,33 @@ export async function GET(request: NextRequest) {
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+      // Dedup por provisório: só a solicitação mais recente por usuario_provisorio_id entra no feed.
+      // Solicitações sem vínculo (legado) não são agrupadas — caem pelo id próprio.
+      // Filtros (status, usuario_provisorio_id para token provisório) aplicam ANTES do ranking,
+      // garantindo que cada provisório aparece na sua última solicitação dentro do filtro.
+      const latestFilteredCTE = `
+        WITH filtradas AS (
+          SELECT s.*,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY COALESCE(s.usuario_provisorio_id::text, s.id::text)
+                   ORDER BY s.criado_em DESC
+                 ) AS rn
+          FROM people.solicitacoes_admissao s
+          ${where}
+        )
+      `;
+
       const countResult = await query(
-        `SELECT COUNT(*) as total FROM people.solicitacoes_admissao s ${where}`,
+        `${latestFilteredCTE}
+         SELECT COUNT(*) as total FROM filtradas WHERE rn = 1`,
         params
       );
       const total = parseInt(countResult.rows[0].total);
 
       params.push(limit, offset);
       const dataResult = await query(
-        `SELECT
+        `${latestFilteredCTE}
+         SELECT
            s.id,
            s.formulario_id,
            s.status,
@@ -96,6 +114,7 @@ export async function GET(request: NextRequest) {
            up.id             AS usuario_id,
            up.nome           AS usuario_nome,
            up.cpf            AS usuario_cpf,
+           up.dias_teste     AS usuario_dias_teste,
            c.id              AS cargo_id,
            c.nome            AS cargo_nome,
            e.id              AS empresa_id,
@@ -107,12 +126,12 @@ export async function GET(request: NextRequest) {
            cl.cidade         AS clinica_cidade,
            cl.estado         AS clinica_estado,
            cl.cep            AS clinica_cep
-         FROM people.solicitacoes_admissao s
+         FROM filtradas s
          LEFT JOIN people.usuarios_provisorios up ON up.id = s.usuario_provisorio_id
          LEFT JOIN people.cargos   c ON c.id = up.cargo_id
          LEFT JOIN people.empresas e ON e.id = up.empresa_id
          LEFT JOIN people.clinicas cl ON cl.id = s.clinica_id
-         ${where}
+         WHERE s.rn = 1
          ORDER BY s.criado_em DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params
@@ -125,12 +144,14 @@ export async function GET(request: NextRequest) {
           formularioId: row.formulario_id,
           status:       row.status,
           dados:        row.dados,
+          diasTeste:    row.usuario_dias_teste ?? null,
           criadoEm:     row.criado_em,
           atualizadoEm: row.atualizado_em,
           candidato: row.usuario_id ? {
             id:   row.usuario_id,
             nome: row.usuario_nome,
             cpf:  row.usuario_cpf,
+            diasTeste: row.usuario_dias_teste ?? null,
             cargo:   row.cargo_id   ? { id: row.cargo_id,   nome: row.cargo_nome   } : null,
             empresa: row.empresa_id ? { id: row.empresa_id, nome: row.empresa_nome } : null,
           } : null,

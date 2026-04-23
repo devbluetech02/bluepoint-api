@@ -1,6 +1,9 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { errorResponse, notFoundResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
+import { registrarOcorrenciaReadmissao } from '@/lib/ocorrencias-externas';
+import { mapCamposParaApi } from '@/lib/formulario-admissao';
+import { extrairCamposPessoaisParaColaborador } from '@/lib/admissao-dados-extractor';
 import { withAdmissao } from '@/lib/middleware';
 import { enviarPushParaProvisorio } from '@/lib/push-provisorio';
 import { enviarPushParaCargoNome } from '@/lib/push-colaborador';
@@ -138,6 +141,28 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (solResult.rows.length === 0) return notFoundResponse('Solicitação não encontrada');
       const sol = solResult.rows[0];
 
+      // ── Pré-check defensivo para admitido ─────────────────────────────────
+      // Se já existe colaborador ATIVO com o mesmo CPF, recusamos a transição:
+      // quem deveria bloquear isso é POST /usuarios-provisorios, mas protegemos
+      // contra contratos corrompidos (ex.: solicitações antigas pré-regra nova).
+      if (body.status === 'admitido' && sol.usuario_provisorio_id) {
+        const conflict = await query<{ id: number; status: string }>(
+          `SELECT c.id, c.status
+             FROM people.usuarios_provisorios up
+             JOIN people.colaboradores c ON c.cpf = up.cpf
+            WHERE up.id = $1
+              AND c.status = 'ativo'
+            LIMIT 1`,
+          [sol.usuario_provisorio_id]
+        );
+        if (conflict.rows.length > 0) {
+          return NextResponse.json(
+            { success: false, error: 'Já existe um colaborador ativo com este CPF', code: 'colaborador_ativo' },
+            { status: 409 }
+          );
+        }
+      }
+
       // ── Monta UPDATE ──────────────────────────────────────────────────────
       const sets: string[] = ['status = $1', 'atualizado_em = NOW()'];
       const values: unknown[] = [body.status];
@@ -185,13 +210,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         values
       );
 
-      // ── Migração foto/biometria → colaborador ao admitir ─────────────────
-      // Quando o candidato é admitido, tenta vincular foto de perfil e template
-      // biométrico ao colaborador recém-criado (identificado pelo CPF do usuário provisório).
-      // Executado de forma não-bloqueante: falhas são logadas mas não impedem a resposta.
+      // ── Pós-admissão: readmissão de ex-colaborador + biometria ────────────
+      // Quando transita para 'admitido', detecta se o CPF bate com um colaborador
+      // INATIVO — nesse caso reativa, substitui documentos e registra ocorrência
+      // "Readmissão". Senão, mantém o comportamento de migrar só biometria/foto
+      // (o colaborador é criado pelo RH via POST /criar-colaborador separadamente).
+      // Executado de forma não-bloqueante.
       if (body.status === 'admitido' && sol.usuario_provisorio_id) {
-        migrarDadosBiometricosParaColaborador(id, sol.usuario_provisorio_id, sol.foto_perfil_url).catch(
-          (err) => console.error('[admitido] Erro na migração de foto/biometria:', err)
+        processarTransicaoAdmitido(id, sol.usuario_provisorio_id, sol.foto_perfil_url).catch(
+          (err) => console.error('[admitido] Erro no processamento pós-admissão:', err)
         );
       }
 
@@ -508,52 +535,247 @@ async function notificarAssinaturaContrato(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Migração de foto de perfil e template biométrico para o colaborador admitido
+// Pós-admissão: readmissão de ex-colaborador + migração biométrica
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Quando uma solicitação de admissão transita para "admitido", tenta localizar
- * o colaborador recém-criado pelo CPF do usuário provisório e:
- *   1. Copia foto_perfil_url → colaborador.foto_url
- *   2. Move o template de biometria_facial_pendente → biometria_facial
- *
- * É chamada de forma fire-and-forget (não bloqueia a resposta HTTP).
+ * Chamada fire-and-forget quando a solicitação transita para 'admitido'.
+ * Roteia entre:
+ *   - inativo → readmissão (reativa, sobrescreve dados, substitui documentos,
+ *     registra ocorrência "Readmissão", migra biometria)
+ *   - ativo   → no-op (pré-check no handler já bloqueia; aqui é defensivo)
+ *   - none    → só migra biometria se colaborador já tiver sido criado via
+ *     POST /criar-colaborador (comportamento legado)
  */
-async function migrarDadosBiometricosParaColaborador(
+async function processarTransicaoAdmitido(
   solicitacaoId: string,
   usuarioProvisorioId: number,
-  fotoPerfillUrl: string | null
+  fotoPerfilUrl: string | null
 ): Promise<void> {
-  // Busca CPF do usuário provisório
-  const cpfResult = await query<{ cpf: string | null }>(
-    `SELECT cpf FROM people.usuarios_provisorios WHERE id = $1`,
+  const provResult = await query<{
+    cpf: string | null;
+    nome: string | null;
+    empresa_id: number | null;
+    cargo_id: number | null;
+    departamento_id: number | null;
+    jornada_id: number | null;
+  }>(
+    `SELECT cpf, nome, empresa_id, cargo_id, departamento_id, jornada_id
+       FROM people.usuarios_provisorios WHERE id = $1`,
     [usuarioProvisorioId]
   );
-  if (cpfResult.rows.length === 0 || !cpfResult.rows[0].cpf) {
-    console.warn(`[admitido] Usuário provisório ${usuarioProvisorioId} sem CPF — não é possível localizar colaborador`);
+  if (provResult.rows.length === 0 || !provResult.rows[0].cpf) {
+    console.warn(`[admitido] Provisório ${usuarioProvisorioId} sem CPF — pulando pós-processamento`);
+    return;
+  }
+  const prov = provResult.rows[0];
+  const cpf = prov.cpf!;
+
+  const colabResult = await query<{ id: number; status: string; data_desligamento: string | null }>(
+    `SELECT id, status, data_desligamento
+       FROM people.colaboradores
+      WHERE cpf = $1
+      ORDER BY (status = 'ativo') DESC, id DESC
+      LIMIT 1`,
+    [cpf]
+  );
+  const colab = colabResult.rows[0] ?? null;
+
+  if (colab?.status === 'ativo') {
+    // Pré-check no handler deveria ter interceptado; aqui é só log defensivo.
+    console.warn(`[admitido] Colaborador ativo encontrado pós-UPDATE (contrato violado) — solicitação ${solicitacaoId}`);
     return;
   }
 
-  const cpf = cpfResult.rows[0].cpf;
+  if (colab?.status === 'inativo') {
+    await reativarColaboradorInativo(colab.id, prov, solicitacaoId, colab.data_desligamento);
+    await substituirDocumentosNaReadmissao(colab.id, solicitacaoId);
+    registrarOcorrenciaReadmissao({
+      nomeColaborador: prov.nome ?? '',
+      cpf,
+      dataReadmissao: new Date().toISOString().slice(0, 10),
+      dataDesligamentoAnterior: colab.data_desligamento,
+    }).catch((err) => console.error('[admitido] Falha ao registrar ocorrência Readmissão:', err));
+    await migrarBiometriaParaColaborador(solicitacaoId, colab.id, fotoPerfilUrl);
+    return;
+  }
 
-  // Localiza colaborador pelo CPF
-  const colaboradorResult = await query<{ id: number }>(
+  // Nenhum colaborador com esse CPF — comportamento legado: migra biometria
+  // somente se um colaborador ativo for criado paralelamente via POST /criar-colaborador.
+  const ativoResult = await query<{ id: number }>(
     `SELECT id FROM people.colaboradores WHERE cpf = $1 AND status = 'ativo' LIMIT 1`,
     [cpf]
   );
-  if (colaboradorResult.rows.length === 0) {
-    console.warn(`[admitido] Nenhum colaborador ativo encontrado com CPF do usuário provisório ${usuarioProvisorioId}`);
+  if (ativoResult.rows.length === 0) {
+    console.warn(`[admitido] Nenhum colaborador encontrado para CPF ${cpf} — biometria não migrada`);
     return;
   }
+  await migrarBiometriaParaColaborador(solicitacaoId, ativoResult.rows[0].id, fotoPerfilUrl);
+}
 
-  const colaboradorId = colaboradorResult.rows[0].id;
-  console.log(`[admitido] Migrando dados da solicitação ${solicitacaoId} para colaborador ${colaboradorId}`);
+/**
+ * Reativa um colaborador inativo copiando os vínculos do provisório e
+ * sobrescrevendo campos pessoais extraídos do JSONB `dados` da solicitação
+ * via heurística de label (ver src/lib/admissao-dados-extractor.ts).
+ *
+ * Campos com valor extraído não-vazio entram no UPDATE. Os demais são
+ * preservados — não sobrescreve com NULL.
+ */
+async function reativarColaboradorInativo(
+  colaboradorId: number,
+  prov: {
+    nome: string | null;
+    empresa_id: number | null;
+    cargo_id: number | null;
+    departamento_id: number | null;
+    jornada_id: number | null;
+  },
+  solicitacaoId: string,
+  dataDesligamentoAnterior: string | null
+): Promise<void> {
+  // Busca dados do formulário + campos ativos pra aplicar extractor.
+  const formRes = await query<{ dados: Record<string, unknown> | null; campos: unknown }>(
+    `SELECT s.dados, f.campos
+       FROM people.solicitacoes_admissao s
+       JOIN people.formularios_admissao f ON f.id = s.formulario_id
+      WHERE s.id = $1`,
+    [solicitacaoId]
+  );
+  const dados = formRes.rows[0]?.dados ?? {};
+  const campos = mapCamposParaApi(formRes.rows[0]?.campos, true);
+  const extraidos = await extrairCamposPessoaisParaColaborador(campos, dados);
+
+  // Monta UPDATE dinâmico: vínculos + campos fixos sempre; campos pessoais só
+  // se foram extraídos (não sobrescreve com NULL).
+  const sets: string[] = [
+    `status            = 'ativo'`,
+    `data_desligamento = NULL`,
+    `data_admissao     = CURRENT_DATE`,
+    `atualizado_em     = NOW()`,
+  ];
+  const values: unknown[] = [];
+  const push = (col: string, v: unknown) => {
+    values.push(v);
+    sets.push(`${col} = $${values.length}`);
+  };
+
+  // Sempre sobrescrever do provisório (mesmo que NULL, pra ser consistente).
+  push('nome',            prov.nome);
+  push('empresa_id',      prov.empresa_id);
+  push('cargo_id',        prov.cargo_id);
+  push('departamento_id', prov.departamento_id);
+  push('jornada_id',      prov.jornada_id);
+
+  // Campos pessoais extraídos — só entram se presentes.
+  const sobrescritosPessoais: string[] = [];
+  const preservados: string[] = [];
+  const mapa: [keyof typeof extraidos, string][] = [
+    ['email',                'email'],
+    ['telefone',             'telefone'],
+    ['rg',                   'rg'],
+    ['data_nascimento',      'data_nascimento'],
+    ['endereco_cep',         'endereco.cep'],
+    ['endereco_logradouro',  'endereco.logradouro'],
+    ['endereco_numero',      'endereco.numero'],
+    ['endereco_complemento', 'endereco.complemento'],
+    ['endereco_bairro',      'endereco.bairro'],
+    ['endereco_cidade',      'endereco.cidade'],
+    ['endereco_estado',      'endereco.estado'],
+    ['vale_transporte',      'vale_transporte'],
+    ['vale_alimentacao',     'vale_alimentacao'],
+  ];
+  for (const [chave, label] of mapa) {
+    const v = extraidos[chave];
+    if (v !== undefined) {
+      push(chave as string, v);
+      sobrescritosPessoais.push(label);
+    } else {
+      preservados.push(label);
+    }
+  }
+
+  values.push(colaboradorId);
+  await query(
+    `UPDATE people.colaboradores SET ${sets.join(', ')} WHERE id = $${values.length}`,
+    values
+  );
+
+  console.warn(
+    `[readmissao:${colaboradorId}] Readmitido (desligamento anterior: ${dataDesligamentoAnterior ?? 'N/A'}) ` +
+    `— solicitação ${solicitacaoId}`
+  );
+  console.warn(
+    `[readmissao:${colaboradorId}] Sobrescritos: nome, vínculos (empresa/cargo/departamento/jornada), ` +
+    `status, data_desligamento, data_admissao` +
+    (sobrescritosPessoais.length ? `, ${sobrescritosPessoais.join(', ')}` : '')
+  );
+  console.warn(
+    `[readmissao:${colaboradorId}] Preservados: ` +
+    (preservados.length ? preservados.join(', ') : '(nenhum)')
+  );
+}
+
+/**
+ * Para cada documento enviado na solicitação, substitui o documento
+ * correspondente do colaborador (mesmo tipo_documento_id). Documentos de tipos
+ * que o colaborador tinha mas não foram reenviados são preservados.
+ */
+async function substituirDocumentosNaReadmissao(
+  colaboradorId: number,
+  solicitacaoId: string
+): Promise<void> {
+  const novos = await query<{
+    tipo_documento_id: number;
+    codigo: string | null;
+    nome: string;
+    url: string;
+    storage_key: string | null;
+    tamanho: number | null;
+  }>(
+    `SELECT da.tipo_documento_id, t.codigo, da.nome, da.url, da.storage_key, da.tamanho
+       FROM people.documentos_admissao da
+       LEFT JOIN people.tipos_documento_colaborador t ON t.id = da.tipo_documento_id
+      WHERE da.solicitacao_id = $1`,
+    [solicitacaoId]
+  );
+
+  if (novos.rows.length === 0) return;
+
+  const tipoIds = novos.rows.map((n) => n.tipo_documento_id);
+  // Remove documentos existentes dos tipos reenviados (documentos de outros tipos ficam).
+  await query(
+    `DELETE FROM people.documentos_colaborador
+      WHERE colaborador_id = $1
+        AND tipo_documento_id = ANY($2::int[])`,
+    [colaboradorId, tipoIds]
+  );
+
+  for (const d of novos.rows) {
+    await query(
+      `INSERT INTO people.documentos_colaborador
+         (colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [colaboradorId, d.codigo ?? 'admissao', d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho]
+    );
+  }
+
+  console.warn(
+    `[admitido] ${novos.rows.length} documento(s) substituído(s) no colaborador ${colaboradorId} (tipos: ${tipoIds.join(',')})`
+  );
+}
+
+async function migrarBiometriaParaColaborador(
+  solicitacaoId: string,
+  colaboradorId: number,
+  fotoPerfilUrl: string | null
+): Promise<void> {
+  console.log(`[admitido] Migrando biometria da solicitação ${solicitacaoId} para colaborador ${colaboradorId}`);
 
   // 1. Copia foto de perfil
-  if (fotoPerfillUrl) {
+  if (fotoPerfilUrl) {
     await query(
       `UPDATE people.colaboradores SET foto_url = $1, atualizado_em = NOW() WHERE id = $2`,
-      [fotoPerfillUrl, colaboradorId]
+      [fotoPerfilUrl, colaboradorId]
     );
     console.log(`[admitido] Foto de perfil copiada para colaborador ${colaboradorId}`);
   }
