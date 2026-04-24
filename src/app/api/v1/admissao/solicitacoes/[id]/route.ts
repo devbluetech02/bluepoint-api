@@ -11,7 +11,7 @@ interface Params {
 const STATUS_VALIDOS = [
   'aguardando_rh', 'correcao_solicitada', 'aso_solicitado', 'aso_recebido',
   'em_teste', 'aso_reprovado', 'assinatura_solicitada', 'contrato_assinado',
-  'admitido', 'rejeitado',
+  'admitido', 'rejeitado', 'cancelado',
 ] as const;
 type StatusAdmissao = typeof STATUS_VALIDOS[number];
 
@@ -26,6 +26,7 @@ const STATUS_MENSAGEM: Record<StatusAdmissao, string> = {
   contrato_assinado:      'Contrato assinado com sucesso! Aguarde os próximos passos.',
   admitido:               'Bem-vindo! Sua admissão foi concluída.',
   rejeitado:              'Sua candidatura não prosseguirá. O DP pode entrar em contato com mais detalhes.',
+  cancelado:              'Pré-admissão cancelada.',
 };
 
 /**
