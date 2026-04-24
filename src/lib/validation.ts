@@ -461,6 +461,9 @@ export const parametrosRhSchema = z.object({
   emailRh: z.string().max(120, 'E-mail deve ter no máximo 120 caracteres').optional(),
   diasExperienciaPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(365, 'Dias deve ser <= 365').optional(),
   diasProrrogacaoPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(365, 'Dias deve ser <= 365').optional(),
+  diasUteisDataAdmissao: z.number().int().min(0, 'Dias deve ser >= 0').max(90, 'Dias deve ser <= 90').optional(),
+  vigenciaConfidencialidadeMeses: z.number().int().min(0, 'Meses deve ser >= 0').max(600, 'Meses deve ser <= 600').optional(),
+  aplicarBeneficiosEmDiaTeste: z.boolean().optional(),
 });
 
 // =====================================================

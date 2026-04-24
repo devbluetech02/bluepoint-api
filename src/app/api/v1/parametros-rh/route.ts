@@ -11,6 +11,9 @@ const DEFAULTS = {
   emailRh: '',
   diasExperienciaPadrao: 0,
   diasProrrogacaoPadrao: 0,
+  diasUteisDataAdmissao: 2,
+  vigenciaConfidencialidadeMeses: 24,
+  aplicarBeneficiosEmDiaTeste: false,
 };
 
 // =====================================================
@@ -25,7 +28,9 @@ export async function GET(request: NextRequest) {
 
       const resultado = await cacheAside(cacheKey, async () => {
         const result = await query(
-          `SELECT id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao
+          `SELECT id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao,
+                  dias_uteis_data_admissao, vigencia_confidencialidade_meses,
+                  aplicar_beneficios_em_dia_teste
            FROM people.parametros_rh
            ORDER BY id DESC
            LIMIT 1`
@@ -41,6 +46,9 @@ export async function GET(request: NextRequest) {
           emailRh: row.email_rh ?? '',
           diasExperienciaPadrao: Number(row.dias_experiencia_padrao ?? 0),
           diasProrrogacaoPadrao: Number(row.dias_prorrogacao_padrao ?? 0),
+          diasUteisDataAdmissao: Number(row.dias_uteis_data_admissao ?? 2),
+          vigenciaConfidencialidadeMeses: Number(row.vigencia_confidencialidade_meses ?? 24),
+          aplicarBeneficiosEmDiaTeste: Boolean(row.aplicar_beneficios_em_dia_teste ?? false),
         };
       }, CACHE_TTL.LONG);
 
@@ -77,6 +85,9 @@ export async function PUT(request: NextRequest) {
       let result;
       const acao: 'criar' | 'editar' = existeResult.rows.length > 0 ? 'editar' : 'criar';
 
+      const returningCols = `id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao,
+        dias_uteis_data_admissao, vigencia_confidencialidade_meses, aplicar_beneficios_em_dia_teste`;
+
       if (existeResult.rows.length > 0) {
         const parametroId = existeResult.rows[0].id;
         result = await query(
@@ -85,15 +96,21 @@ export async function PUT(request: NextRequest) {
                email_rh = COALESCE($2, email_rh),
                dias_experiencia_padrao = COALESCE($3, dias_experiencia_padrao),
                dias_prorrogacao_padrao = COALESCE($4, dias_prorrogacao_padrao),
+               dias_uteis_data_admissao = COALESCE($5, dias_uteis_data_admissao),
+               vigencia_confidencialidade_meses = COALESCE($6, vigencia_confidencialidade_meses),
+               aplicar_beneficios_em_dia_teste = COALESCE($7, aplicar_beneficios_em_dia_teste),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $5
-           WHERE id = $6
-           RETURNING id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao`,
+               atualizado_por = $8
+           WHERE id = $9
+           RETURNING ${returningCols}`,
           [
             data.telefoneRh ?? null,
             data.emailRh ?? null,
             data.diasExperienciaPadrao ?? null,
             data.diasProrrogacaoPadrao ?? null,
+            data.diasUteisDataAdmissao ?? null,
+            data.vigenciaConfidencialidadeMeses ?? null,
+            data.aplicarBeneficiosEmDiaTeste ?? null,
             user.userId,
             parametroId,
           ]
@@ -101,14 +118,21 @@ export async function PUT(request: NextRequest) {
       } else {
         result = await query(
           `INSERT INTO people.parametros_rh (
-             telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao, atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5)
-           RETURNING id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao`,
+             telefone_rh, email_rh,
+             dias_experiencia_padrao, dias_prorrogacao_padrao,
+             dias_uteis_data_admissao, vigencia_confidencialidade_meses,
+             aplicar_beneficios_em_dia_teste,
+             atualizado_por
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING ${returningCols}`,
           [
             data.telefoneRh ?? '',
             data.emailRh ?? '',
             data.diasExperienciaPadrao ?? 0,
             data.diasProrrogacaoPadrao ?? 0,
+            data.diasUteisDataAdmissao ?? 2,
+            data.vigenciaConfidencialidadeMeses ?? 24,
+            data.aplicarBeneficiosEmDiaTeste ?? false,
             user.userId,
           ]
         );
@@ -120,6 +144,9 @@ export async function PUT(request: NextRequest) {
         emailRh: parametro.email_rh ?? '',
         diasExperienciaPadrao: Number(parametro.dias_experiencia_padrao ?? 0),
         diasProrrogacaoPadrao: Number(parametro.dias_prorrogacao_padrao ?? 0),
+        diasUteisDataAdmissao: Number(parametro.dias_uteis_data_admissao ?? 2),
+        vigenciaConfidencialidadeMeses: Number(parametro.vigencia_confidencialidade_meses ?? 24),
+        aplicarBeneficiosEmDiaTeste: Boolean(parametro.aplicar_beneficios_em_dia_teste ?? false),
       };
 
       await invalidateParametrosRhCache();
