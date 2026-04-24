@@ -23,7 +23,8 @@ export async function GET(request: NextRequest, { params }: Params) {
       const dados = await cacheAside(cacheKey, async () => {
 
       const result = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, created_at, updated_at
+        `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao,
+                created_at, updated_at
          FROM people.cargos
          WHERE id = $1`,
         [cargoId]
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
+        templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
         exames,
         criadoEm: cargo.created_at,
         atualizadoEm: cargo.updated_at,

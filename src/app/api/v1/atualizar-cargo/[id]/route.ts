@@ -11,6 +11,9 @@ const atualizarCargoSchema = z.object({
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
   salarioMedio: z.number().min(0, 'Salário médio não pode ser negativo').optional().nullable(),
+  // Lista de IDs de templates SignProof associados a este cargo (migration 033).
+  // Array vazio = DP escolhe caso a caso; undefined = não mexe.
+  templatesContratoAdmissao: z.array(z.string().min(1)).max(20).optional(),
   // diasTeste foi movido para usuarios_provisorios. Zod descarta silenciosamente.
 });
 
@@ -43,7 +46,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio FROM people.cargos WHERE id = $1`,
+        `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao
+           FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
 
@@ -52,7 +56,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioMedio } = validation.data;
+      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -77,6 +81,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
       if (salarioMedio !== undefined) {
         updates.push(`salario_medio = $${paramIndex}`);
         values.push(salarioMedio);
+        paramIndex++;
+      }
+      if (templatesContratoAdmissao !== undefined) {
+        updates.push(`templates_contrato_admissao = $${paramIndex}::text[]`);
+        values.push(templatesContratoAdmissao);
         paramIndex++;
       }
 
@@ -108,6 +117,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
+        templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
         mensagem: 'Cargo atualizado com sucesso',
       });
     } catch (error) {

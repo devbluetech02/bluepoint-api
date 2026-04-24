@@ -11,6 +11,10 @@ const criarCargoSchema = z.object({
   nome: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres'),
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
+  salarioMedio: z.number().min(0).optional().nullable(),
+  // Lista de IDs de templates SignProof (globais ou custom) para o envio de
+  // contrato de pré-admissão deste cargo. Array vazio = DP escolhe caso a caso.
+  templatesContratoAdmissao: z.array(z.string().min(1)).max(20).optional(),
   // diasTeste foi movido para usuarios_provisorios (task de 2026-04). Zod descarta
   // a chave silenciosamente se o cliente antigo ainda enviar — back-compat.
 });
@@ -31,13 +35,19 @@ export async function POST(request: NextRequest) {
         return validationErrorResponse(errors);
       }
 
-      const { nome, cbo, descricao } = validation.data;
+      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao } = validation.data;
 
       const result = await query(
-        `INSERT INTO people.cargos (nome, cbo, descricao)
-         VALUES ($1, $2, $3)
+        `INSERT INTO people.cargos (nome, cbo, descricao, salario_medio, templates_contrato_admissao)
+         VALUES ($1, $2, $3, $4, COALESCE($5::text[], ARRAY[]::text[]))
          RETURNING id, nome`,
-        [nome, cbo || null, descricao || null]
+        [
+          nome,
+          cbo || null,
+          descricao || null,
+          salarioMedio ?? null,
+          templatesContratoAdmissao ?? null,
+        ],
       );
 
       const cargo = result.rows[0];
@@ -52,7 +62,7 @@ export async function POST(request: NextRequest) {
         descricao: `Cargo criado: ${cargo.nome}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
-        dadosNovos: { id: cargo.id, nome, cbo, descricao },
+        dadosNovos: { id: cargo.id, nome, cbo, descricao, salarioMedio, templatesContratoAdmissao },
       });
 
       return createdResponse({
