@@ -23,16 +23,16 @@ const STATUS_VALIDOS = [
 type StatusAdmissao = typeof STATUS_VALIDOS[number];
 
 const STATUS_MENSAGEM: Record<StatusAdmissao, string> = {
-  aguardando_rh:         'Sua solicitação está sendo analisada pelo RH.',
+  aguardando_rh:         'Sua solicitação está sendo analisada pelo DP.',
   correcao_solicitada:   'Alguns itens precisam ser corrigidos. Abra o app para revisar.',
   aso_solicitado:        'Seu exame admissional foi agendado. Verifique os detalhes no app.',
   aso_recebido:          'Seu ASO foi recebido. Em breve você terá uma atualização.',
   em_teste:              'Você está em período de teste. Boa sorte!',
-  aso_reprovado:         'O resultado do seu ASO foi considerado inapto. O RH entrará em contato.',
+  aso_reprovado:         'O resultado do seu ASO foi considerado inapto. O DP entrará em contato.',
   assinatura_solicitada: 'Seu contrato está pronto para assinatura. Acesse o app para assinar.',
   contrato_assinado:     'Contrato assinado com sucesso! Aguarde os próximos passos.',
   admitido:              'Bem-vindo! Sua admissão foi concluída.',
-  rejeitado:             'Sua candidatura não prosseguirá. O RH pode entrar em contato com mais detalhes.',
+  rejeitado:             'Sua candidatura não prosseguirá. O DP pode entrar em contato com mais detalhes.',
 };
 
 // Mensagens para o cargo Administrador em cada transição de status.
