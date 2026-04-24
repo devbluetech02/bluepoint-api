@@ -14,11 +14,48 @@ const DEFAULTS = {
   diasUteisDataAdmissao: 2,
   vigenciaConfidencialidadeMeses: 24,
   aplicarBeneficiosEmDiaTeste: false,
+  diasFeriasPadrao: 30,
+  abonoPecuniarioPadrao: true,
+  adiantamento13Padrao: true,
 };
+
+const RETURNING_COLS = `id, telefone_rh, email_rh,
+  dias_experiencia_padrao, dias_prorrogacao_padrao,
+  dias_uteis_data_admissao, vigencia_confidencialidade_meses,
+  aplicar_beneficios_em_dia_teste,
+  dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao`;
+
+type Row = {
+  id: number;
+  telefone_rh: string | null;
+  email_rh: string | null;
+  dias_experiencia_padrao: number | string | null;
+  dias_prorrogacao_padrao: number | string | null;
+  dias_uteis_data_admissao: number | string | null;
+  vigencia_confidencialidade_meses: number | string | null;
+  aplicar_beneficios_em_dia_teste: boolean | null;
+  dias_ferias_padrao: number | string | null;
+  abono_pecuniario_padrao: boolean | null;
+  adiantamento_13_padrao: boolean | null;
+};
+
+function mapRow(row: Row) {
+  return {
+    telefoneRh: row.telefone_rh ?? '',
+    emailRh: row.email_rh ?? '',
+    diasExperienciaPadrao: Number(row.dias_experiencia_padrao ?? 0),
+    diasProrrogacaoPadrao: Number(row.dias_prorrogacao_padrao ?? 0),
+    diasUteisDataAdmissao: Number(row.dias_uteis_data_admissao ?? 2),
+    vigenciaConfidencialidadeMeses: Number(row.vigencia_confidencialidade_meses ?? 24),
+    aplicarBeneficiosEmDiaTeste: Boolean(row.aplicar_beneficios_em_dia_teste ?? false),
+    diasFeriasPadrao: Number(row.dias_ferias_padrao ?? 30),
+    abonoPecuniarioPadrao: Boolean(row.abono_pecuniario_padrao ?? true),
+    adiantamento13Padrao: Boolean(row.adiantamento_13_padrao ?? true),
+  };
+}
 
 // =====================================================
 // GET /api/v1/parametros-rh
-// Retorna os parâmetros globais de RH
 // =====================================================
 
 export async function GET(request: NextRequest) {
@@ -27,29 +64,15 @@ export async function GET(request: NextRequest) {
       const cacheKey = `${CACHE_KEYS.PARAMETROS_RH}atual`;
 
       const resultado = await cacheAside(cacheKey, async () => {
-        const result = await query(
-          `SELECT id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao,
-                  dias_uteis_data_admissao, vigencia_confidencialidade_meses,
-                  aplicar_beneficios_em_dia_teste
+        const result = await query<Row>(
+          `SELECT ${RETURNING_COLS}
            FROM people.parametros_rh
            ORDER BY id DESC
            LIMIT 1`
         );
 
-        if (result.rows.length === 0) {
-          return DEFAULTS;
-        }
-
-        const row = result.rows[0];
-        return {
-          telefoneRh: row.telefone_rh ?? '',
-          emailRh: row.email_rh ?? '',
-          diasExperienciaPadrao: Number(row.dias_experiencia_padrao ?? 0),
-          diasProrrogacaoPadrao: Number(row.dias_prorrogacao_padrao ?? 0),
-          diasUteisDataAdmissao: Number(row.dias_uteis_data_admissao ?? 2),
-          vigenciaConfidencialidadeMeses: Number(row.vigencia_confidencialidade_meses ?? 24),
-          aplicarBeneficiosEmDiaTeste: Boolean(row.aplicar_beneficios_em_dia_teste ?? false),
-        };
+        if (result.rows.length === 0) return DEFAULTS;
+        return mapRow(result.rows[0]);
       }, CACHE_TTL.LONG);
 
       return successResponse(resultado);
@@ -62,8 +85,6 @@ export async function GET(request: NextRequest) {
 
 // =====================================================
 // PUT /api/v1/parametros-rh
-// Cria ou atualiza os parâmetros globais de RH.
-// Campos ausentes no body preservam o valor atual (UPDATE) ou usam default (INSERT).
 // =====================================================
 
 export async function PUT(request: NextRequest) {
@@ -78,19 +99,16 @@ export async function PUT(request: NextRequest) {
 
       const data = validation.data;
 
-      const existeResult = await query(
+      const existeResult = await query<{ id: number }>(
         `SELECT id FROM people.parametros_rh ORDER BY id DESC LIMIT 1`
       );
 
       let result;
       const acao: 'criar' | 'editar' = existeResult.rows.length > 0 ? 'editar' : 'criar';
 
-      const returningCols = `id, telefone_rh, email_rh, dias_experiencia_padrao, dias_prorrogacao_padrao,
-        dias_uteis_data_admissao, vigencia_confidencialidade_meses, aplicar_beneficios_em_dia_teste`;
-
       if (existeResult.rows.length > 0) {
         const parametroId = existeResult.rows[0].id;
-        result = await query(
+        result = await query<Row>(
           `UPDATE people.parametros_rh
            SET telefone_rh = COALESCE($1, telefone_rh),
                email_rh = COALESCE($2, email_rh),
@@ -99,10 +117,13 @@ export async function PUT(request: NextRequest) {
                dias_uteis_data_admissao = COALESCE($5, dias_uteis_data_admissao),
                vigencia_confidencialidade_meses = COALESCE($6, vigencia_confidencialidade_meses),
                aplicar_beneficios_em_dia_teste = COALESCE($7, aplicar_beneficios_em_dia_teste),
+               dias_ferias_padrao = COALESCE($8, dias_ferias_padrao),
+               abono_pecuniario_padrao = COALESCE($9, abono_pecuniario_padrao),
+               adiantamento_13_padrao = COALESCE($10, adiantamento_13_padrao),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $8
-           WHERE id = $9
-           RETURNING ${returningCols}`,
+               atualizado_por = $11
+           WHERE id = $12
+           RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
             data.emailRh ?? null,
@@ -111,20 +132,24 @@ export async function PUT(request: NextRequest) {
             data.diasUteisDataAdmissao ?? null,
             data.vigenciaConfidencialidadeMeses ?? null,
             data.aplicarBeneficiosEmDiaTeste ?? null,
+            data.diasFeriasPadrao ?? null,
+            data.abonoPecuniarioPadrao ?? null,
+            data.adiantamento13Padrao ?? null,
             user.userId,
             parametroId,
           ]
         );
       } else {
-        result = await query(
+        result = await query<Row>(
           `INSERT INTO people.parametros_rh (
              telefone_rh, email_rh,
              dias_experiencia_padrao, dias_prorrogacao_padrao,
              dias_uteis_data_admissao, vigencia_confidencialidade_meses,
              aplicar_beneficios_em_dia_teste,
+             dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           RETURNING ${returningCols}`,
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
             data.emailRh ?? '',
@@ -133,21 +158,15 @@ export async function PUT(request: NextRequest) {
             data.diasUteisDataAdmissao ?? 2,
             data.vigenciaConfidencialidadeMeses ?? 24,
             data.aplicarBeneficiosEmDiaTeste ?? false,
+            data.diasFeriasPadrao ?? 30,
+            data.abonoPecuniarioPadrao ?? true,
+            data.adiantamento13Padrao ?? true,
             user.userId,
           ]
         );
       }
 
-      const parametro = result.rows[0];
-      const dataResponse = {
-        telefoneRh: parametro.telefone_rh ?? '',
-        emailRh: parametro.email_rh ?? '',
-        diasExperienciaPadrao: Number(parametro.dias_experiencia_padrao ?? 0),
-        diasProrrogacaoPadrao: Number(parametro.dias_prorrogacao_padrao ?? 0),
-        diasUteisDataAdmissao: Number(parametro.dias_uteis_data_admissao ?? 2),
-        vigenciaConfidencialidadeMeses: Number(parametro.vigencia_confidencialidade_meses ?? 24),
-        aplicarBeneficiosEmDiaTeste: Boolean(parametro.aplicar_beneficios_em_dia_teste ?? false),
-      };
+      const dataResponse = mapRow(result.rows[0]);
 
       await invalidateParametrosRhCache();
 

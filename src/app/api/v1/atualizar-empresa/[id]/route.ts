@@ -17,6 +17,13 @@ const atualizarEmpresaSchema = z.object({
   bairro: z.string().max(100).optional().nullable(),
   rua: z.string().max(255).optional().nullable(),
   numero: z.string().max(20).optional().nullable(),
+  // Migration 035 — dados do contrato por empresa.
+  cidadeForo: z.string().max(120).optional().nullable(),
+  signatarioNome: z.string().max(180).optional().nullable(),
+  signatarioCargo: z.string().max(120).optional().nullable(),
+  bancoPagador: z.string().max(120).optional().nullable(),
+  agenciaPagadora: z.string().max(20).optional().nullable(),
+  contaPagadora: z.string().max(30).optional().nullable(),
 });
 
 export async function PUT(
@@ -82,6 +89,12 @@ export async function PUT(
         bairro: 'bairro',
         rua: 'rua',
         numero: 'numero',
+        cidadeForo: 'cidade_foro',
+        signatarioNome: 'signatario_nome',
+        signatarioCargo: 'signatario_cargo',
+        bancoPagador: 'banco_pagador',
+        agenciaPagadora: 'agencia_pagadora',
+        contaPagadora: 'conta_pagadora',
       };
 
       for (const [key, dbColumn] of Object.entries(campos)) {

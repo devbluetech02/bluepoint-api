@@ -19,6 +19,15 @@ const criarEmpresaSchema = z.object({
   bairro: z.string().max(100).optional().nullable(),
   rua: z.string().max(255).optional().nullable(),
   numero: z.string().max(20).optional().nullable(),
+  // Migration 035: dados consumidos pelo _AdmissaoContratoDialog pra
+  // preencher variáveis do contrato (cláusula de foro, signatário,
+  // conta pagadora). Todos opcionais — empresa pode configurar aos poucos.
+  cidadeForo: z.string().max(120).optional().nullable(),
+  signatarioNome: z.string().max(180).optional().nullable(),
+  signatarioCargo: z.string().max(120).optional().nullable(),
+  bancoPagador: z.string().max(120).optional().nullable(),
+  agenciaPagadora: z.string().max(20).optional().nullable(),
+  contaPagadora: z.string().max(30).optional().nullable(),
 });
 
 export async function POST(request: NextRequest) {
@@ -48,8 +57,10 @@ export async function POST(request: NextRequest) {
 
       const result = await query(
         `INSERT INTO people.empresas (
-          razao_social, nome_fantasia, cnpj, celular, cep, estado, cidade, bairro, rua, numero
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          razao_social, nome_fantasia, cnpj, celular, cep, estado, cidade, bairro, rua, numero,
+          cidade_foro, signatario_nome, signatario_cargo,
+          banco_pagador, agencia_pagadora, conta_pagadora
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING id, razao_social, nome_fantasia, cnpj`,
         [
           data.razaoSocial,
@@ -62,6 +73,12 @@ export async function POST(request: NextRequest) {
           data.bairro || null,
           data.rua || null,
           data.numero || null,
+          data.cidadeForo || null,
+          data.signatarioNome || null,
+          data.signatarioCargo || null,
+          data.bancoPagador || null,
+          data.agenciaPagadora || null,
+          data.contaPagadora || null,
         ]
       );
 

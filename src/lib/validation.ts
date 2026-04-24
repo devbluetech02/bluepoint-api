@@ -464,6 +464,10 @@ export const parametrosRhSchema = z.object({
   diasUteisDataAdmissao: z.number().int().min(0, 'Dias deve ser >= 0').max(90, 'Dias deve ser <= 90').optional(),
   vigenciaConfidencialidadeMeses: z.number().int().min(0, 'Meses deve ser >= 0').max(600, 'Meses deve ser <= 600').optional(),
   aplicarBeneficiosEmDiaTeste: z.boolean().optional(),
+  // Migration 034
+  diasFeriasPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(60, 'Dias deve ser <= 60').optional(),
+  abonoPecuniarioPadrao: z.boolean().optional(),
+  adiantamento13Padrao: z.boolean().optional(),
 });
 
 // =====================================================

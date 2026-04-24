@@ -22,7 +22,7 @@ export async function GET(
       const dados = await cacheAside(cacheKey, async () => {
 
       const result = await query(
-        `SELECT 
+        `SELECT
           id,
           razao_social,
           nome_fantasia,
@@ -34,6 +34,12 @@ export async function GET(
           bairro,
           rua,
           numero,
+          cidade_foro,
+          signatario_nome,
+          signatario_cargo,
+          banco_pagador,
+          agencia_pagadora,
+          conta_pagadora,
           created_at,
           updated_at
         FROM people.empresas
@@ -61,6 +67,12 @@ export async function GET(
           rua: row.rua,
           numero: row.numero,
         },
+        cidadeForo: row.cidade_foro,
+        signatarioNome: row.signatario_nome,
+        signatarioCargo: row.signatario_cargo,
+        bancoPagador: row.banco_pagador,
+        agenciaPagadora: row.agencia_pagadora,
+        contaPagadora: row.conta_pagadora,
         criadoEm: row.created_at,
         atualizadoEm: row.updated_at,
       };
