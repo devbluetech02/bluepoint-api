@@ -18,7 +18,7 @@ interface Params {
 const STATUS_VALIDOS = [
   'aguardando_rh', 'correcao_solicitada', 'aso_solicitado', 'aso_recebido',
   'em_teste', 'aso_reprovado', 'assinatura_solicitada', 'contrato_assinado',
-  'admitido', 'rejeitado',
+  'admitido', 'rejeitado', 'cancelado',
 ] as const;
 type StatusAdmissao = typeof STATUS_VALIDOS[number];
 
@@ -33,6 +33,7 @@ const STATUS_MENSAGEM: Record<StatusAdmissao, string> = {
   contrato_assinado:     'Contrato assinado com sucesso! Aguarde os próximos passos.',
   admitido:              'Bem-vindo! Sua admissão foi concluída.',
   rejeitado:             'Sua candidatura não prosseguirá. O DP pode entrar em contato com mais detalhes.',
+  cancelado:             'Pré-admissão cancelada.',
 };
 
 // Mensagens para o cargo Administrador em cada transição de status.
@@ -104,6 +105,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       if (!STATUS_VALIDOS.includes(body.status)) {
         return errorResponse(`Status inválido. Valores aceitos: ${STATUS_VALIDOS.join(', ')}`, 400);
+      }
+
+      // Cancelamento tem auditoria específica (quem, quando, etapa, motivo) e
+      // integra com SignProof — usa o endpoint dedicado, não o PATCH genérico.
+      if (body.status === 'cancelado') {
+        return errorResponse(
+          'Use POST /api/v1/admissao/solicitacoes/:id/cancelar para cancelar uma pré-admissão',
+          400,
+        );
       }
 
       // ── Validações específicas de aso_solicitado ──────────────────────────
@@ -502,20 +512,32 @@ async function notificarAssinaturaContrato(
         `[assinatura_solicitada] signing-links HTTP ${response.status}: ${await response.text().catch(() => '')}`,
       );
     } else {
-      type Link = { url?: string; cpf?: string; signer_cpf?: string; document?: string };
+      // Conforme INTEGRATION_API.md §10, o campo é `signing_link` (não `url`).
+      // Mantemos fallback pra `url` por garantia caso o backend mude o nome.
+      type Link = {
+        signing_link?: string;
+        url?: string;
+        cpf?: string;
+        signer_cpf?: string;
+        document?: string;
+      };
       const payload = (await response.json()) as
         | { links?: Link[]; signing_links?: Link[]; data?: Link[] }
         | Link[];
       const links: Link[] = Array.isArray(payload)
         ? payload
-        : payload.links ?? payload.signing_links ?? payload.data ?? [];
+        : payload.signing_links ?? payload.links ?? payload.data ?? [];
 
       const soDigitos = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
       const cpfAlvo = soDigitos(cpfCandidato);
       const match = cpfAlvo
         ? links.find((l) => soDigitos(l.cpf ?? l.signer_cpf ?? l.document) === cpfAlvo)
         : undefined;
-      signingUrl = (match ?? links[0])?.url ?? null;
+      const chosen = match ?? links[0];
+      signingUrl = chosen?.signing_link ?? chosen?.url ?? null;
+      if (!signingUrl) {
+        console.warn('[assinatura_solicitada] Nenhum signing_link encontrado para doc', documentoAssinaturaId);
+      }
     }
   } catch (err) {
     console.error('[assinatura_solicitada] Erro consultando signing-links:', err);

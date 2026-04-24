@@ -74,6 +74,12 @@ export function buildPushPayload(opts: {
   const customIcon = process.env.PUSH_ICON_URL;
   const largeIcon = opts.fotoUrl || customIcon || opts.visual.large_icon;
 
+  // URL absoluta (http/https) → vai pro campo `url` top-level do OneSignal,
+  // que abre browser/in-app webview ao tocar o push (sem precisar do app
+  // implementar handler custom). URL relativa (ex: "/pre-admissao") fica
+  // só em data.route pra navegação interna do app.
+  const isAbsoluteUrl = !!opts.url && /^https?:\/\//i.test(opts.url);
+
   const payload: Record<string, unknown> = {
     app_id: opts.appId,
     target_channel: 'push',
@@ -92,6 +98,8 @@ export function buildPushPayload(opts: {
     // Web
     chrome_web_image: opts.visual.big_picture,
     chrome_web_icon: customIcon || undefined,
+    // Tap → abre URL (quando absoluta)
+    ...(isAbsoluteUrl ? { url: opts.url } : {}),
     data: {
       cor: opts.visual.cor,
       uppercase: opts.visual.uppercase,
