@@ -152,9 +152,14 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
           console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → contrato_assinado (doc ${doc.id}).`);
         }
       } else if (doc.status === 'rejected') {
+        // Candidato clicou "Rejeitar" na tela de assinatura da SignProof —
+        // é uma recusa deliberada, não uma correção de formulário. Vai
+        // direto pra 'rejeitado' (terminal) com motivo padrão; DP decide
+        // se quer reabrir manualmente.
         const upd = await query<{ id: string }>(
           `UPDATE people.solicitacoes_admissao
-              SET status = 'correcao_solicitada',
+              SET status = 'rejeitado',
+                  motivo_rejeicao = COALESCE(motivo_rejeicao, 'Candidato rejeitou a assinatura do contrato'),
                   atualizado_em = NOW()
             WHERE id = $1
               AND status = 'assinatura_solicitada'
@@ -163,8 +168,8 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
         );
         if (upd.rowCount && upd.rowCount > 0) {
           resultado.documentos_atualizados++;
-          resultado.atualizacoes.push({ solicitacaoId, novoStatus: 'correcao_solicitada' });
-          console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → correcao_solicitada (signer rejeitou doc ${doc.id}).`);
+          resultado.atualizacoes.push({ solicitacaoId, novoStatus: 'rejeitado' });
+          console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → rejeitado (signer recusou doc ${doc.id}).`);
         }
       } else if (doc.status === 'cancelled') {
         // Política: mantém status atual; apenas loga o evento
