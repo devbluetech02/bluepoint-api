@@ -24,3 +24,25 @@ export async function GET(request: NextRequest) {
     }
   });
 }
+
+export async function POST(request: NextRequest) {
+  return withAuth(request, async (req) => {
+    try {
+      const body = await req.json();
+      const response = await fetch(`${SIGNPROOF_API_URL}/api/v1/integration/templates`, {
+        method: 'POST',
+        headers: {
+          'X-API-Key': SIGNPROOF_API_KEY!,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      const data = await response.json();
+      return NextResponse.json(data, { status: response.status });
+    } catch (error) {
+      console.error('[SignProof] Erro ao criar template:', error);
+      return serverErrorResponse('Erro ao comunicar com o serviço de assinatura digital');
+    }
+  });
+}
