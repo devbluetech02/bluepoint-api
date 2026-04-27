@@ -132,6 +132,22 @@ export async function POST(request: NextRequest, { params }: Params) {
         );
       }
 
+      // Costura com Recrutamento: quando essa solicitação foi aberta a partir
+      // de um processo_seletivo (caminho A ou B), também cancelamos o registro
+      // de lá pra liberar o CPF do unique parcial uq_processo_seletivo_cpf_vivo.
+      // Idempotente: se não há vínculo, o UPDATE simplesmente não afeta linhas.
+      await query(
+        `UPDATE people.processo_seletivo
+            SET status              = 'cancelado',
+                cancelado_por       = $1,
+                cancelado_em        = NOW(),
+                cancelado_em_etapa  = $2,
+                motivo_cancelamento = COALESCE($3, motivo_cancelamento),
+                atualizado_em       = NOW()
+          WHERE solicitacao_admissao_id = $4 AND status <> 'cancelado'`,
+        [canceladoPor, `admissao.${sol.status}`, motivo, id],
+      );
+
       registrarAuditoria({
         usuarioId:    canceladoPor,
         usuarioNome:  user.nome,
