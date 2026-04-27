@@ -1222,6 +1222,316 @@ function gerarPDFPersonalizado(dados: DadosRelatorio): Promise<Buffer> {
   });
 }
 
+export class RelatorioMensalNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RelatorioMensalNotFoundError';
+  }
+}
+
+export type ModeloRelatorio = ModeloPDF;
+export const MODELOS_RELATORIO_DISPONIVEIS = MODELOS_DISPONIVEIS;
+export const geradoresRelatorio = geradores;
+
+/**
+ * Coleta todos os dados do banco e gera o Buffer do PDF do relatório mensal
+ * de um colaborador específico. Reutilizado pela rota individual e pela rota
+ * que exporta todos os colaboradores em um único PDF combinado.
+ */
+export async function gerarBufferRelatorioMensal(opts: {
+  colaboradorId: number;
+  mes: number;
+  ano: number;
+  modelo: ModeloPDF;
+  colunasPersonalizadas?: string[];
+}): Promise<{ buffer: Buffer; colaboradorNome: string }> {
+  const { colaboradorId, mes, ano, modelo, colunasPersonalizadas } = opts;
+
+  const colabResult = await query(
+    `SELECT c.id, c.nome, c.cpf, c.cargo_id, cg.nome as cargo_nome, c.data_admissao,
+            c.empresa_id, c.jornada_id,
+            e.razao_social AS empresa_razao_social, e.cnpj AS empresa_cnpj
+     FROM people.colaboradores c
+     LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+     LEFT JOIN people.empresas e ON c.empresa_id = e.id
+     WHERE c.id = $1`,
+    [colaboradorId]
+  );
+
+  if (colabResult.rows.length === 0) {
+    throw new RelatorioMensalNotFoundError('Colaborador não encontrado');
+  }
+
+  const colab = colabResult.rows[0];
+
+  let jornadaHorarios: JornadaHorario[] = [];
+  if (colab.jornada_id) {
+    const jornadaResult = await query(
+      `SELECT dia_semana, dias_semana, folga, periodos
+       FROM people.jornada_horarios
+       WHERE jornada_id = $1
+       ORDER BY COALESCE(dia_semana, sequencia, id)`,
+      [colab.jornada_id]
+    );
+    jornadaHorarios = jornadaResult.rows.map(r => ({
+      dia_semana: r.dia_semana ?? null,
+      dias_semana: r.dias_semana ? (typeof r.dias_semana === 'string' ? JSON.parse(r.dias_semana) : r.dias_semana) : null,
+      folga: r.folga,
+      periodos: typeof r.periodos === 'string' ? JSON.parse(r.periodos) : r.periodos,
+    }));
+  }
+
+  const mesStr = String(mes).padStart(2, '0');
+  const dataInicio = `${ano}-${mesStr}-01`;
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  const dataFim = `${ano}-${mesStr}-${String(ultimoDia).padStart(2, '0')}`;
+
+  const marcacoesResult = await query(
+    `SELECT data_hora, tipo
+     FROM people.marcacoes
+     WHERE colaborador_id = $1
+       AND data_hora >= $2
+       AND data_hora < ($3::date + interval '1 day')
+     ORDER BY data_hora`,
+    [colaboradorId, dataInicio, dataFim]
+  );
+
+  const marcacoesPorDia = new Map<string, Array<{ data_hora: string; tipo: string }>>();
+  for (const m of marcacoesResult.rows) {
+    const dataStr = String(m.data_hora).substring(0, 10);
+    if (!marcacoesPorDia.has(dataStr)) marcacoesPorDia.set(dataStr, []);
+    marcacoesPorDia.get(dataStr)!.push({ data_hora: String(m.data_hora), tipo: m.tipo });
+  }
+
+  const feriadosResult = await query(
+    `SELECT data, nome FROM people.feriados
+     WHERE data >= $1 AND data <= $2`,
+    [dataInicio, dataFim]
+  );
+  const feriadosPorDia = new Map<string, string>();
+  for (const f of feriadosResult.rows) {
+    const fData = typeof f.data === 'string' ? f.data.substring(0, 10) : String(f.data).substring(0, 10);
+    feriadosPorDia.set(fData, f.nome);
+  }
+
+  const feriasPorDia = await getDiasEmFeriasNoPeriodo(colaboradorId, dataInicio, dataFim);
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const hojeStr = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+
+  const diasDoMes = gerarDiasDoMes(mes, ano);
+  const diasPDF: DiaPDF[] = [];
+  let totalDiasTrab = 0;
+  let totalMinTrab = 0;
+  let totalMinExtras = 0;
+  let totalFaltas = 0;
+  let totalAtrasos = 0;
+  let totalAtrasoMinutos = 0;
+  let totalFolgas = 0;
+  let ultimaSaidaDiaAnterior: Date | null = null;
+
+  for (const diaStr of diasDoMes) {
+    const diaSemana = getDiaSemanaFromDate(diaStr);
+    const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana);
+    const isFolga = horarioDia ? horarioDia.folga : false;
+    const temEscala = !!horarioDia && !isFolga;
+    const marcacoesDia = marcacoesPorDia.get(diaStr) || [];
+    const isFeriado = feriadosPorDia.has(diaStr);
+    const nomeFeriado = feriadosPorDia.get(diaStr) || '';
+    const isFuturo = diaStr > hojeStr;
+    const isFerias = feriasPorDia.has(diaStr);
+
+    const minTrab = calcularMinutosTrabalhados(marcacoesDia);
+    const cargaPrevista = temEscala ? calcularCargaPrevista(horarioDia!.periodos) : 0;
+
+    let extrasMin = 0;
+    let saldoMin = 0;
+
+    if (marcacoesDia.length > 0) {
+      totalDiasTrab++;
+      totalMinTrab += minTrab;
+      if (temEscala && cargaPrevista > 0) {
+        if (minTrab > cargaPrevista) { extrasMin = minTrab - cargaPrevista; totalMinExtras += extrasMin; }
+        saldoMin = minTrab - cargaPrevista;
+      } else {
+        extrasMin = minTrab; totalMinExtras += extrasMin; saldoMin = minTrab;
+      }
+    } else if (temEscala && !isFeriado && !isFuturo && !isFerias) {
+      totalFaltas++;
+      saldoMin = -cargaPrevista;
+    }
+
+    const isFalta = temEscala && marcacoesDia.length === 0 && !isFeriado && !isFuturo && !isFerias;
+    let atrasoMinDia = 0;
+    if (temEscala && marcacoesDia.length > 0) {
+      const pe = marcacoesDia.find(m => m.tipo === 'entrada');
+      if (pe && horarioDia!.periodos?.[0]) {
+        const h = formatHoraMinuto(pe.data_hora);
+        const [eh, em] = h.split(':').map(Number);
+        const [ph, pm] = horarioDia!.periodos[0].entrada.split(':').map(Number);
+        const diffAtraso = (eh * 60 + em) - (ph * 60 + pm);
+        if (diffAtraso > 0) {
+          totalAtrasos++;
+          atrasoMinDia = diffAtraso;
+          totalAtrasoMinutos += diffAtraso;
+        }
+      }
+    }
+
+    if (isFolga || isFeriado) totalFolgas++;
+
+    let interjornada = '';
+    if (marcacoesDia.length > 0 && ultimaSaidaDiaAnterior) {
+      const primeiraEntrada = marcacoesDia.find(m => m.tipo === 'entrada');
+      if (primeiraEntrada) {
+        const entrada = parseTimestamp(primeiraEntrada.data_hora);
+        if (entrada) {
+          const diffMin = (entrada.getTime() - ultimaSaidaDiaAnterior.getTime()) / 60000;
+          interjornada = diffMin >= 1440 ? '24h+' : minutosParaHHMM(Math.floor(diffMin));
+        }
+      }
+    } else if (isFolga || marcacoesDia.length === 0) {
+      interjornada = '24h+';
+    }
+
+    const ultimaSaida = [...marcacoesDia].reverse().find(m => m.tipo === 'saida');
+    if (ultimaSaida) {
+      ultimaSaidaDiaAnterior = parseTimestamp(ultimaSaida.data_hora);
+    } else if (!isFolga && marcacoesDia.length > 0) {
+      const ultimaMarc = marcacoesDia[marcacoesDia.length - 1];
+      ultimaSaidaDiaAnterior = parseTimestamp(ultimaMarc.data_hora);
+    }
+
+    let intraJornada = '';
+    const almoco = marcacoesDia.find(m => m.tipo === 'almoco');
+    const retorno = marcacoesDia.find(m => m.tipo === 'retorno');
+    if (almoco && retorno) {
+      const a = parseTimestamp(almoco.data_hora);
+      const r = parseTimestamp(retorno.data_hora);
+      if (a && r) {
+        const diffMin = (r.getTime() - a.getTime()) / 60000;
+        if (diffMin > 0) intraJornada = minutosParaHHMM(Math.floor(diffMin));
+      }
+    }
+
+    let realizadoStr: string;
+    if (isFeriado && marcacoesDia.length === 0) {
+      realizadoStr = 'Feriado';
+    } else if (isFuturo && marcacoesDia.length === 0) {
+      realizadoStr = '';
+    } else if (isFerias && marcacoesDia.length === 0) {
+      realizadoStr = 'Férias';
+    } else if (isFolga && marcacoesDia.length === 0) {
+      realizadoStr = 'Folga';
+    } else if (isFalta) {
+      realizadoStr = 'Falta';
+    } else {
+      realizadoStr = construirRealizadoString(marcacoesDia);
+    }
+
+    diasPDF.push({
+      data: diaStr,
+      diaSemana: DIAS_SEMANA_ABREV[diaSemana],
+      previsto: isFeriado && marcacoesDia.length === 0
+        ? 'Feriado'
+        : isFuturo && marcacoesDia.length === 0
+          ? ''
+          : construirPrevistoString(horarioDia?.periodos || null, isFolga),
+      realizado: realizadoStr,
+      horasTrab: minutosParaHHMM(minTrab),
+      horasExtras: minutosParaHHMM(extrasMin),
+      saldo: minutosParaSaldo(saldoMin),
+      isFolga: isFolga || isFeriado,
+      isFalta,
+      isFeriado,
+      nomeFeriado,
+      isFuturo,
+      interjornada: interjornada || '',
+      intraJornada,
+      horasDiurnas: minutosParaHHMM(minTrab),
+      horasNoturnas: '00:00',
+      heDiurnas: minutosParaHHMM(extrasMin),
+      heNoturnas: '00:00',
+      heTotais: minutosParaHHMM(extrasMin),
+      atrasoStr: atrasoMinDia > 0 ? minutosParaHHMM(atrasoMinDia) : '00:00',
+    });
+  }
+
+  const bancoResult = await query(
+    `SELECT COALESCE(SUM(
+      CASE WHEN tipo IN ('credito', 'ajuste') THEN horas
+           WHEN tipo IN ('debito', 'compensacao') THEN -horas
+           ELSE 0 END
+    ), 0) as saldo
+     FROM people.banco_horas
+     WHERE colaborador_id = $1
+       AND data >= $2 AND data <= $3`,
+    [colaboradorId, dataInicio, dataFim]
+  );
+  const saldoBancoMin = Math.round(parseFloat(bancoResult.rows[0].saldo) * 60);
+
+  const logoPath = path.join(process.cwd(), 'public', 'images', 'logo.png');
+  const cpfFormatado = colab.cpf ? formatCPF(colab.cpf) : '-';
+  const cnpjFormatado = colab.empresa_cnpj ? formatCNPJ(colab.empresa_cnpj) : '-';
+  const admFormatada = colab.data_admissao
+    ? (() => { const p = String(colab.data_admissao).substring(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; })()
+    : '-';
+
+  let assinatura: DadosAssinatura | null = null;
+  const relResult = await query(
+    `SELECT status, assinado_em, dispositivo, localizacao_gps, assinatura_imagem, ip_address
+     FROM people.relatorios_mensais
+     WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
+    [colaboradorId, mes, ano]
+  );
+  if (relResult.rows.length > 0 && relResult.rows[0].status === 'assinado') {
+    const rel = relResult.rows[0];
+    assinatura = {
+      assinadoEm: rel.assinado_em,
+      colaboradorNome: colab.nome,
+      colaboradorId,
+      dispositivo: rel.dispositivo || null,
+      localizacaoGps: rel.localizacao_gps || null,
+      ipAddress: rel.ip_address || null,
+      assinaturaImagem: rel.assinatura_imagem || null,
+    };
+  }
+
+  const gerarPDF = geradores[modelo];
+  const pdfBuffer = await gerarPDF({
+    empresa: { razaoSocial: colab.empresa_razao_social || 'Empresa não informada', cnpj: cnpjFormatado },
+    colaborador: { nome: colab.nome, cpf: cpfFormatado, cargo: colab.cargo_nome || '-', dataAdmissao: admFormatada },
+    mesAno: `${MESES[mes - 1]} / ${ano}`,
+    dias: diasPDF,
+    totais: {
+      diasTrabalhados: totalDiasTrab,
+      horasTrabalhadas: minutosParaHHMM(totalMinTrab),
+      horasExtras: minutosParaHHMM(totalMinExtras),
+      bancoHoras: minutosParaSaldo(saldoBancoMin),
+      faltas: totalFaltas,
+      atrasos: totalAtrasos,
+    },
+    logoPath,
+    assinatura,
+    colunasPersonalizadas,
+    totaisExtendidos: {
+      totalHorasDiurnas: minutosParaHHMM(totalMinTrab),
+      totalHorasNoturnas: '00:00',
+      totalHeDiurnas: minutosParaHHMM(totalMinExtras),
+      totalHeNoturnas: '00:00',
+      totalHeTotais: minutosParaHHMM(totalMinExtras),
+      totalAtrasoStr: minutosParaHHMM(totalAtrasoMinutos),
+      folgas: totalFolgas,
+      totalRegistros: marcacoesResult.rows.length,
+      geradoEm: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (-03:00)',
+      periodo: `${dataInicio.split('-').reverse().join('/')} - ${dataFim.split('-').reverse().join('/')}`,
+    },
+  });
+
+  return { buffer: pdfBuffer, colaboradorNome: colab.nome };
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -1272,290 +1582,27 @@ export async function GET(
       if (mes < 1 || mes > 12) return errorResponse('Mês deve ser entre 1 e 12', 400);
       if (ano < 2020 || ano > 2100) return errorResponse('Ano inválido', 400);
 
-      const colabResult = await query(
-        `SELECT c.id, c.nome, c.cpf, c.cargo_id, cg.nome as cargo_nome, c.data_admissao,
-                c.empresa_id, c.jornada_id,
-                e.razao_social AS empresa_razao_social, e.cnpj AS empresa_cnpj
-         FROM people.colaboradores c
-         LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
-         LEFT JOIN people.empresas e ON c.empresa_id = e.id
-         WHERE c.id = $1`,
-        [colaboradorId]
-      );
-
-      if (colabResult.rows.length === 0) {
-        return errorResponse('Colaborador não encontrado', 404);
-      }
-
-      const colab = colabResult.rows[0];
-
-      let jornadaHorarios: JornadaHorario[] = [];
-      if (colab.jornada_id) {
-        const jornadaResult = await query(
-          `SELECT dia_semana, dias_semana, folga, periodos
-           FROM people.jornada_horarios
-           WHERE jornada_id = $1
-           ORDER BY COALESCE(dia_semana, sequencia, id)`,
-          [colab.jornada_id]
-        );
-        jornadaHorarios = jornadaResult.rows.map(r => ({
-          dia_semana: r.dia_semana ?? null,
-          dias_semana: r.dias_semana ? (typeof r.dias_semana === 'string' ? JSON.parse(r.dias_semana) : r.dias_semana) : null,
-          folga: r.folga,
-          periodos: typeof r.periodos === 'string' ? JSON.parse(r.periodos) : r.periodos,
-        }));
-      }
-
-      const mesStr = String(mes).padStart(2, '0');
-      const dataInicio = `${ano}-${mesStr}-01`;
-      const ultimoDia = new Date(ano, mes, 0).getDate();
-      const dataFim = `${ano}-${mesStr}-${String(ultimoDia).padStart(2, '0')}`;
-
-      const marcacoesResult = await query(
-        `SELECT data_hora, tipo
-         FROM people.marcacoes
-         WHERE colaborador_id = $1
-           AND data_hora >= $2
-           AND data_hora < ($3::date + interval '1 day')
-         ORDER BY data_hora`,
-        [colaboradorId, dataInicio, dataFim]
-      );
-
-      const marcacoesPorDia = new Map<string, Array<{ data_hora: string; tipo: string }>>();
-      for (const m of marcacoesResult.rows) {
-        const dataStr = String(m.data_hora).substring(0, 10);
-        if (!marcacoesPorDia.has(dataStr)) marcacoesPorDia.set(dataStr, []);
-        marcacoesPorDia.get(dataStr)!.push({ data_hora: String(m.data_hora), tipo: m.tipo });
-      }
-
-      const feriadosResult = await query(
-        `SELECT data, nome FROM people.feriados
-         WHERE data >= $1 AND data <= $2`,
-        [dataInicio, dataFim]
-      );
-      const feriadosPorDia = new Map<string, string>();
-      for (const f of feriadosResult.rows) {
-        const fData = typeof f.data === 'string' ? f.data.substring(0, 10) : String(f.data).substring(0, 10);
-        feriadosPorDia.set(fData, f.nome);
-      }
-
-      const feriasPorDia = await getDiasEmFeriasNoPeriodo(colaboradorId, dataInicio, dataFim);
-
-      const hoje = new Date();
-      hoje.setHours(0, 0, 0, 0);
-      const hojeStr = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
-
-      const diasDoMes = gerarDiasDoMes(mes, ano);
-      const diasPDF: DiaPDF[] = [];
-      let totalDiasTrab = 0;
-      let totalMinTrab = 0;
-      let totalMinExtras = 0;
-      let totalFaltas = 0;
-      let totalAtrasos = 0;
-      let totalAtrasoMinutos = 0;
-      let totalFolgas = 0;
-      let ultimaSaidaDiaAnterior: Date | null = null;
-
-      for (const diaStr of diasDoMes) {
-        const diaSemana = getDiaSemanaFromDate(diaStr);
-        const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana);
-        const isFolga = horarioDia ? horarioDia.folga : false;
-        const temEscala = !!horarioDia && !isFolga;
-        const marcacoesDia = marcacoesPorDia.get(diaStr) || [];
-        const isFeriado = feriadosPorDia.has(diaStr);
-        const nomeFeriado = feriadosPorDia.get(diaStr) || '';
-        const isFuturo = diaStr > hojeStr;
-        const isFerias = feriasPorDia.has(diaStr);
-
-        const minTrab = calcularMinutosTrabalhados(marcacoesDia);
-        const cargaPrevista = temEscala ? calcularCargaPrevista(horarioDia!.periodos) : 0;
-
-        let extrasMin = 0;
-        let saldoMin = 0;
-
-        if (marcacoesDia.length > 0) {
-          totalDiasTrab++;
-          totalMinTrab += minTrab;
-          if (temEscala && cargaPrevista > 0) {
-            if (minTrab > cargaPrevista) { extrasMin = minTrab - cargaPrevista; totalMinExtras += extrasMin; }
-            saldoMin = minTrab - cargaPrevista;
-          } else {
-            extrasMin = minTrab; totalMinExtras += extrasMin; saldoMin = minTrab;
-          }
-        } else if (temEscala && !isFeriado && !isFuturo && !isFerias) {
-          totalFaltas++;
-          saldoMin = -cargaPrevista;
-        }
-
-        const isFalta = temEscala && marcacoesDia.length === 0 && !isFeriado && !isFuturo && !isFerias;
-        let atrasoMinDia = 0;
-        if (temEscala && marcacoesDia.length > 0) {
-          const pe = marcacoesDia.find(m => m.tipo === 'entrada');
-          if (pe && horarioDia!.periodos?.[0]) {
-            const h = formatHoraMinuto(pe.data_hora);
-            const [eh, em] = h.split(':').map(Number);
-            const [ph, pm] = horarioDia!.periodos[0].entrada.split(':').map(Number);
-            const diffAtraso = (eh * 60 + em) - (ph * 60 + pm);
-            if (diffAtraso > 0) {
-              totalAtrasos++;
-              atrasoMinDia = diffAtraso;
-              totalAtrasoMinutos += diffAtraso;
-            }
-          }
-        }
-
-        if (isFolga || isFeriado) totalFolgas++;
-
-        let interjornada = '';
-        if (marcacoesDia.length > 0 && ultimaSaidaDiaAnterior) {
-          const primeiraEntrada = marcacoesDia.find(m => m.tipo === 'entrada');
-          if (primeiraEntrada) {
-            const entrada = parseTimestamp(primeiraEntrada.data_hora);
-            if (entrada) {
-              const diffMin = (entrada.getTime() - ultimaSaidaDiaAnterior.getTime()) / 60000;
-              interjornada = diffMin >= 1440 ? '24h+' : minutosParaHHMM(Math.floor(diffMin));
-            }
-          }
-        } else if (isFolga || marcacoesDia.length === 0) {
-          interjornada = '24h+';
-        }
-
-        const ultimaSaida = [...marcacoesDia].reverse().find(m => m.tipo === 'saida');
-        if (ultimaSaida) {
-          ultimaSaidaDiaAnterior = parseTimestamp(ultimaSaida.data_hora);
-        } else if (!isFolga && marcacoesDia.length > 0) {
-          const ultimaMarc = marcacoesDia[marcacoesDia.length - 1];
-          ultimaSaidaDiaAnterior = parseTimestamp(ultimaMarc.data_hora);
-        }
-
-        let intraJornada = '';
-        const almoco = marcacoesDia.find(m => m.tipo === 'almoco');
-        const retorno = marcacoesDia.find(m => m.tipo === 'retorno');
-        if (almoco && retorno) {
-          const a = parseTimestamp(almoco.data_hora);
-          const r = parseTimestamp(retorno.data_hora);
-          if (a && r) {
-            const diffMin = (r.getTime() - a.getTime()) / 60000;
-            if (diffMin > 0) intraJornada = minutosParaHHMM(Math.floor(diffMin));
-          }
-        }
-
-        let realizadoStr: string;
-        if (isFeriado && marcacoesDia.length === 0) {
-          realizadoStr = 'Feriado';
-        } else if (isFuturo && marcacoesDia.length === 0) {
-          realizadoStr = '';
-        } else if (isFerias && marcacoesDia.length === 0) {
-          realizadoStr = 'Férias';
-        } else if (isFolga && marcacoesDia.length === 0) {
-          realizadoStr = 'Folga';
-        } else if (isFalta) {
-          realizadoStr = 'Falta';
-        } else {
-          realizadoStr = construirRealizadoString(marcacoesDia);
-        }
-
-        diasPDF.push({
-          data: diaStr,
-          diaSemana: DIAS_SEMANA_ABREV[diaSemana],
-          previsto: isFeriado && marcacoesDia.length === 0
-            ? 'Feriado'
-            : isFuturo && marcacoesDia.length === 0
-              ? ''
-              : construirPrevistoString(horarioDia?.periodos || null, isFolga),
-          realizado: realizadoStr,
-          horasTrab: minutosParaHHMM(minTrab),
-          horasExtras: minutosParaHHMM(extrasMin),
-          saldo: minutosParaSaldo(saldoMin),
-          isFolga: isFolga || isFeriado,
-          isFalta,
-          isFeriado,
-          nomeFeriado,
-          isFuturo,
-          interjornada: interjornada || '',
-          intraJornada,
-          horasDiurnas: minutosParaHHMM(minTrab),
-          horasNoturnas: '00:00',
-          heDiurnas: minutosParaHHMM(extrasMin),
-          heNoturnas: '00:00',
-          heTotais: minutosParaHHMM(extrasMin),
-          atrasoStr: atrasoMinDia > 0 ? minutosParaHHMM(atrasoMinDia) : '00:00',
-        });
-      }
-
-      const bancoResult = await query(
-        `SELECT COALESCE(SUM(
-          CASE WHEN tipo IN ('credito', 'ajuste') THEN horas
-               WHEN tipo IN ('debito', 'compensacao') THEN -horas
-               ELSE 0 END
-        ), 0) as saldo
-         FROM people.banco_horas
-         WHERE colaborador_id = $1
-           AND data >= $2 AND data <= $3`,
-        [colaboradorId, dataInicio, dataFim]
-      );
-      const saldoBancoMin = Math.round(parseFloat(bancoResult.rows[0].saldo) * 60);
-
-      const logoPath = path.join(process.cwd(), 'public', 'images', 'logo.png');
-      const cpfFormatado = colab.cpf ? formatCPF(colab.cpf) : '-';
-      const cnpjFormatado = colab.empresa_cnpj ? formatCNPJ(colab.empresa_cnpj) : '-';
-      const admFormatada = colab.data_admissao
-        ? (() => { const p = String(colab.data_admissao).substring(0, 10).split('-'); return `${p[2]}/${p[1]}/${p[0]}`; })()
-        : '-';
-
-      let assinatura: DadosAssinatura | null = null;
-      const relResult = await query(
-        `SELECT status, assinado_em, dispositivo, localizacao_gps, assinatura_imagem, ip_address
-         FROM people.relatorios_mensais
-         WHERE colaborador_id = $1 AND mes = $2 AND ano = $3`,
-        [colaboradorId, mes, ano]
-      );
-      if (relResult.rows.length > 0 && relResult.rows[0].status === 'assinado') {
-        const rel = relResult.rows[0];
-        assinatura = {
-          assinadoEm: rel.assinado_em,
-          colaboradorNome: colab.nome,
+      let pdfBuffer: Buffer;
+      let colaboradorNome: string;
+      try {
+        const result = await gerarBufferRelatorioMensal({
           colaboradorId,
-          dispositivo: rel.dispositivo || null,
-          localizacaoGps: rel.localizacao_gps || null,
-          ipAddress: rel.ip_address || null,
-          assinaturaImagem: rel.assinatura_imagem || null,
-        };
+          mes,
+          ano,
+          modelo: modeloParam,
+          colunasPersonalizadas,
+        });
+        pdfBuffer = result.buffer;
+        colaboradorNome = result.colaboradorNome;
+      } catch (e) {
+        if (e instanceof RelatorioMensalNotFoundError) {
+          return errorResponse(e.message, 404);
+        }
+        throw e;
       }
 
-      const gerarPDF = geradores[modeloParam];
-      const pdfBuffer = await gerarPDF({
-        empresa: { razaoSocial: colab.empresa_razao_social || 'Empresa não informada', cnpj: cnpjFormatado },
-        colaborador: { nome: colab.nome, cpf: cpfFormatado, cargo: colab.cargo_nome || '-', dataAdmissao: admFormatada },
-        mesAno: `${MESES[mes - 1]} / ${ano}`,
-        dias: diasPDF,
-        totais: {
-          diasTrabalhados: totalDiasTrab,
-          horasTrabalhadas: minutosParaHHMM(totalMinTrab),
-          horasExtras: minutosParaHHMM(totalMinExtras),
-          bancoHoras: minutosParaSaldo(saldoBancoMin),
-          faltas: totalFaltas,
-          atrasos: totalAtrasos,
-        },
-        logoPath,
-        assinatura,
-        colunasPersonalizadas,
-        totaisExtendidos: {
-          totalHorasDiurnas: minutosParaHHMM(totalMinTrab),
-          totalHorasNoturnas: '00:00',
-          totalHeDiurnas: minutosParaHHMM(totalMinExtras),
-          totalHeNoturnas: '00:00',
-          totalHeTotais: minutosParaHHMM(totalMinExtras),
-          totalAtrasoStr: minutosParaHHMM(totalAtrasoMinutos),
-          folgas: totalFolgas,
-          totalRegistros: marcacoesResult.rows.length,
-          geradoEm: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) + ' (-03:00)',
-          periodo: `${dataInicio.split('-').reverse().join('/')} - ${dataFim.split('-').reverse().join('/')}`,
-        },
-      });
-
-      const mesNome = MESES[mes - 1].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const nomeArquivo = `relatorio-${modeloParam}-${mesNome}-${ano}-${colab.nome.replace(/\s+/g, '-').toLowerCase()}.pdf`;
+      const mesNome = MESES[mes - 1].toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const nomeArquivo = `relatorio-${modeloParam}-${mesNome}-${ano}-${colaboradorNome.replace(/\s+/g, '-').toLowerCase()}.pdf`;
       const caminhoStorage = `relatorios/${colaboradorId}/${nomeArquivo}`;
 
       const url = await uploadArquivo(caminhoStorage, pdfBuffer, 'application/pdf');
@@ -1575,3 +1622,4 @@ export async function GET(
     }
   });
 }
+
