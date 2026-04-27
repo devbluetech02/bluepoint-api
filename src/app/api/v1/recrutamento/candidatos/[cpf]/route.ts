@@ -132,7 +132,9 @@ export async function GET(
         return notFoundResponse('Candidato não encontrado no banco de Recrutamento');
       }
 
-      // processo_seletivo no People, se houver
+      // processo_seletivo no People + status atual da solicitação de admissão
+      // vinculada (que é o que o DP vê — granular: nao_acessado,
+      // aguardando_rh, contrato_assinado, etc).
       const procResult = await query<{
         id: string;
         status: string;
@@ -140,12 +142,16 @@ export async function GET(
         criado_em: Date;
         usuario_provisorio_id: number | null;
         solicitacao_admissao_id: string | null;
+        solicitacao_status: string | null;
       }>(
-        `SELECT id::text, status, caminho, criado_em,
-                usuario_provisorio_id, solicitacao_admissao_id
-           FROM people.processo_seletivo
-          WHERE candidato_cpf_norm = $1
-          ORDER BY criado_em DESC
+        `SELECT ps.id::text, ps.status, ps.caminho, ps.criado_em,
+                ps.usuario_provisorio_id, ps.solicitacao_admissao_id,
+                sa.status AS solicitacao_status
+           FROM people.processo_seletivo ps
+           LEFT JOIN people.solicitacoes_admissao sa
+                  ON sa.id = ps.solicitacao_admissao_id
+          WHERE ps.candidato_cpf_norm = $1
+          ORDER BY ps.criado_em DESC
           LIMIT 1`,
         [cpfNorm]
       );
@@ -190,6 +196,7 @@ export async function GET(
               criadoEm: proc.criado_em,
               usuarioProvisorioId: proc.usuario_provisorio_id,
               solicitacaoAdmissaoId: proc.solicitacao_admissao_id,
+              solicitacaoStatus: proc.solicitacao_status,
             }
           : null,
       };
