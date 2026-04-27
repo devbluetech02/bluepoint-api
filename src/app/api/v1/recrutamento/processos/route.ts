@@ -54,28 +54,16 @@ function conflictWithCode(message: string, code: string) {
 
 const MENSAGEM_WHATSAPP_DEFAULT = (nome: string) => {
   const primeiroNome = nome.split(' ')[0];
-  return `Olá, ${primeiroNome}, tudo bem? Meu nome é João, faço parte da equipe do Departamento Pessoal da Bluetech Window Films.
+  return `Olá, ${primeiroNome}! Aqui é o João, do DP da Bluetech Window Films. Parabéns, você foi aprovado no nosso processo seletivo! 🎉
 
-Você foi aprovado em nosso processo seletivo! Meus parabéns, estamos muito felizes em ter você com a gente.
+Para seguir com sua admissão, baixe o app *People*:
 
-Para dar continuidade à sua admissão, é necessário instalar o aplicativo *People* no seu celular. Use o link de acordo com o tipo do seu aparelho:
+📱 iPhone: https://apps.apple.com/br/app/people-by-valeris/id6761028795
+🤖 Android: https://play.google.com/store/apps/details?id=com.people.valeris
 
-📱 *iPhone (iOS)* – baixe pela App Store:
-https://apps.apple.com/br/app/people-by-valeris/id6761028795
+No 1º acesso, permita as autorizações, toque em *Área do colaborador → Primeiro acesso* e informe seu *CPF*.
 
-🤖 *Celular Android (Samsung, Motorola, Xiaomi, etc.)* – baixe pela Google Play:
-https://play.google.com/store/apps/details?id=com.people.valeris
-
-Após instalar, siga estes passos no primeiro acesso:
-
-1. Abra o app e *permita todas as autorizações solicitadas* (notificações, câmera e localização).
-2. Clique em *"Área do colaborador"*.
-3. Em seguida, selecione *"Primeiro acesso"*.
-4. Preencha com o seu *CPF*.
-
-Depois disso, o próprio aplicativo irá te orientar com as próximas etapas.
-
-Se tiver qualquer dúvida, estou à disposição para te ajudar!`;
+Qualquer dúvida, estou à disposição. Salve nosso contato (DP) para receber informações futuras.`;
 };
 
 export async function POST(request: NextRequest) {
