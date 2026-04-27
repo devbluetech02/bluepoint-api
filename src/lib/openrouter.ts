@@ -71,7 +71,8 @@ export async function openRouterChat(
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': process.env.OPENROUTER_REFERRER ?? 'https://people-api.valerisapp.com.br',
-        'X-Title': 'BluePoint People — IA Pré-admissão',
+        // Headers HTTP só aceitam ASCII — sem em-dash, sem acento.
+        'X-Title': 'BluePoint People - IA Pre-admissao',
       },
       body: JSON.stringify(body),
       signal: controller.signal,
