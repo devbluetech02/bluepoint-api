@@ -468,6 +468,11 @@ export const parametrosRhSchema = z.object({
   diasFeriasPadrao: z.number().int().min(0, 'Dias deve ser >= 0').max(60, 'Dias deve ser <= 60').optional(),
   abonoPecuniarioPadrao: z.boolean().optional(),
   adiantamento13Padrao: z.boolean().optional(),
+  // Migration 038 — Parâmetros de Recrutamento (caminho A)
+  diasTestePadrao: z.number().int().min(1, 'Dias deve ser >= 1').max(2, 'Dias deve ser <= 2').optional(),
+  cargaHorariaTestePadrao: z.number().int().min(1, 'Carga deve ser >= 1').max(12, 'Carga deve ser <= 12').optional(),
+  valorDiariaTestePadrao: z.number().min(0, 'Valor deve ser >= 0').max(10000, 'Valor deve ser <= 10000').optional(),
+  percentualMinimoDecisao: z.number().int().min(0, 'Percentual deve ser >= 0').max(100, 'Percentual deve ser <= 100').optional(),
 });
 
 // =====================================================

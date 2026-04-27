@@ -11,6 +11,15 @@ import {
 import { criarOuReaproveitarProvisorio } from '@/lib/usuarios-provisorios';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { enviarMensagemWhatsApp, enviarMidiaWhatsApp } from '@/lib/evolution-api';
+import {
+  escolherTemplate,
+  fetchDadosCargo,
+  fetchDadosEmpresa,
+  montarVariaveis,
+  criarDocumentoDiaTeste,
+  enviarDocumentoDiaTeste,
+  type CandidatoSnapshot,
+} from '@/lib/recrutamento-dia-teste';
 
 // POST /api/v1/recrutamento/processos
 //
@@ -25,28 +34,39 @@ import { enviarMensagemWhatsApp, enviarMidiaWhatsApp } from '@/lib/evolution-api
 //
 // Caminho A (dia de teste) NÃO é tratado aqui — fica para Sprint 2.
 
-const schema = z.object({
+const baseSchema = z.object({
   candidatoRecrutamentoId: z.number().int().positive(),
   candidatoCpf: z.string().min(11),
-  caminho: z.literal('pre_admissao'), // Sprint 1: somente caminho B
-
-  // dados pessoais usados na criação do provisório
   nome: z.string().min(3).max(255),
-
-  // vínculo no People
   empresaId: z.number().int().positive(),
   cargoId: z.number().int().positive(),
   departamentoId: z.number().int().positive(),
   jornadaId: z.number().int().positive(),
   diasTeste: z.number().int().min(0).max(365).optional().nullable(),
-
-  // dados complementares (persistidos junto à solicitação ou no provisório,
-  // não obrigatórios pra fluxo B; o app de admissão coleta o resto).
   telefone: z.string().min(8).max(20).optional().nullable(),
-
-  // mensagem WhatsApp custom — se vier, usa; senão usa template default
   mensagemWhatsApp: z.string().max(2000).optional().nullable(),
 });
+
+const schemaPreAdmissao = baseSchema.extend({
+  caminho: z.literal('pre_admissao'),
+});
+
+// Caminho A — dia de teste. Campos extras pré-preenchidos vêm do
+// parametros_rh / cargo, mas editáveis pelo recrutador no modal.
+const schemaDiaTeste = baseSchema.extend({
+  caminho: z.literal('dia_teste'),
+  diaTeste: z.object({
+    diasQtd: z.number().int().min(1).max(2),
+    valorDiaria: z.number().min(0).max(10000),
+    cargaHoraria: z.number().int().min(1).max(12),
+    dataPrimeiroDia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve ser YYYY-MM-DD'),
+    templateOverride: z.string().min(1).max(120).optional(),
+    rg: z.string().max(50).optional().nullable(),
+    chavePix: z.string().max(150).optional().nullable(),
+  }),
+});
+
+const schema = z.discriminatedUnion('caminho', [schemaPreAdmissao, schemaDiaTeste]);
 
 function conflictWithCode(message: string, code: string) {
   return NextResponse.json({ success: false, error: message, code }, { status: 409 });
@@ -65,6 +85,221 @@ No 1º acesso, permita as autorizações, toque em *Área do colaborador → Pri
 
 Qualquer dúvida, estou à disposição. Salve nosso contato (DP) para receber informações futuras.`;
 };
+
+// ═══════════════════════════════════════════════════════════════════════
+// Caminho A — Dia de Teste
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Diferente do caminho B, NÃO cria usuário provisório nem solicitação de
+// admissão — apenas registra o processo + agendamentos e gera o contrato
+// na SignProof. O candidato só vira provisório se o gestor aprovar no
+// dia de teste (Sprint 2.2).
+
+async function abrirCaminhoA(args: {
+  dados: z.infer<typeof schemaDiaTeste>;
+  cpfNorm: string;
+  candidatoVaga: string | null;
+  candidatoTelefone: string | null;
+  userId: number;
+  req: NextRequest;
+  user: { userId: number; nome: string; email: string };
+}) {
+  const { dados, cpfNorm, candidatoVaga, candidatoTelefone, userId, req, user } = args;
+  const dt = dados.diaTeste;
+
+  // Busca detalhes do candidato no banco de Recrutamento pra montar o
+  // contrato (endereço, RG, banco/PIX). Ignoramos o RG vindo do payload
+  // se a origem tiver — ela é mais completa.
+  const detRes = await queryRecrutamento<{
+    nome: string | null;
+    cpf: string;
+    telefone: string | null;
+    rg_candidato: string | null;
+    cep: string | null;
+    logradouro: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    banco: string | null;
+    chave_pix: string | null;
+    email: string | null;
+  }>(
+    `SELECT nome, cpf, telefone, rg_candidato, cep, logradouro, bairro,
+            cidade, uf, banco, chave_pix, email
+       FROM public.candidatos
+      WHERE id = $1
+      LIMIT 1`,
+    [dados.candidatoRecrutamentoId]
+  );
+  const det = detRes.rows[0];
+  if (!det) {
+    return errorResponse('Candidato não encontrado para montar contrato', 404);
+  }
+
+  const cargo = await fetchDadosCargo(dados.cargoId);
+  if (!cargo) return errorResponse(`Cargo não encontrado: ${dados.cargoId}`, 400);
+  const empresa = await fetchDadosEmpresa(dados.empresaId);
+  if (!empresa) return errorResponse(`Empresa não encontrada: ${dados.empresaId}`, 400);
+
+  const candidatoSnap: CandidatoSnapshot = {
+    nome: dados.nome,
+    cpf: cpfNorm,
+    rg: dt.rg ?? det.rg_candidato ?? null,
+    endereco: {
+      cep: det.cep,
+      logradouro: det.logradouro,
+      bairro: det.bairro,
+      cidade: det.cidade,
+      uf: det.uf,
+    },
+    telefone: (dados.telefone ?? det.telefone ?? '').replace(/\D/g, '') || null,
+    banco: det.banco,
+    chavePix: dt.chavePix ?? det.chave_pix ?? null,
+  };
+
+  if (!candidatoSnap.telefone || candidatoSnap.telefone.length < 10) {
+    return errorResponse('Telefone do candidato é obrigatório pro Dia de Teste (SignProof envia por WhatsApp)', 400);
+  }
+
+  const templateId = (dt.templateOverride && dt.templateOverride.trim() !== '')
+    ? dt.templateOverride.trim()
+    : escolherTemplate(cargo);
+
+  // ── Cria processo_seletivo + agendamentos numa transação ──
+  await query('BEGIN', []);
+  let processoId: string;
+  try {
+    const procIns = await query<{ id: string }>(
+      `INSERT INTO people.processo_seletivo
+         (candidato_recrutamento_id, candidato_cpf_norm, vaga_snapshot,
+          empresa_id, cargo_id, departamento_id, jornada_id,
+          status, caminho, criado_por)
+       VALUES ($1, $2, $3, $4, $5, $6, $7,
+               'dia_teste', 'dia_teste', $8)
+       RETURNING id::text`,
+      [
+        dados.candidatoRecrutamentoId,
+        cpfNorm,
+        candidatoVaga,
+        dados.empresaId,
+        dados.cargoId,
+        dados.departamentoId,
+        dados.jornadaId,
+        userId,
+      ]
+    );
+    processoId = procIns.rows[0].id;
+
+    // Agendamentos (1 ou 2 dias).
+    for (let i = 0; i < dt.diasQtd; i++) {
+      const data = i === 0
+        ? dt.dataPrimeiroDia
+        : addDiasISO(dt.dataPrimeiroDia, 1);
+      await query(
+        `INSERT INTO people.dia_teste_agendamento
+           (processo_seletivo_id, ordem, data, valor_diaria, carga_horaria)
+         VALUES ($1::bigint, $2, $3::date, $4, $5)`,
+        [processoId, i + 1, data, dt.valorDiaria, dt.cargaHoraria]
+      );
+    }
+
+    await query('COMMIT', []);
+  } catch (txErr) {
+    await query('ROLLBACK', []);
+    throw txErr;
+  }
+
+  // ── SignProof: cria documento + dispara envio ──────────────────
+  const variaveis = montarVariaveis(templateId, {
+    candidato: candidatoSnap,
+    cargo,
+    empresa,
+    dt: {
+      diasQtd: dt.diasQtd,
+      valorDiaria: dt.valorDiaria,
+      cargaHoraria: dt.cargaHoraria,
+      dataPrimeiroDia: dt.dataPrimeiroDia,
+    },
+  });
+
+  const externalRef = `DT-${processoId}-${dt.dataPrimeiroDia.replace(/-/g, '')}`;
+  const title = `Dia de Teste — ${dados.nome.split(' ')[0]} ${dados.nome.split(' ').slice(-1)[0] || ''}`.trim();
+
+  const criar = await criarDocumentoDiaTeste({
+    templateId,
+    variaveis,
+    signer: {
+      nome: dados.nome,
+      cpf: cpfNorm,
+      email: det.email,
+      telefone: candidatoSnap.telefone,
+    },
+    externalRef,
+    title,
+  });
+
+  let docId: string | null = null;
+  let signProofErro: string | null = null;
+  let envioOk = false;
+
+  if (!criar.ok) {
+    signProofErro = `criar:${criar.erro}`;
+  } else {
+    docId = criar.documentId;
+    await query(
+      `UPDATE people.processo_seletivo
+          SET documento_assinatura_id = $1, atualizado_em = NOW()
+        WHERE id = $2::bigint`,
+      [docId, processoId]
+    );
+    const env = await enviarDocumentoDiaTeste(docId);
+    if (env.ok) envioOk = true;
+    else signProofErro = `enviar:${env.erro ?? '?'}`;
+  }
+
+  await registrarAuditoria(buildAuditParams(req, user, {
+    acao: 'criar',
+    modulo: 'recrutamento_processo_seletivo',
+    descricao: `Processo seletivo aberto (caminho A — dia de teste) para ${dados.nome} (CPF ${cpfNorm}).`,
+    colaboradorNome: dados.nome,
+    dadosNovos: {
+      processoId,
+      caminho: 'dia_teste',
+      candidatoRecrutamentoId: dados.candidatoRecrutamentoId,
+      diasQtd: dt.diasQtd,
+      valorDiaria: dt.valorDiaria,
+      cargaHoraria: dt.cargaHoraria,
+      dataPrimeiroDia: dt.dataPrimeiroDia,
+      templateId,
+      documentoAssinaturaId: docId,
+      signProofEnvioOk: envioOk,
+      signProofErro,
+    },
+  }));
+
+  const payload = {
+    processoId,
+    caminho: 'dia_teste' as const,
+    diasAgendados: dt.diasQtd,
+    contrato: {
+      templateId,
+      documentoId: docId,
+      enviado: envioOk,
+      erro: signProofErro,
+    },
+  };
+  return createdResponse(payload);
+}
+
+function addDiasISO(iso: string, dias: number): string {
+  const [y, m, d] = iso.split('-').map((p) => parseInt(p, 10));
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + dias);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(dt.getUTCDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -118,6 +353,20 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      // ─── Caminho A — Dia de Teste ─────────────────────────────────
+      if (dados.caminho === 'dia_teste') {
+        return await abrirCaminhoA({
+          dados,
+          cpfNorm,
+          candidatoVaga: candidato.vaga,
+          candidatoTelefone: candidato.telefone,
+          userId: user.userId,
+          req,
+          user,
+        });
+      }
+
+      // ─── Caminho B — Pré-admissão direta ──────────────────────────
       // 3) Transação: cria provisório/solicitação + processo_seletivo.
       await query('BEGIN', []);
       let resultadoProv: Awaited<ReturnType<typeof criarOuReaproveitarProvisorio>>;

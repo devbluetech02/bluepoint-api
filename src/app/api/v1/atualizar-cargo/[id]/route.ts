@@ -14,6 +14,9 @@ const atualizarCargoSchema = z.object({
   // Lista de IDs de templates SignProof associados a este cargo (migration 033).
   // Array vazio = DP escolhe caso a caso; undefined = não mexe.
   templatesContratoAdmissao: z.array(z.string().min(1)).max(20).optional(),
+  // ID do template SignProof default pro contrato de DIA DE TESTE (migration 038).
+  // null = limpa (volta pra heurística do nome). undefined = não mexe.
+  templateDiaTeste: z.string().min(1).max(120).optional().nullable(),
   // diasTeste foi movido para usuarios_provisorios. Zod descarta silenciosamente.
 });
 
@@ -46,7 +49,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao
+        `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao, template_dia_teste
            FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
@@ -56,7 +59,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao } = validation.data;
+      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -86,6 +89,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
       if (templatesContratoAdmissao !== undefined) {
         updates.push(`templates_contrato_admissao = $${paramIndex}::text[]`);
         values.push(templatesContratoAdmissao);
+        paramIndex++;
+      }
+      if (templateDiaTeste !== undefined) {
+        updates.push(`template_dia_teste = $${paramIndex}`);
+        values.push(templateDiaTeste);
         paramIndex++;
       }
 
@@ -118,6 +126,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         descricao: cargo.descricao,
         salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
         templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
+        templateDiaTeste: cargo.template_dia_teste ?? null,
         mensagem: 'Cargo atualizado com sucesso',
       });
     } catch (error) {

@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
           const dataParams = [...params, limite, offset];
           const dataResult = await query(
             `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao,
-                    created_at, updated_at
+                    template_dia_teste, created_at, updated_at
              FROM people.cargos
              ${whereClause}
              ORDER BY nome ASC
@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
             descricao: cargo.descricao,
             salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
             templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
+            templateDiaTeste: cargo.template_dia_teste ?? null,
             exames: examesPorCargo.get(cargo.id) ?? [],
             criadoEm: cargo.created_at,
             atualizadoEm: cargo.updated_at,

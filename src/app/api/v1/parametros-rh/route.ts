@@ -17,13 +17,20 @@ const DEFAULTS = {
   diasFeriasPadrao: 30,
   abonoPecuniarioPadrao: true,
   adiantamento13Padrao: true,
+  // Migration 038 — Parâmetros de Recrutamento
+  diasTestePadrao: 2,
+  cargaHorariaTestePadrao: 8,
+  valorDiariaTestePadrao: 10,
+  percentualMinimoDecisao: 50,
 };
 
 const RETURNING_COLS = `id, telefone_rh, email_rh,
   dias_experiencia_padrao, dias_prorrogacao_padrao,
   dias_uteis_data_admissao, vigencia_confidencialidade_meses,
   aplicar_beneficios_em_dia_teste,
-  dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao`;
+  dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
+  dias_teste_padrao, carga_horaria_teste_padrao,
+  valor_diaria_teste_padrao, percentual_minimo_decisao`;
 
 type Row = {
   id: number;
@@ -37,6 +44,10 @@ type Row = {
   dias_ferias_padrao: number | string | null;
   abono_pecuniario_padrao: boolean | null;
   adiantamento_13_padrao: boolean | null;
+  dias_teste_padrao: number | string | null;
+  carga_horaria_teste_padrao: number | string | null;
+  valor_diaria_teste_padrao: number | string | null;
+  percentual_minimo_decisao: number | string | null;
 };
 
 function mapRow(row: Row) {
@@ -51,6 +62,10 @@ function mapRow(row: Row) {
     diasFeriasPadrao: Number(row.dias_ferias_padrao ?? 30),
     abonoPecuniarioPadrao: Boolean(row.abono_pecuniario_padrao ?? true),
     adiantamento13Padrao: Boolean(row.adiantamento_13_padrao ?? true),
+    diasTestePadrao: Number(row.dias_teste_padrao ?? 2),
+    cargaHorariaTestePadrao: Number(row.carga_horaria_teste_padrao ?? 8),
+    valorDiariaTestePadrao: Number(row.valor_diaria_teste_padrao ?? 10),
+    percentualMinimoDecisao: Number(row.percentual_minimo_decisao ?? 50),
   };
 }
 
@@ -120,9 +135,13 @@ export async function PUT(request: NextRequest) {
                dias_ferias_padrao = COALESCE($8, dias_ferias_padrao),
                abono_pecuniario_padrao = COALESCE($9, abono_pecuniario_padrao),
                adiantamento_13_padrao = COALESCE($10, adiantamento_13_padrao),
+               dias_teste_padrao = COALESCE($11, dias_teste_padrao),
+               carga_horaria_teste_padrao = COALESCE($12, carga_horaria_teste_padrao),
+               valor_diaria_teste_padrao = COALESCE($13, valor_diaria_teste_padrao),
+               percentual_minimo_decisao = COALESCE($14, percentual_minimo_decisao),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $11
-           WHERE id = $12
+               atualizado_por = $15
+           WHERE id = $16
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
@@ -135,6 +154,10 @@ export async function PUT(request: NextRequest) {
             data.diasFeriasPadrao ?? null,
             data.abonoPecuniarioPadrao ?? null,
             data.adiantamento13Padrao ?? null,
+            data.diasTestePadrao ?? null,
+            data.cargaHorariaTestePadrao ?? null,
+            data.valorDiariaTestePadrao ?? null,
+            data.percentualMinimoDecisao ?? null,
             user.userId,
             parametroId,
           ]
@@ -147,8 +170,10 @@ export async function PUT(request: NextRequest) {
              dias_uteis_data_admissao, vigencia_confidencialidade_meses,
              aplicar_beneficios_em_dia_teste,
              dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
+             dias_teste_padrao, carga_horaria_teste_padrao,
+             valor_diaria_teste_padrao, percentual_minimo_decisao,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
@@ -161,6 +186,10 @@ export async function PUT(request: NextRequest) {
             data.diasFeriasPadrao ?? 30,
             data.abonoPecuniarioPadrao ?? true,
             data.adiantamento13Padrao ?? true,
+            data.diasTestePadrao ?? 2,
+            data.cargaHorariaTestePadrao ?? 8,
+            data.valorDiariaTestePadrao ?? 10,
+            data.percentualMinimoDecisao ?? 50,
             user.userId,
           ]
         );
