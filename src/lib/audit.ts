@@ -74,7 +74,8 @@ export type AuditModule =
   | 'reunioes'
   | 'usuarios_provisorios'
   | 'clinicas'
-  | 'admissao';
+  | 'admissao'
+  | 'recrutamento_processo_seletivo';
 
 export interface AuditLogParams {
   usuarioId?: number | null;

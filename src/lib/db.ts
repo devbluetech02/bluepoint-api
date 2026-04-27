@@ -178,8 +178,64 @@ export function getPoolStats() {
       idle: fallbackPool.idleCount,
       waiting: fallbackPool.waitingCount,
     } : null,
+    recrutamento: recrutamentoPool ? {
+      total: recrutamentoPool.totalCount,
+      idle: recrutamentoPool.idleCount,
+      waiting: recrutamentoPool.waitingCount,
+    } : null,
     usingFallback,
   };
+}
+
+// =====================================================
+// Pool secundário read-only — banco de Recrutamento
+// (tabela public.candidatos em DigitalOcean)
+// =====================================================
+let recrutamentoPool: Pool | null = null;
+
+function createRecrutamentoPool(): Pool {
+  const url = process.env.DATABASE_URL_RECRUTAMENTO;
+  if (!url) {
+    throw new Error('DATABASE_URL_RECRUTAMENTO não configurada');
+  }
+
+  const pool = new Pool({
+    connectionString: url,
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    min: 0,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
+    allowExitOnIdle: false,
+  });
+
+  pool.on('error', (err) => {
+    console.error('[DB] Pool recrutamento — erro de conexão em background:', err.message);
+  });
+
+  return pool;
+}
+
+function getRecrutamentoPool(): Pool {
+  if (!recrutamentoPool) {
+    recrutamentoPool = createRecrutamentoPool();
+  }
+  return recrutamentoPool;
+}
+
+// Defesa em profundidade: o usuário do pool já é "doadmin" (full),
+// então rejeitamos qualquer query que não seja SELECT/WITH no nível da app.
+const READONLY_PREFIX = /^\s*(--[^\n]*\n|\/\*[\s\S]*?\*\/|\s)*(SELECT|WITH)\b/i;
+
+export async function queryRecrutamento<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[]
+): Promise<QueryResult<T>> {
+  if (!READONLY_PREFIX.test(text)) {
+    throw new Error('queryRecrutamento aceita apenas SELECT/WITH (read-only)');
+  }
+  const pool = getRecrutamentoPool();
+  return pool.query<T>(text, params);
 }
 
 export type { PoolClient };
