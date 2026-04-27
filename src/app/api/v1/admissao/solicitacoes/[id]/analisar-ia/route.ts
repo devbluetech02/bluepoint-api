@@ -161,8 +161,13 @@ export async function POST(request: NextRequest, { params }: Params) {
           LIMIT 10`,
         [id],
       );
+      // db.ts desliga o type parser de timestamp do pg → disparado_em vem
+      // como string. Converte pra Date pra compatibilidade com o consumer
+      // (admissao-ia-prompt usa toISOString).
       const analisesAnteriores: AnaliseIaAnterior[] = analisesRes.rows.map((a) => ({
-        quando: a.disparado_em,
+        quando: a.disparado_em instanceof Date
+          ? a.disparado_em
+          : new Date(a.disparado_em as unknown as string),
         acao: a.acao_decidida,
         motivo: a.motivo,
         camposProblema: Array.isArray(a.campos_problema) ? a.campos_problema : [],
