@@ -26,7 +26,7 @@ interface Params {
 }
 
 /**
- * POST /api/v1/admissao/solicitacoes/:id/analisar-ia
+ * POST /api/v1/admissao/solicitacoes/:id/analise-ia
  *
  * Dispara análise da pré-admissão pela IA (OpenRouter). Só faz sentido
  * quando a solicitação está em `aguardando_rh` — outro status retorna 409.
@@ -381,7 +381,7 @@ async function persistirFalha(
       [solicitacaoId, disparadoPor, process.env.OPENROUTER_MODEL ?? 'desconhecido', erro, erro],
     );
   } catch (e) {
-    console.error('[analisar-ia] falha ao persistir registro de falha:', e);
+    console.error('[analise-ia] falha ao persistir registro de falha:', e);
   }
 }
 
