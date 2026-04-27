@@ -199,8 +199,19 @@ function createRecrutamentoPool(): Pool {
     throw new Error('DATABASE_URL_RECRUTAMENTO não configurada');
   }
 
+  // Parsear manualmente em vez de usar `connectionString`. Versões recentes
+  // do pg-connection-string passaram a tratar `sslmode=require` como
+  // `verify-full`, o que sobrescreve o objeto `ssl` passado adiante e
+  // causa SELF_SIGNED_CERT_IN_CHAIN ao falar com o Postgres do DigitalOcean
+  // (cert não está na cadeia padrão do Node).
+  const parsed = new URL(url);
+
   const pool = new Pool({
-    connectionString: url,
+    host: parsed.hostname,
+    port: parsed.port ? parseInt(parsed.port, 10) : 5432,
+    user: decodeURIComponent(parsed.username),
+    password: decodeURIComponent(parsed.password),
+    database: parsed.pathname.replace(/^\//, '') || 'defaultdb',
     ssl: { rejectUnauthorized: false },
     max: 5,
     min: 0,
