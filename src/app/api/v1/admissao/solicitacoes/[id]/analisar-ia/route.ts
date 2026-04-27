@@ -79,7 +79,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       // ── 2. Formulário + docs obrigatórios ─────────────────────────────
       const formRes = await query<{
         campos: unknown;
-        documentos_requeridos: number[] | null;
+        documentos_requeridos: unknown;
       }>(
         `SELECT campos, documentos_requeridos
            FROM people.formularios_admissao
@@ -89,7 +89,26 @@ export async function POST(request: NextRequest, { params }: Params) {
       const camposForm = formRes.rows.length > 0
         ? mapCamposParaApi(formRes.rows[0].campos, true)
         : [];
-      const docsReqIds = formRes.rows[0]?.documentos_requeridos ?? [];
+      // documentos_requeridos é JSONB; pode vir no formato antigo (number[])
+      // ou no novo (Array<{tipoDocumentoId, obrigatorio, cargosOpcoes}>).
+      // Extrai os IDs em ambos os casos pra alimentar a query int[] abaixo.
+      const docsReqRaw = formRes.rows[0]?.documentos_requeridos;
+      const docsReqIds: number[] = Array.isArray(docsReqRaw)
+        ? docsReqRaw
+            .map((entry) => {
+              if (typeof entry === 'number') return entry;
+              if (entry && typeof entry === 'object') {
+                const v = (entry as Record<string, unknown>)['tipoDocumentoId'];
+                if (typeof v === 'number') return v;
+                if (typeof v === 'string') {
+                  const n = parseInt(v, 10);
+                  return Number.isNaN(n) ? null : n;
+                }
+              }
+              return null;
+            })
+            .filter((n): n is number => n !== null)
+        : [];
 
       // Resolve nome dos tipos de documento obrigatórios
       const docsObrigatorios: { tipoId: number; tipoNome: string }[] = [];
