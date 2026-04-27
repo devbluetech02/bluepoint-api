@@ -25,24 +25,35 @@ interface Row {
   valor_diaria: string;
   carga_horaria: number;
   status: string;
-  decidido_por: number | null;
+  // node-pg serializa bigint como string por default (overflow safety).
+  decidido_por: string | number | null;
   decidido_em: Date | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   criado_em: Date;
   // do processo
   processo_status: string;
-  candidato_recrutamento_id: number;
+  candidato_recrutamento_id: string | number;
   candidato_cpf_norm: string;
   vaga_snapshot: string | null;
   documento_assinatura_id: string | null;
   // joins
-  cargo_id: number | null;
+  cargo_id: string | number | null;
   cargo_nome: string | null;
-  empresa_id: number | null;
+  empresa_id: string | number | null;
   empresa_nome: string | null;
-  departamento_id: number | null;
+  departamento_id: string | number | null;
   departamento_nome: string | null;
+}
+
+function toIntOrNull(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
 }
 
 export async function GET(request: NextRequest) {
@@ -119,9 +130,14 @@ export async function GET(request: NextRequest) {
       );
 
       // Buscar dados dos candidatos no banco externo de Recrutamento.
+      // candidato_recrutamento_id é BIGINT no Postgres → vem como string.
       const candidatoIds = Array.from(
-        new Set(result.rows.map((r) => r.candidato_recrutamento_id))
-      ).filter((v): v is number => typeof v === 'number');
+        new Set(
+          result.rows
+            .map((r) => toIntOrNull(r.candidato_recrutamento_id))
+            .filter((v): v is number => v !== null)
+        )
+      );
 
       const candidatosMap = new Map<number, { nome: string; telefone: string | null; cpf: string }>();
       if (candidatoIds.length > 0) {
@@ -151,7 +167,11 @@ export async function GET(request: NextRequest) {
       }
 
       const payload = result.rows.map((r) => {
-        const cand = candidatosMap.get(r.candidato_recrutamento_id);
+        const candId = toIntOrNull(r.candidato_recrutamento_id);
+        const cand = candId !== null ? candidatosMap.get(candId) : undefined;
+        const cargoId = toIntOrNull(r.cargo_id);
+        const empresaId = toIntOrNull(r.empresa_id);
+        const departamentoId = toIntOrNull(r.departamento_id);
         return {
           id: r.id,
           processoId: r.processo_id,
@@ -160,7 +180,7 @@ export async function GET(request: NextRequest) {
           valorDiaria: parseFloat(r.valor_diaria),
           cargaHoraria: r.carga_horaria,
           status: r.status,
-          decididoPor: r.decidido_por,
+          decididoPor: toIntOrNull(r.decidido_por),
           decididoEm: r.decidido_em,
           percentualConcluido: r.percentual_concluido,
           valorAPagar: r.valor_a_pagar !== null ? parseFloat(r.valor_a_pagar) : null,
@@ -169,15 +189,15 @@ export async function GET(request: NextRequest) {
           documentoAssinaturaId: r.documento_assinatura_id,
           vagaOrigem: r.vaga_snapshot,
           candidato: {
-            recrutamentoId: r.candidato_recrutamento_id,
+            recrutamentoId: candId,
             cpf: r.candidato_cpf_norm,
             nome: cand?.nome ?? '',
             telefone: cand?.telefone ?? null,
           },
-          cargo: r.cargo_id ? { id: r.cargo_id, nome: r.cargo_nome ?? '' } : null,
-          empresa: r.empresa_id ? { id: r.empresa_id, nome: r.empresa_nome ?? '' } : null,
-          departamento: r.departamento_id
-            ? { id: r.departamento_id, nome: r.departamento_nome ?? '' }
+          cargo: cargoId !== null ? { id: cargoId, nome: r.cargo_nome ?? '' } : null,
+          empresa: empresaId !== null ? { id: empresaId, nome: r.empresa_nome ?? '' } : null,
+          departamento: departamentoId !== null
+            ? { id: departamentoId, nome: r.departamento_nome ?? '' }
             : null,
         };
       });
