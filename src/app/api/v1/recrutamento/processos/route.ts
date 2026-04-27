@@ -10,7 +10,7 @@ import {
 } from '@/lib/api-response';
 import { criarOuReaproveitarProvisorio } from '@/lib/usuarios-provisorios';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
+import { enviarMensagemWhatsApp, enviarMidiaWhatsApp } from '@/lib/evolution-api';
 
 // POST /api/v1/recrutamento/processos
 //
@@ -187,14 +187,39 @@ export async function POST(request: NextRequest) {
       const { provRow, solicitacaoId, reutilizado, readmissao } = resultadoProv.data;
 
       // 4) WhatsApp (best-effort — falha não rola back).
+      // Se WHATSAPP_VIDEO_PRE_ADMISSAO_URL estiver configurada, envia vídeo
+      // com a mensagem como legenda (1 notificação só); caso contrário,
+      // fallback para texto puro.
       const numeroWhats = (dados.telefone ?? candidato.telefone ?? '').replace(/\D/g, '');
       let whatsappOk = false;
       let whatsappErro: string | null = null;
       if (numeroWhats) {
         const texto = dados.mensagemWhatsApp?.trim() || MENSAGEM_WHATSAPP_DEFAULT(provRow.nome);
-        const result = await enviarMensagemWhatsApp(numeroWhats, texto);
-        whatsappOk = result.ok;
-        whatsappErro = result.erro ?? null;
+        const videoUrl = process.env.WHATSAPP_VIDEO_PRE_ADMISSAO_URL?.trim();
+        if (videoUrl) {
+          const result = await enviarMidiaWhatsApp(numeroWhats, videoUrl, {
+            mediatype: 'video',
+            caption: texto,
+            fileName: 'pre-admissao.mp4',
+            mimetype: 'video/mp4',
+          });
+          // Se o vídeo falhar (ex: arquivo offline, Evolution recusou),
+          // ainda tenta o texto puro pra não deixar o candidato sem aviso.
+          if (result.ok) {
+            whatsappOk = true;
+          } else {
+            console.warn('[recrutamento/processos] Falha no vídeo, caindo pra texto:', result.erro);
+            const fallback = await enviarMensagemWhatsApp(numeroWhats, texto);
+            whatsappOk = fallback.ok;
+            whatsappErro = fallback.ok
+              ? `video_falhou_${result.erro}`
+              : fallback.erro ?? null;
+          }
+        } else {
+          const result = await enviarMensagemWhatsApp(numeroWhats, texto);
+          whatsappOk = result.ok;
+          whatsappErro = result.erro ?? null;
+        }
       } else {
         whatsappErro = 'sem_telefone';
       }
