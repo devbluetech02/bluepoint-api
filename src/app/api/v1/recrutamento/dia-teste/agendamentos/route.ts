@@ -175,6 +175,35 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      // Consultar status dos contratos no SignProof (batch).
+      const docIds = Array.from(new Set(
+        result.rows
+          .map((r) => r.documento_assinatura_id)
+          .filter((v): v is string => v != null && v !== '')
+      ));
+      const docStatusMap = new Map<string, string>();
+      if (docIds.length > 0) {
+        const baseUrl = process.env.SIGNPROOF_API_URL;
+        const apiKey = process.env.SIGNPROOF_API_KEY;
+        if (baseUrl && apiKey) {
+          try {
+            const spResp = await fetch(`${baseUrl}/api/v1/integration/documents/batch-status`, {
+              method: 'POST',
+              headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ document_ids: docIds }),
+            });
+            if (spResp.ok) {
+              const spData = await spResp.json() as { data?: { id?: string; status?: string }[] };
+              for (const d of spData.data ?? []) {
+                if (d.id && d.status) docStatusMap.set(d.id, d.status);
+              }
+            }
+          } catch (e) {
+            console.warn('[recrutamento/dia-teste/agendamentos] falha ao consultar SignProof batch-status:', e);
+          }
+        }
+      }
+
       const payload = result.rows.map((r) => {
         const candId = toIntOrNull(r.candidato_recrutamento_id);
         const cand = candId !== null ? candidatosMap.get(candId) : undefined;
@@ -196,6 +225,7 @@ export async function GET(request: NextRequest) {
           criadoEm: r.criado_em,
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,
+          documentoAssinaturaStatus: r.documento_assinatura_id ? (docStatusMap.get(r.documento_assinatura_id) ?? null) : null,
           vagaOrigem: r.vaga_snapshot,
           enviadoPor: {
             id: toIntOrNull(r.criado_por),
