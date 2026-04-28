@@ -69,8 +69,10 @@ export async function POST(request: NextRequest) {
 
       const cargo = await fetchDadosCargo(dados.cargoId);
       if (!cargo) return errorResponse(`Cargo não encontrado: ${dados.cargoId}`, 400);
-      const empresa = await fetchDadosEmpresa(dados.empresaId);
-      if (!empresa) return errorResponse(`Empresa não encontrada: ${dados.empresaId}`, 400);
+      // Contratos de dia de teste sempre no nome da Ethos (ID 11).
+      const EMPRESA_CONTRATO_DIA_TESTE = 11;
+      const empresa = await fetchDadosEmpresa(EMPRESA_CONTRATO_DIA_TESTE);
+      if (!empresa) return errorResponse(`Empresa do contrato (Ethos) não encontrada`, 500);
 
       const candidatoSnap: CandidatoSnapshot = {
         nome: (det.nome ?? '').trim(),

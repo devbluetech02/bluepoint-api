@@ -139,8 +139,12 @@ async function abrirCaminhoA(args: {
 
   const cargo = await fetchDadosCargo(dados.cargoId);
   if (!cargo) return errorResponse(`Cargo não encontrado: ${dados.cargoId}`, 400);
-  const empresa = await fetchDadosEmpresa(dados.empresaId);
-  if (!empresa) return errorResponse(`Empresa não encontrada: ${dados.empresaId}`, 400);
+  // Contratos de dia de teste (termo de ciência e autônomo) sempre vão
+  // no nome e endereço da empresa Ethos (ID 11), independente da empresa
+  // vinculada ao processo do candidato.
+  const EMPRESA_CONTRATO_DIA_TESTE = 11;
+  const empresa = await fetchDadosEmpresa(EMPRESA_CONTRATO_DIA_TESTE);
+  if (!empresa) return errorResponse(`Empresa do contrato (Ethos, ID ${EMPRESA_CONTRATO_DIA_TESTE}) não encontrada`, 500);
 
   const candidatoSnap: CandidatoSnapshot = {
     nome: dados.nome,
