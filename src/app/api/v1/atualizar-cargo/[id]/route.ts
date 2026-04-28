@@ -10,7 +10,7 @@ const atualizarCargoSchema = z.object({
   nome: z.string().min(2).optional(),
   cbo: z.string().optional().nullable(),
   descricao: z.string().optional().nullable(),
-  salarioMedio: z.number().min(0, 'Salário médio não pode ser negativo').optional().nullable(),
+  salarioPadrao: z.number().min(0, 'Salário padrão não pode ser negativo').optional().nullable(),
   // Lista de IDs de templates SignProof associados a este cargo (migration 033).
   // Array vazio = DP escolhe caso a caso; undefined = não mexe.
   templatesContratoAdmissao: z.array(z.string().min(1)).max(20).optional(),
@@ -52,7 +52,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao, template_dia_teste, nivel_acesso_id
+        `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao, template_dia_teste, nivel_acesso_id
            FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
@@ -62,7 +62,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId } = validation.data;
+      const { nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -84,9 +84,9 @@ export async function PUT(request: NextRequest, { params }: Params) {
         values.push(descricao);
         paramIndex++;
       }
-      if (salarioMedio !== undefined) {
-        updates.push(`salario_medio = $${paramIndex}`);
-        values.push(salarioMedio);
+      if (salarioPadrao !== undefined) {
+        updates.push(`salario_padrao = $${paramIndex}`);
+        values.push(salarioPadrao);
         paramIndex++;
       }
       if (templatesContratoAdmissao !== undefined) {
@@ -124,7 +124,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosAnteriores: cargoAntigo,
-        dadosNovos: { nome, cbo, descricao, salarioMedio, nivelAcessoId },
+        dadosNovos: { nome, cbo, descricao, salarioPadrao, nivelAcessoId },
       });
 
       return successResponse({
@@ -132,7 +132,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         nome: cargo.nome,
         cbo: cargo.cbo,
         descricao: cargo.descricao,
-        salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
+        salarioPadrao: cargo.salario_padrao ? parseFloat(cargo.salario_padrao) : null,
         templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
         templateDiaTeste: cargo.template_dia_teste ?? null,
         nivelAcessoId: cargo.nivel_acesso_id,

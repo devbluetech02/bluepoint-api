@@ -19,14 +19,14 @@ export interface DadosColaboradorCusto {
   cargo_id: number;
   empresa: string;
   empresa_id: number;
-  /** Valor da HE 75% derivado on-the-fly a partir de salario_medio / 220 * 1.75. */
+  /** Valor da HE 75% derivado on-the-fly a partir de salario_padrao / 220 * 1.75. */
   valorHe75: number;
 }
 
 /** Calcula o valor da hora extra 75% a partir do salário: salario / 220 * 1.75 (CLT). */
-function calcularValorHe75(salarioMedio: string | number | null | undefined): number | null {
-  if (salarioMedio === null || salarioMedio === undefined) return null;
-  const salario = typeof salarioMedio === 'string' ? parseFloat(salarioMedio) : salarioMedio;
+function calcularValorHe75(salarioPadrao: string | number | null | undefined): number | null {
+  if (salarioPadrao === null || salarioPadrao === undefined) return null;
+  const salario = typeof salarioPadrao === 'string' ? parseFloat(salarioPadrao) : salarioPadrao;
   if (!salario || salario <= 0) return null;
   return parseFloat(((salario / 220) * 1.75).toFixed(2));
 }
@@ -42,7 +42,7 @@ export async function buscarDadosColaboradorParaCusto(
     `SELECT
        cg.nome AS cargo,
        cg.id AS cargo_id,
-       cg.salario_medio,
+       cg.salario_padrao,
        e.nome_fantasia AS empresa,
        e.id AS empresa_id
      FROM people.colaboradores c
@@ -55,7 +55,7 @@ export async function buscarDadosColaboradorParaCusto(
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
-  const valorHe75 = calcularValorHe75(row.salario_medio);
+  const valorHe75 = calcularValorHe75(row.salario_padrao);
   if (!valorHe75) return null;
 
   return {
@@ -270,7 +270,7 @@ export async function verificarLimiteMensalGestor(
   const limiteMensal = parseFloat(limite_mensal);
 
   const dadosColab = await query(
-    `SELECT cg.salario_medio
+    `SELECT cg.salario_padrao
      FROM people.colaboradores c
      JOIN people.cargos cg ON c.cargo_id = cg.id
      WHERE c.id = $1`,
@@ -281,7 +281,7 @@ export async function verificarLimiteMensalGestor(
     return null;
   }
 
-  const valorHe75 = calcularValorHe75(dadosColab.rows[0].salario_medio);
+  const valorHe75 = calcularValorHe75(dadosColab.rows[0].salario_padrao);
   if (!valorHe75) {
     return null;
   }

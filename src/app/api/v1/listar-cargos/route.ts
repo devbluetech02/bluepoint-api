@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
           // Buscar cargos
           const dataParams = [...params, limite, offset];
           const dataResult = await query(
-            `SELECT id, nome, cbo, descricao, salario_medio, templates_contrato_admissao,
+            `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao,
                     template_dia_teste, nivel_acesso_id, created_at, updated_at
              FROM people.cargos
              ${whereClause}
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
             nome: cargo.nome,
             cbo: cargo.cbo,
             descricao: cargo.descricao,
-            salarioMedio: cargo.salario_medio ? parseFloat(cargo.salario_medio) : null,
+            salarioPadrao: cargo.salario_padrao ? parseFloat(cargo.salario_padrao) : null,
             templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
             templateDiaTeste: cargo.template_dia_teste ?? null,
             nivelAcessoId: cargo.nivel_acesso_id ?? null,
