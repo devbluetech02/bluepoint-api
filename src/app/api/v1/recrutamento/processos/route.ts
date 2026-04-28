@@ -242,6 +242,7 @@ async function abrirCaminhoA(args: {
   let docId: string | null = null;
   let signProofErro: string | null = null;
   let envioOk = false;
+  let signingLink: string | undefined;
 
   if (!criar.ok) {
     signProofErro = `criar:${criar.erro}`;
@@ -254,8 +255,41 @@ async function abrirCaminhoA(args: {
       [docId, processoId]
     );
     const env = await enviarDocumentoDiaTeste(docId);
-    if (env.ok) envioOk = true;
-    else signProofErro = `enviar:${env.erro ?? '?'}`;
+    if (env.ok) {
+      envioOk = true;
+      signingLink = env.signingLink;
+    } else {
+      signProofErro = `enviar:${env.erro ?? '?'}`;
+    }
+  }
+
+  // 3) WhatsApp com link de assinatura do contrato (best-effort).
+  const numeroWhats = (candidatoSnap.telefone ?? '').replace(/\D/g, '');
+  let whatsappOk = false;
+  let whatsappErro: string | null = null;
+  if (envioOk && signingLink && numeroWhats.length >= 10) {
+    const primeiroNome = dados.nome.split(' ')[0];
+    const mensagem = [
+      `Olá, ${primeiroNome}! 👋`,
+      '',
+      `Você foi selecionado(a) para um dia de teste conosco! 🎉`,
+      '',
+      `Para participar, é necessário assinar o contrato de prestação de serviço. É rápido e 100% digital:`,
+      '',
+      `📋 *Assinar contrato:*`,
+      signingLink,
+      '',
+      `Após assinar, você receberá todas as orientações por e-mail.`,
+      '',
+      `Qualquer dúvida, estamos à disposição!`,
+    ].join('\n');
+    const result = await enviarMensagemWhatsApp(numeroWhats, mensagem);
+    whatsappOk = result.ok;
+    whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
+  } else if (!numeroWhats || numeroWhats.length < 10) {
+    whatsappErro = 'sem_telefone';
+  } else if (!signingLink) {
+    whatsappErro = 'sem_signing_link';
   }
 
   await registrarAuditoria(buildAuditParams(req, user, {
@@ -275,6 +309,8 @@ async function abrirCaminhoA(args: {
       documentoAssinaturaId: docId,
       signProofEnvioOk: envioOk,
       signProofErro,
+      whatsappOk,
+      whatsappErro,
     },
   }));
 
@@ -287,6 +323,10 @@ async function abrirCaminhoA(args: {
       documentoId: docId,
       enviado: envioOk,
       erro: signProofErro,
+    },
+    whatsapp: {
+      enviado: whatsappOk,
+      erro: whatsappErro,
     },
   };
   return createdResponse(payload);

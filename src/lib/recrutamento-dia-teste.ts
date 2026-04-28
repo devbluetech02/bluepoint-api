@@ -329,13 +329,15 @@ export async function criarDocumentoDiaTeste(args: {
   }
 }
 
-export async function enviarDocumentoDiaTeste(documentId: string): Promise<{ ok: boolean; erro?: string }> {
+export async function enviarDocumentoDiaTeste(documentId: string): Promise<{ ok: boolean; signingLink?: string; erro?: string }> {
   const baseUrl = process.env.SIGNPROOF_API_URL;
   const apiKey = process.env.SIGNPROOF_API_KEY;
   if (!baseUrl || !apiKey) return { ok: false, erro: 'signproof_env_ausente' };
 
   try {
-    const resp = await fetch(`${baseUrl}/api/v1/integration/documents/${documentId}/send`, {
+    // skip_email=true suprime TODAS as notificações do SignProof (email + whatsapp).
+    // O People envia a mensagem por WhatsApp por conta própria com o signing_link.
+    const resp = await fetch(`${baseUrl}/api/v1/integration/documents/${documentId}/send?skip_email=true`, {
       method: 'POST',
       headers: {
         'X-API-Key': apiKey,
@@ -346,7 +348,13 @@ export async function enviarDocumentoDiaTeste(documentId: string): Promise<{ ok:
       const t = await resp.text().catch(() => '');
       return { ok: false, erro: `http_${resp.status}: ${t.slice(0, 200)}` };
     }
-    return { ok: true };
+    // Extrair signing_link do primeiro signer
+    let signingLink: string | undefined;
+    try {
+      const data = await resp.json() as { signing_links?: { signing_link?: string }[] };
+      signingLink = data.signing_links?.[0]?.signing_link;
+    } catch { /* ignora — link é best-effort */ }
+    return { ok: true, signingLink };
   } catch (e) {
     return { ok: false, erro: `excecao: ${(e as Error).message}` };
   }
