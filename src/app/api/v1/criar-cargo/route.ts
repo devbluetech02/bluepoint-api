@@ -19,6 +19,9 @@ const criarCargoSchema = z.object({
   // (caminho A do FLUXO_RECRUTAMENTO). Aceita null pra fallback por heurística
   // do nome (vendedor → termo_ciencia, demais → contrato_autonomo).
   templateDiaTeste: z.string().min(1).max(120).optional().nullable(),
+  // ID do nível de acesso (people.niveis_acesso). Default = Nível 1 (mais
+  // restritivo); o usuário reclassifica conforme necessário.
+  nivelAcessoId: z.number().int().min(1).max(3).optional(),
   // diasTeste foi movido para usuarios_provisorios (task de 2026-04). Zod descarta
   // a chave silenciosamente se o cliente antigo ainda enviar — back-compat.
 });
@@ -39,12 +42,12 @@ export async function POST(request: NextRequest) {
         return validationErrorResponse(errors);
       }
 
-      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste } = validation.data;
+      const { nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId } = validation.data;
 
       const result = await query(
-        `INSERT INTO people.cargos (nome, cbo, descricao, salario_medio, templates_contrato_admissao, template_dia_teste)
-         VALUES ($1, $2, $3, $4, COALESCE($5::text[], ARRAY[]::text[]), $6)
-         RETURNING id, nome`,
+        `INSERT INTO people.cargos (nome, cbo, descricao, salario_medio, templates_contrato_admissao, template_dia_teste, nivel_acesso_id)
+         VALUES ($1, $2, $3, $4, COALESCE($5::text[], ARRAY[]::text[]), $6, COALESCE($7, 1))
+         RETURNING id, nome, nivel_acesso_id`,
         [
           nome,
           cbo || null,
@@ -52,6 +55,7 @@ export async function POST(request: NextRequest) {
           salarioMedio ?? null,
           templatesContratoAdmissao ?? null,
           templateDiaTeste ?? null,
+          nivelAcessoId ?? null,
         ],
       );
 
@@ -67,12 +71,13 @@ export async function POST(request: NextRequest) {
         descricao: `Cargo criado: ${cargo.nome}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
-        dadosNovos: { id: cargo.id, nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste },
+        dadosNovos: { id: cargo.id, nome, cbo, descricao, salarioMedio, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId: cargo.nivel_acesso_id },
       });
 
       return createdResponse({
         id: cargo.id,
         nome: cargo.nome,
+        nivelAcessoId: cargo.nivel_acesso_id,
         mensagem: 'Cargo criado com sucesso',
       });
     } catch (error) {
