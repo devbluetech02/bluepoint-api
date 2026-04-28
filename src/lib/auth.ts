@@ -12,6 +12,26 @@ export interface JWTPayload {
   email: string;
   tipo: string;
   nome: string;
+  nivelId?: number;
+}
+
+const SUPER_ADMIN_USER_ID = 1;
+
+export function isSuperAdmin(user: JWTPayload | null | undefined): boolean {
+  return user?.userId === SUPER_ADMIN_USER_ID;
+}
+
+export async function resolveNivelFromColaborador(colaboradorId: number): Promise<number | null> {
+  if (colaboradorId < 0) return null;
+  const result = await query(
+    `SELECT cg.nivel_acesso_id
+     FROM people.colaboradores c
+     LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+     WHERE c.id = $1`,
+    [colaboradorId]
+  );
+  const row = result.rows[0];
+  return row?.nivel_acesso_id ?? null;
 }
 
 export interface TokenPair {
@@ -54,12 +74,16 @@ export async function generateTokenPair(user: {
   email: string;
   tipo: string;
   nome: string;
+  nivelId?: number | null;
 }): Promise<TokenPair> {
+  const nivelId = user.nivelId ?? (await resolveNivelFromColaborador(user.id)) ?? undefined;
+
   const payload: JWTPayload = {
     userId: user.id,
     email: user.email,
     tipo: user.tipo,
     nome: user.nome,
+    ...(nivelId !== undefined ? { nivelId } : {}),
   };
 
   const token = generateToken(payload);

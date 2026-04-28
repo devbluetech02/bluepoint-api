@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, extractTokenFromHeader, JWTPayload } from './auth';
+import { verifyToken, extractTokenFromHeader, JWTPayload, isSuperAdmin, resolveNivelFromColaborador } from './auth';
 import { forbiddenResponse } from './api-response';
 import { validarApiKey, registrarUsoApiKey, ApiKey, temPermissao } from './api-keys';
 import { TIPOS_GESTAO } from '@/types';
+
+// Resolve o nível de acesso do usuário: prioriza o JWT, cai para o banco se ausente.
+// API Keys (userId negativo) não têm cargo/nivel — retorna null.
+async function getNivelIdFromUser(user: JWTPayload): Promise<number | null> {
+  if (typeof user.nivelId === 'number') return user.nivelId;
+  if (user.userId < 0) return null;
+  return resolveNivelFromColaborador(user.userId);
+}
 
 // Função local para resposta de não autorizado com código customizado
 function unauthorizedResponse(message: string, code?: string): NextResponse {
@@ -154,37 +162,64 @@ export async function withRole(
 
 /**
  * Middleware para admin apenas
- * JWT: tipo='admin'
- * API Key: permissão='admin'
+ * Aceita: usuário com nivelId === 3 OU tipo === 'admin' (fallback) OU userId === 1 (god mode)
  */
 export async function withAdmin(
   request: NextRequest,
   handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
 ): Promise<Response> {
-  return withRole(request, ['admin'], handler);
+  return withAuth(request, async (req, user) => {
+    if (isSuperAdmin(user)) return handler(req, user);
+
+    const nivelId = await getNivelIdFromUser(user);
+    if (nivelId !== null && nivelId >= 3) return handler(req, user);
+
+    // Fallback ao sistema legado (JWTs antigos, API Keys, e cargos ainda não reclassificados)
+    if (user.tipo === 'admin') return handler(req, user);
+
+    return forbiddenResponse('Você não tem permissão para acessar este recurso');
+  });
 }
 
 /**
  * Middleware para cargos de gestão ou admin
- * JWT: tipo='gestor', 'gerente', 'supervisor', 'coordenador' ou 'admin'
- * API Key: permissão='write' ou 'admin'
+ * Aceita: nivelId >= 2 OU tipo em TIPOS_GESTAO (fallback) OU god mode
  */
 export async function withGestor(
   request: NextRequest,
   handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
 ): Promise<Response> {
-  return withRole(request, [...TIPOS_GESTAO], handler);
+  return withAuth(request, async (req, user) => {
+    if (isSuperAdmin(user)) return handler(req, user);
+
+    const nivelId = await getNivelIdFromUser(user);
+    if (nivelId !== null && nivelId >= 2) return handler(req, user);
+
+    if ((TIPOS_GESTAO as readonly string[]).includes(user.tipo)) return handler(req, user);
+
+    return forbiddenResponse('Você não tem permissão para acessar este recurso');
+  });
 }
 
 /**
  * Middleware para endpoints de admissão
- * Aceita gestores/admin E usuários provisórios (tipo='provisorio')
+ * Aceita: usuários provisórios (tipo='provisorio') OU mesmas regras do withGestor
  */
 export async function withAdmissao(
   request: NextRequest,
   handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
 ): Promise<Response> {
-  return withRole(request, [...TIPOS_GESTAO, 'provisorio'], handler);
+  return withAuth(request, async (req, user) => {
+    if (user.tipo === 'provisorio') return handler(req, user);
+    if (isSuperAdmin(user)) return handler(req, user);
+
+    const nivelId = await getNivelIdFromUser(user);
+    if (nivelId !== null && nivelId >= 2) return handler(req, user);
+
+    if ((TIPOS_GESTAO as readonly string[]).includes(user.tipo)) return handler(req, user);
+
+    return forbiddenResponse('Você não tem permissão para acessar este recurso');
+  });
 }
 
 // =====================================================
@@ -193,7 +228,10 @@ export async function withAdmissao(
 
 /**
  * Middleware que verifica se o usuário tem uma permissão específica.
- * Consulta tipo_usuario_permissoes usando o tipo exato do usuário.
+ * Consulta nivel_acesso_permissoes pelo nível do usuário; cai pra
+ * tipo_usuario_permissoes (sistema legado) se a primeira não conceder
+ * — útil enquanto cargos ainda não foram reclassificados via UI.
+ * userId === 1 (god mode) bypassa toda checagem.
  *
  * Exemplo de uso:
  *   withPermission(request, 'colaboradores:criar', async (req, user) => { ... })
@@ -204,23 +242,35 @@ export async function withPermission(
   handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
 ): Promise<Response> {
   return withAuth(request, async (req, user) => {
+    if (isSuperAdmin(user)) return handler(req, user);
+
     const { query: dbQuery } = await import('./db');
 
-    const result = await dbQuery(
+    const nivelId = await getNivelIdFromUser(user);
+    if (nivelId !== null) {
+      const novo = await dbQuery(
+        `SELECT 1 FROM nivel_acesso_permissoes nap
+         JOIN permissoes p ON nap.permissao_id = p.id
+         WHERE nap.nivel_id = $1 AND p.codigo = $2 AND nap.concedido = true
+         LIMIT 1`,
+        [nivelId, codigoPermissao]
+      );
+      if (novo.rows.length > 0) return handler(req, user);
+    }
+
+    // Fallback ao sistema legado (tipo_usuario_permissoes)
+    const legado = await dbQuery(
       `SELECT 1 FROM tipo_usuario_permissoes tp
        JOIN permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = $2 AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigoPermissao]
     );
+    if (legado.rows.length > 0) return handler(req, user);
 
-    if (result.rows.length === 0) {
-      return forbiddenResponse(
-        `Permissão '${codigoPermissao}' não concedida para '${user.tipo}'`
-      );
-    }
-
-    return handler(req, user);
+    return forbiddenResponse(
+      `Permissão '${codigoPermissao}' não concedida`
+    );
   });
 }
 
@@ -233,21 +283,32 @@ export async function withAnyPermission(
   handler: (req: NextRequest, user: JWTPayload) => Promise<Response>
 ): Promise<Response> {
   return withAuth(request, async (req, user) => {
+    if (isSuperAdmin(user)) return handler(req, user);
+
     const { query: dbQuery } = await import('./db');
 
-    const result = await dbQuery(
+    const nivelId = await getNivelIdFromUser(user);
+    if (nivelId !== null) {
+      const novo = await dbQuery(
+        `SELECT 1 FROM nivel_acesso_permissoes nap
+         JOIN permissoes p ON nap.permissao_id = p.id
+         WHERE nap.nivel_id = $1 AND p.codigo = ANY($2) AND nap.concedido = true
+         LIMIT 1`,
+        [nivelId, codigosPermissao]
+      );
+      if (novo.rows.length > 0) return handler(req, user);
+    }
+
+    const legado = await dbQuery(
       `SELECT 1 FROM tipo_usuario_permissoes tp
        JOIN permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = ANY($2) AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigosPermissao]
     );
+    if (legado.rows.length > 0) return handler(req, user);
 
-    if (result.rows.length === 0) {
-      return forbiddenResponse('Você não possui nenhuma das permissões necessárias');
-    }
-
-    return handler(req, user);
+    return forbiddenResponse('Você não possui nenhuma das permissões necessárias');
   });
 }
 
