@@ -62,6 +62,7 @@ const schemaDiaTeste = baseSchema.extend({
     dataPrimeiroDia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve ser YYYY-MM-DD'),
     templateOverride: z.string().min(1).max(120).optional(),
     rg: z.string().max(50).optional().nullable(),
+    banco: z.string().max(100).optional().nullable(),
     chavePix: z.string().max(150).optional().nullable(),
   }),
 });
@@ -153,7 +154,7 @@ async function abrirCaminhoA(args: {
       uf: det.uf,
     },
     telefone: (dados.telefone ?? det.telefone ?? '').replace(/\D/g, '') || null,
-    banco: det.banco,
+    banco: dt.banco ?? det.banco ?? null,
     chavePix: dt.chavePix ?? det.chave_pix ?? null,
   };
 

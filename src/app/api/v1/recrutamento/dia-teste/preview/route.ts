@@ -30,6 +30,7 @@ const schema = z.object({
   dataPrimeiroDia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   templateOverride: z.string().min(1).max(120).optional().nullable(),
   rg: z.string().max(50).optional().nullable(),
+  banco: z.string().max(100).optional().nullable(),
   chavePix: z.string().max(150).optional().nullable(),
 });
 
@@ -83,7 +84,7 @@ export async function POST(request: NextRequest) {
           uf: det.uf,
         },
         telefone: (det.telefone ?? '').replace(/\D/g, '') || null,
-        banco: det.banco,
+        banco: dados.banco ?? det.banco ?? null,
         chavePix: dados.chavePix ?? det.chave_pix ?? null,
       };
 

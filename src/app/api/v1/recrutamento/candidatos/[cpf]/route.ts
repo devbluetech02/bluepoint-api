@@ -38,6 +38,7 @@ interface CandidatoRow {
   vaga: string | null;
   vaga_interesse: string | null;
   cloudinary_url: string | null;
+  banco: string | null;
   chave_pix: string | null;
   tipo_chave: string | null;
   data_candidatura: Date | null;
@@ -111,7 +112,7 @@ export async function GET(
            SELECT
              id, nome, cpf, telefone, email, data_nasc, sexo, rg_candidato,
              cnh_categoria, cep, logradouro, bairro, cidade, uf, estado,
-             vaga, vaga_interesse, cloudinary_url, chave_pix, tipo_chave,
+             vaga, vaga_interesse, cloudinary_url, banco, chave_pix, tipo_chave,
              data_candidatura,
              nome_referencia, telefone_referencia, descricao_referencia, status_referencia,
              nome_referencia_2, telefone_referencia_2, descricao_referencia_2, status_referencia_2,
@@ -178,6 +179,7 @@ export async function GET(
         vaga: trimOrNull(c.vaga),
         vagaInteresse: trimOrNull(c.vaga_interesse),
         curriculoUrl: trimOrNull(c.cloudinary_url),
+        banco: trimOrNull(c.banco),
         pix: {
           chave: trimOrNull(c.chave_pix),
           tipoChave: trimOrNull(c.tipo_chave),
