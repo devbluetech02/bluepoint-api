@@ -269,20 +269,20 @@ async function abrirCaminhoA(args: {
   let whatsappErro: string | null = null;
   if (envioOk && signingLink && numeroWhats.length >= 10) {
     const primeiroNome = dados.nome.split(' ')[0];
-    const mensagem = [
+    const mensagemCustom = dados.mensagemWhatsApp?.trim();
+    const mensagemBase = mensagemCustom || [
       `Olá, ${primeiroNome}! 👋`,
       '',
       `Você foi selecionado(a) para um dia de teste conosco! 🎉`,
       '',
-      `Para participar, é necessário assinar o contrato de prestação de serviço. É rápido e 100% digital:`,
-      '',
-      `📋 *Assinar contrato:*`,
-      signingLink,
+      `Para participar, é necessário assinar o contrato de prestação de serviço. É rápido e 100% digital.`,
       '',
       `Após assinar, você receberá todas as orientações por e-mail.`,
       '',
       `Qualquer dúvida, estamos à disposição!`,
     ].join('\n');
+    // Sempre anexa o link de assinatura ao final da mensagem.
+    const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
     const result = await enviarMensagemWhatsApp(numeroWhats, mensagem);
     whatsappOk = result.ok;
     whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
