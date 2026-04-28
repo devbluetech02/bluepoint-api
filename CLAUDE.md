@@ -11,6 +11,62 @@
 
 ---
 
+## ⚠️ Ambiente local — LEIA ANTES DE OPERAR
+
+A máquina é **Windows 11**. Bash e PowerShell estão disponíveis. As ferramentas necessárias para operar AWS estão instaladas **NATIVAMENTE** — **não use Docker** para rodar `aws` CLI nem `psql`, e **não peça ao usuário para instalar/colar credenciais**. Se você está prestes a dizer "X não existe", **verifique antes** com os comandos abaixo.
+
+### Tooling pré-instalado
+
+| Ferramenta | Caminho absoluto | Versão |
+|---|---|---|
+| `aws` CLI v2 | `C:\Program Files\Amazon\AWSCLIV2\aws.exe` | aws-cli/2.34.38 |
+| `psql` | `C:\Program Files\PostgreSQL\16\bin\psql.exe` | PostgreSQL 16.13 |
+
+Em terminais novos, ambos estão no `PATH` (basta `aws ...` e `psql ...`). Se a sessão atual foi aberta antes da instalação, use o caminho absoluto entre aspas.
+
+### Credenciais AWS
+
+Já configuradas em:
+- `C:\Users\Christofer\.aws\credentials` (perfil `[default]`)
+- `C:\Users\Christofer\.aws\config` (region `us-east-1`)
+
+**Não peça** Access Key/Secret de novo. Para verificar:
+```bash
+aws sts get-caller-identity --region us-east-1
+# Esperado: Account 873153257687, user Christofer
+```
+
+### Teste obrigatório antes de qualquer suposição
+
+```powershell
+& "C:\Program Files\Amazon\AWSCLIV2\aws.exe" --version
+& "C:\Program Files\PostgreSQL\16\bin\psql.exe" --version
+& "C:\Program Files\Amazon\AWSCLIV2\aws.exe" sts get-caller-identity --region us-east-1
+```
+
+Se todos passarem, **siga em frente** — não invente que precisa de Docker pra rodar AWS CLI, não sugira `winget install`, não peça credenciais.
+
+### Recursos AWS deste projeto
+
+| Recurso | Valor |
+|---|---|
+| Account | `873153257687` |
+| Região | `us-east-1` |
+| RDS instance | `people-vpc-instance-1` |
+| RDS host (writer) | `people-vpc.cluster-c2leeo4yeno6.us-east-1.rds.amazonaws.com` |
+| Security Group | `sg-0675a3872bc414070` |
+| ECS Cluster | `valeris-people` |
+| ECS Service | `valeris-people-api` |
+| ECR | `873153257687.dkr.ecr.us-east-1.amazonaws.com/valeris-people-api` |
+| API pública | `https://people-api.valerisapp.com.br` |
+| Health | `https://people-api.valerisapp.com.br/api/v1/health` |
+
+Procedimentos completos (com polling, fluxo de abrir/fechar RDS, troubleshooting):
+- Banco: `.claude/commands/db.md`
+- Deploy: `.claude/commands/deploy.md`
+
+---
+
 ## Regra 1 — Deploy automático
 
 **Sempre que fizer qualquer alteração de código**, executar o deploy na AWS automaticamente, sem precisar o usuário pedir.
