@@ -10,9 +10,13 @@ export async function GET(request: NextRequest) {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
       const busca = searchParams.get('busca');
+      // Quando empresaId é passado, salarioEfetivo/jornadaIdEfetiva refletem
+      // overrides de people.cargos_uf pra UF dessa empresa. Sem empresaId, o
+      // LEFT JOIN não casa e os efetivos caem nos padrões nacionais.
+      const empresaIdRaw = searchParams.get('empresaId');
+      const empresaId = empresaIdRaw ? parseInt(empresaIdRaw) : null;
 
-      // Cache key baseada nos parâmetros de paginação e busca
-      const cacheKey = `${CACHE_KEYS.CARGOS}list:${pagina}:${limite}:${busca || ''}`;
+      const cacheKey = `${CACHE_KEYS.CARGOS}list:${pagina}:${limite}:${busca || ''}:${empresaId ?? ''}`;
 
       // Usar cache-aside pattern
       const result = await cacheAside(
@@ -25,7 +29,7 @@ export async function GET(request: NextRequest) {
           // Filtro de busca por nome, CBO ou descrição
           if (busca) {
             conditions.push(
-              `(LOWER(nome) LIKE $${paramIndex} OR LOWER(cbo) LIKE $${paramIndex} OR LOWER(descricao) LIKE $${paramIndex})`
+              `(LOWER(c.nome) LIKE $${paramIndex} OR LOWER(c.cbo) LIKE $${paramIndex} OR LOWER(c.descricao) LIKE $${paramIndex})`
             );
             params.push(`%${busca.toLowerCase()}%`);
             paramIndex++;
@@ -35,19 +39,27 @@ export async function GET(request: NextRequest) {
 
           // Contar total
           const countResult = await query(
-            `SELECT COUNT(*) as total FROM people.cargos ${whereClause}`,
+            `SELECT COUNT(*) as total FROM people.cargos c ${whereClause}`,
             params
           );
           const total = parseInt(countResult.rows[0].total);
 
-          // Buscar cargos
-          const dataParams = [...params, limite, offset];
+          // empresaId vai como último parâmetro pra alimentar a subquery do LEFT JOIN.
+          // Se for null, a subquery devolve NULL e nenhuma linha de cargos_uf casa
+          // (NULL = NULL é UNKNOWN no SQL), então salario_efetivo = salario_padrao.
+          const dataParams = [...params, limite, offset, empresaId];
           const dataResult = await query(
-            `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao,
-                    template_dia_teste, nivel_acesso_id, created_at, updated_at
-             FROM people.cargos
+            `SELECT c.id, c.nome, c.cbo, c.descricao, c.salario_padrao,
+                    c.jornada_id_padrao, c.templates_contrato_admissao,
+                    c.template_dia_teste, c.nivel_acesso_id, c.created_at, c.updated_at,
+                    COALESCE(cu.salario,    c.salario_padrao)    AS salario_efetivo,
+                    COALESCE(cu.jornada_id, c.jornada_id_padrao) AS jornada_id_efetiva
+             FROM people.cargos c
+             LEFT JOIN people.cargos_uf cu
+               ON cu.cargo_id = c.id
+              AND cu.uf = (SELECT estado FROM people.empresas WHERE id = $${paramIndex + 2} LIMIT 1)
              ${whereClause}
-             ORDER BY nome ASC
+             ORDER BY c.nome ASC
              LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
             dataParams
           );
@@ -77,6 +89,9 @@ export async function GET(request: NextRequest) {
             cbo: cargo.cbo,
             descricao: cargo.descricao,
             salarioPadrao: cargo.salario_padrao ? parseFloat(cargo.salario_padrao) : null,
+            jornadaIdPadrao: cargo.jornada_id_padrao ?? null,
+            salarioEfetivo: cargo.salario_efetivo ? parseFloat(cargo.salario_efetivo) : null,
+            jornadaIdEfetiva: cargo.jornada_id_efetiva ?? null,
             templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
             templateDiaTeste: cargo.template_dia_teste ?? null,
             nivelAcessoId: cargo.nivel_acesso_id ?? null,

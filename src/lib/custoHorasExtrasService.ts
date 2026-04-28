@@ -19,7 +19,8 @@ export interface DadosColaboradorCusto {
   cargo_id: number;
   empresa: string;
   empresa_id: number;
-  /** Valor da HE 75% derivado on-the-fly a partir de salario_padrao / 220 * 1.75. */
+  /** Valor da HE 75% derivado on-the-fly a partir do salário efetivo do cargo
+   *  (cargos_uf override pela UF da empresa, ou cargos.salario_padrao) / 220 * 1.75. */
   valorHe75: number;
 }
 
@@ -42,12 +43,13 @@ export async function buscarDadosColaboradorParaCusto(
     `SELECT
        cg.nome AS cargo,
        cg.id AS cargo_id,
-       cg.salario_padrao,
+       COALESCE(cu.salario, cg.salario_padrao) AS salario_efetivo,
        e.nome_fantasia AS empresa,
        e.id AS empresa_id
      FROM people.colaboradores c
      LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
      LEFT JOIN people.empresas e ON c.empresa_id = e.id
+     LEFT JOIN people.cargos_uf cu ON cu.cargo_id = cg.id AND cu.uf = e.estado
      WHERE c.id = $1`,
     [colaboradorId]
   );
@@ -55,7 +57,7 @@ export async function buscarDadosColaboradorParaCusto(
   if (result.rows.length === 0) return null;
 
   const row = result.rows[0];
-  const valorHe75 = calcularValorHe75(row.salario_padrao);
+  const valorHe75 = calcularValorHe75(row.salario_efetivo);
   if (!valorHe75) return null;
 
   return {
@@ -270,9 +272,11 @@ export async function verificarLimiteMensalGestor(
   const limiteMensal = parseFloat(limite_mensal);
 
   const dadosColab = await query(
-    `SELECT cg.salario_padrao
+    `SELECT COALESCE(cu.salario, cg.salario_padrao) AS salario_efetivo
      FROM people.colaboradores c
      JOIN people.cargos cg ON c.cargo_id = cg.id
+     LEFT JOIN people.empresas e ON c.empresa_id = e.id
+     LEFT JOIN people.cargos_uf cu ON cu.cargo_id = cg.id AND cu.uf = e.estado
      WHERE c.id = $1`,
     [colaboradorId]
   );
@@ -281,7 +285,7 @@ export async function verificarLimiteMensalGestor(
     return null;
   }
 
-  const valorHe75 = calcularValorHe75(dadosColab.rows[0].salario_padrao);
+  const valorHe75 = calcularValorHe75(dadosColab.rows[0].salario_efetivo);
   if (!valorHe75) {
     return null;
   }

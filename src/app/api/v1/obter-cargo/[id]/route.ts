@@ -18,16 +18,29 @@ export async function GET(request: NextRequest, { params }: Params) {
         return notFoundResponse('Cargo não encontrado');
       }
 
-      const cacheKey = `${CACHE_KEYS.CARGO}${cargoId}`;
+      // Quando empresaId é passado, salarioEfetivo/jornadaIdEfetiva refletem
+      // overrides de people.cargos_uf pra UF dessa empresa. Sem empresaId,
+      // os efetivos caem nos padrões nacionais via COALESCE.
+      const { searchParams } = new URL(request.url);
+      const empresaIdRaw = searchParams.get('empresaId');
+      const empresaId = empresaIdRaw ? parseInt(empresaIdRaw) : null;
+
+      const cacheKey = `${CACHE_KEYS.CARGO}${cargoId}:${empresaId ?? ''}`;
 
       const dados = await cacheAside(cacheKey, async () => {
 
       const result = await query(
-        `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao,
-                template_dia_teste, nivel_acesso_id, created_at, updated_at
-         FROM people.cargos
-         WHERE id = $1`,
-        [cargoId]
+        `SELECT c.id, c.nome, c.cbo, c.descricao, c.salario_padrao,
+                c.jornada_id_padrao, c.templates_contrato_admissao,
+                c.template_dia_teste, c.nivel_acesso_id, c.created_at, c.updated_at,
+                COALESCE(cu.salario,    c.salario_padrao)    AS salario_efetivo,
+                COALESCE(cu.jornada_id, c.jornada_id_padrao) AS jornada_id_efetiva
+         FROM people.cargos c
+         LEFT JOIN people.cargos_uf cu
+           ON cu.cargo_id = c.id
+          AND cu.uf = (SELECT estado FROM people.empresas WHERE id = $2 LIMIT 1)
+         WHERE c.id = $1`,
+        [cargoId, empresaId]
       );
 
       if (result.rows.length === 0) {
@@ -55,6 +68,9 @@ export async function GET(request: NextRequest, { params }: Params) {
         cbo: cargo.cbo,
         descricao: cargo.descricao,
         salarioPadrao: cargo.salario_padrao ? parseFloat(cargo.salario_padrao) : null,
+        jornadaIdPadrao: cargo.jornada_id_padrao ?? null,
+        salarioEfetivo: cargo.salario_efetivo ? parseFloat(cargo.salario_efetivo) : null,
+        jornadaIdEfetiva: cargo.jornada_id_efetiva ?? null,
         templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
         templateDiaTeste: cargo.template_dia_teste ?? null,
         nivelAcessoId: cargo.nivel_acesso_id ?? null,
