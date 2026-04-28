@@ -144,17 +144,18 @@ export async function GET(request: NextRequest) {
         )
       );
 
-      const candidatosMap = new Map<number, { nome: string; telefone: string | null; cpf: string; responsavel: string | null }>();
+      const candidatosMap = new Map<number, { nome: string; telefone: string | null; email: string | null; cpf: string; responsavel: string | null }>();
       if (candidatoIds.length > 0) {
         try {
           const cRes = await queryRecrutamento<{
             id: number;
             nome: string | null;
             telefone: string | null;
+            email: string | null;
             cpf: string | null;
             resposavel: string | null;
           }>(
-            `SELECT id, nome, telefone, resposavel,
+            `SELECT id, nome, telefone, email, resposavel,
                     regexp_replace(cpf, '\\D', '', 'g') AS cpf
                FROM public.candidatos
               WHERE id = ANY($1::int[])`,
@@ -164,6 +165,7 @@ export async function GET(request: NextRequest) {
             candidatosMap.set(c.id, {
               nome: (c.nome ?? '').trim(),
               telefone: c.telefone ? c.telefone.replace(/\D/g, '') : null,
+              email: c.email ? c.email.trim() : null,
               cpf: c.cpf ?? '',
               responsavel: c.resposavel ? c.resposavel.trim() : null,
             });
@@ -204,6 +206,7 @@ export async function GET(request: NextRequest) {
             cpf: r.candidato_cpf_norm,
             nome: cand?.nome ?? '',
             telefone: cand?.telefone ?? null,
+            email: cand?.email ?? null,
             responsavel: cand?.responsavel ?? null,
           },
           cargo: cargoId !== null ? { id: cargoId, nome: r.cargo_nome ?? '' } : null,
