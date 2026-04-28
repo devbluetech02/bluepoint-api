@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { serverErrorResponse } from '@/lib/api-response';
+import { resolveImageVariables } from '@/lib/signproof-image-resolver';
 
 const SIGNPROOF_API_URL = process.env.SIGNPROOF_API_URL;
 const SIGNPROOF_API_KEY = process.env.SIGNPROOF_API_KEY;
@@ -8,7 +9,16 @@ const SIGNPROOF_API_KEY = process.env.SIGNPROOF_API_KEY;
 export async function POST(request: NextRequest) {
   return withAuth(request, async () => {
     try {
-      const body = await request.text();
+      const raw = await request.text();
+      // Faz parse pra mutar variáveis de imagem; se vier não-JSON, repassa cru.
+      let body = raw;
+      try {
+        const parsed = JSON.parse(raw) as { variables?: Record<string, unknown> };
+        await resolveImageVariables(parsed.variables);
+        body = JSON.stringify(parsed);
+      } catch {
+        // body permanece cru
+      }
 
       const response = await fetch(`${SIGNPROOF_API_URL}/api/v1/integration/documents/preview`, {
         method: 'POST',

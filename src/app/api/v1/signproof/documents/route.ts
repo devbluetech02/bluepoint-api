@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { resolveImageVariables } from '@/lib/signproof-image-resolver';
 
 const SIGNPROOF_API_URL = process.env.SIGNPROOF_API_URL;
 const SIGNPROOF_API_KEY = process.env.SIGNPROOF_API_KEY;
@@ -59,6 +60,12 @@ export async function POST(request: NextRequest) {
 
       const enforceError = enforceWhatsAppForAdmissao(body);
       if (enforceError) return errorResponse(enforceError, 400);
+
+      // Converte URLs de imagem (foto_colaborador, logo_empresa, …) em data
+      // URI base64 — sem isso, SignProof renderiza a URL como texto.
+      await resolveImageVariables(
+        body.variables as Record<string, unknown> | undefined,
+      );
 
       const response = await fetch(`${SIGNPROOF_API_URL}/api/v1/integration/documents`, {
         method: 'POST',
