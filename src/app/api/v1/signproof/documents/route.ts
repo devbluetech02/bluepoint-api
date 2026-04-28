@@ -7,10 +7,9 @@ const SIGNPROOF_API_URL = process.env.SIGNPROOF_API_URL;
 const SIGNPROOF_API_KEY = process.env.SIGNPROOF_API_KEY;
 
 // Prefixo de external_ref que identifica contratos do fluxo de pré-admissão.
-// Nesses contratos o canal primário é WhatsApp (FLUXO_RECRUTAMENTO.md §3.3 e §4.2) —
-// o proxy força notification_channel/auth_method pra garantir que chamadores
-// antigos (ou a automação IA da Sprint 1.5) não degradem silenciosamente
-// pra email.
+// Esses contratos exigem WhatsApp pra que o OTP (auth_method=whatsapp_token)
+// possa ser disparado — o invite/notification_channel fica como o front
+// definiu (geralmente "email", canal mais persistente para o link de assinatura).
 const ADMISSAO_EXTERNAL_REF_PREFIX = 'ADM-';
 
 interface SignerPayload {
@@ -27,9 +26,11 @@ interface DocumentPayload {
 }
 
 /**
- * Se o documento é de pré-admissão, garante WhatsApp como canal primário
- * em TODOS os signatários e exige phone. Retorna null se OK, ou string com
- * a razão da rejeição (400) se faltar telefone.
+ * Pré-admissão exige phone em TODOS os signatários (auth_method=whatsapp_token
+ * usa o telefone pra disparar o OTP). Não força mais notification_channel —
+ * o front escolhe o canal do convite (default: email).
+ *
+ * Retorna null se OK, ou string com a razão da rejeição (400) se faltar telefone.
  */
 function enforceWhatsAppForAdmissao(body: DocumentPayload): string | null {
   const externalRef = typeof body.external_ref === 'string' ? body.external_ref : '';
@@ -42,13 +43,8 @@ function enforceWhatsAppForAdmissao(body: DocumentPayload): string | null {
     const signer = signers[i];
     const phone = typeof signer.phone === 'string' ? signer.phone.trim() : '';
     if (!phone) {
-      return `Signatário #${i + 1} precisa de "phone" — contratos de pré-admissão (external_ref ${ADMISSAO_EXTERNAL_REF_PREFIX}…) exigem WhatsApp.`;
+      return `Signatário #${i + 1} precisa de "phone" — contratos de pré-admissão (external_ref ${ADMISSAO_EXTERNAL_REF_PREFIX}…) exigem WhatsApp para o OTP.`;
     }
-    // "both" é aceito (invite por whatsapp + email); só vira "whatsapp" se veio só email.
-    if (signer.notification_channel !== 'both' && signer.notification_channel !== 'whatsapp') {
-      signer.notification_channel = 'whatsapp';
-    }
-    signer.auth_method = 'whatsapp_token';
   }
   return null;
 }
