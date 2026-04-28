@@ -159,7 +159,7 @@ async function abrirCaminhoA(args: {
   };
 
   if (!candidatoSnap.telefone || candidatoSnap.telefone.length < 10) {
-    return errorResponse('Telefone do candidato é obrigatório pro Dia de Teste (SignProof envia por WhatsApp)', 400);
+    return errorResponse('Telefone do candidato é obrigatório pro Dia de Teste (People envia o contrato por WhatsApp)', 400);
   }
 
   const templateId = (dt.templateOverride && dt.templateOverride.trim() !== '')

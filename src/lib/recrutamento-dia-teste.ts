@@ -294,8 +294,8 @@ export async function criarDocumentoDiaTeste(args: {
         document: args.signer.cpf,
         email: args.signer.email || undefined,
         phone: phoneE164,
-        notification_channel: 'whatsapp',
-        auth_method: 'whatsapp_token',
+        notification_channel: 'email',
+        auth_method: 'email_token',
       },
     ],
   };
