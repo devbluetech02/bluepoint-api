@@ -37,6 +37,8 @@ interface Row {
   candidato_cpf_norm: string;
   vaga_snapshot: string | null;
   documento_assinatura_id: string | null;
+  criado_por: string | number | null;
+  criado_por_nome: string | null;
   // joins
   cargo_id: string | number | null;
   cargo_nome: string | null;
@@ -113,6 +115,8 @@ export async function GET(request: NextRequest) {
             ps.candidato_cpf_norm,
             ps.vaga_snapshot,
             ps.documento_assinatura_id,
+            ps.criado_por,
+            col_criador.nome            AS criado_por_nome,
             ps.cargo_id,
             c.nome                      AS cargo_nome,
             ps.empresa_id,
@@ -121,6 +125,7 @@ export async function GET(request: NextRequest) {
             d.nome                      AS departamento_nome
            FROM people.dia_teste_agendamento a
            JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
+           LEFT JOIN people.colaboradores col_criador ON col_criador.id = ps.criado_por
            LEFT JOIN people.cargos        c ON c.id = ps.cargo_id
            LEFT JOIN people.empresas      e ON e.id = ps.empresa_id
            LEFT JOIN people.departamentos d ON d.id = ps.departamento_id
@@ -139,7 +144,7 @@ export async function GET(request: NextRequest) {
         )
       );
 
-      const candidatosMap = new Map<number, { nome: string; telefone: string | null; cpf: string }>();
+      const candidatosMap = new Map<number, { nome: string; telefone: string | null; cpf: string; responsavel: string | null }>();
       if (candidatoIds.length > 0) {
         try {
           const cRes = await queryRecrutamento<{
@@ -147,8 +152,9 @@ export async function GET(request: NextRequest) {
             nome: string | null;
             telefone: string | null;
             cpf: string | null;
+            resposavel: string | null;
           }>(
-            `SELECT id, nome, telefone,
+            `SELECT id, nome, telefone, resposavel,
                     regexp_replace(cpf, '\\D', '', 'g') AS cpf
                FROM public.candidatos
               WHERE id = ANY($1::int[])`,
@@ -159,6 +165,7 @@ export async function GET(request: NextRequest) {
               nome: (c.nome ?? '').trim(),
               telefone: c.telefone ? c.telefone.replace(/\D/g, '') : null,
               cpf: c.cpf ?? '',
+              responsavel: c.resposavel ? c.resposavel.trim() : null,
             });
           }
         } catch (e) {
@@ -188,11 +195,16 @@ export async function GET(request: NextRequest) {
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,
           vagaOrigem: r.vaga_snapshot,
+          enviadoPor: {
+            id: toIntOrNull(r.criado_por),
+            nome: r.criado_por_nome ?? null,
+          },
           candidato: {
             recrutamentoId: candId,
             cpf: r.candidato_cpf_norm,
             nome: cand?.nome ?? '',
             telefone: cand?.telefone ?? null,
+            responsavel: cand?.responsavel ?? null,
           },
           cargo: cargoId !== null ? { id: cargoId, nome: r.cargo_nome ?? '' } : null,
           empresa: empresaId !== null ? { id: empresaId, nome: r.empresa_nome ?? '' } : null,
