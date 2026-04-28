@@ -352,6 +352,31 @@ export async function enviarDocumentoDiaTeste(documentId: string): Promise<{ ok:
   }
 }
 
+// Cancela o documento na SignProof. Conforme §5 do FLUXO_RECRUTAMENTO,
+// disparado mesmo se o documento já estiver assinado pelo candidato.
+export async function cancelarDocumentoSignProof(documentId: string): Promise<{ ok: boolean; erro?: string }> {
+  const baseUrl = process.env.SIGNPROOF_API_URL;
+  const apiKey = process.env.SIGNPROOF_API_KEY;
+  if (!baseUrl || !apiKey) return { ok: false, erro: 'signproof_env_ausente' };
+
+  try {
+    const resp = await fetch(`${baseUrl}/api/v1/integration/documents/${documentId}/cancel`, {
+      method: 'POST',
+      headers: {
+        'X-API-Key': apiKey,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return { ok: false, erro: `http_${resp.status}: ${t.slice(0, 200)}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, erro: `excecao: ${(e as Error).message}` };
+  }
+}
+
 function normalizePhoneBR(raw: string): string | null {
   let d = raw.replace(/\D/g, '');
   if (!d) return null;
