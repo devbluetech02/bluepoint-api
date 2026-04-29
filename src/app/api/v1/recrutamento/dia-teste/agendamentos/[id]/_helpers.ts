@@ -19,6 +19,7 @@ export interface AgendamentoRow {
   status: string;
   decidido_por: string | number | null;
   decidido_em: Date | null;
+  comparecimento_em: Date | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   criado_em: Date;
@@ -33,6 +34,38 @@ export interface AgendamentoRow {
   departamento_id: string | number | null;
   departamento_nome: string | null;
   processo_status: string;
+}
+
+/**
+ * Calcula quando o gestor pode tomar decisão final no dia de teste
+ * (regra §3.6 do FLUXO_RECRUTAMENTO: bloqueado antes de 50% da carga
+ * horária ter sido cumprida).
+ *
+ * Retorna `podeDecidir = false` e `podeDecidirApos = null` quando o
+ * status ainda não chegou em `compareceu` (não faz sentido calcular).
+ */
+export function calcularPodeDecidir(row: AgendamentoRow): {
+  podeDecidir: boolean;
+  podeDecidirApos: Date | null;
+} {
+  // Status terminais: já decidido, sem nova ação.
+  const statusTerminais = ['aprovado', 'reprovado', 'nao_compareceu', 'desistencia', 'cancelado'];
+  if (statusTerminais.includes(row.status)) {
+    return { podeDecidir: false, podeDecidirApos: null };
+  }
+  // Status pré-comparecimento: bloqueado, esperando o gestor marcar.
+  if (row.status !== 'compareceu' || row.comparecimento_em === null) {
+    return { podeDecidir: false, podeDecidirApos: null };
+  }
+  // Calcula meio da jornada a partir do comparecimento.
+  // carga_horaria é em horas; *60 = minutos; *0.5 = metade.
+  const meio = new Date(
+    row.comparecimento_em.getTime() + row.carga_horaria * 60 * 0.5 * 60 * 1000,
+  );
+  return {
+    podeDecidir: Date.now() >= meio.getTime(),
+    podeDecidirApos: meio,
+  };
 }
 
 /**
@@ -54,6 +87,7 @@ export async function loadAgendamento(
         a.status,
         a.decidido_por,
         a.decidido_em,
+        a.comparecimento_em,
         a.percentual_concluido,
         a.valor_a_pagar::text       AS valor_a_pagar,
         a.criado_em,
@@ -127,6 +161,7 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
   const cargoId = toIntOrNull(row.cargo_id);
   const empresaId = toIntOrNull(row.empresa_id);
   const departamentoId = toIntOrNull(row.departamento_id);
+  const podeDecidir = calcularPodeDecidir(row);
 
   return {
     agendamentoId: row.id,
@@ -152,8 +187,8 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
         ? { id: departamentoId, nome: row.departamento_nome ?? '' }
         : null,
     status: row.status,
-    podeDecidir: row.status === 'compareceu',
-    podeDecidirAposISO: null,
+    podeDecidir: podeDecidir.podeDecidir,
+    podeDecidirAposISO: podeDecidir.podeDecidirApos?.toISOString() ?? null,
     valorAPagarSeAprovarAgora: null,
     valorAPagarSeFinalDoExpediente: parseFloat(row.valor_diaria),
     decididoPor: row.decidido_por?.toString(),

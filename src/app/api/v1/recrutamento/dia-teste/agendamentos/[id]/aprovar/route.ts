@@ -12,6 +12,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
+  calcularPodeDecidir,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/aprovar
@@ -43,6 +44,26 @@ export async function POST(
       if (ag.status !== 'compareceu') {
         return errorResponse(
           `Agendamento está em status "${ag.status}" — só pode aprovar candidatos que compareceram`,
+          409,
+        );
+      }
+
+      // Defesa em profundidade — bloqueia aprovação antes de 50% da
+      // carga horária mesmo se o cliente burlar. Mensagem traz o horário
+      // exato em que o gestor poderá decidir, pra exibir na UI.
+      const decisao = calcularPodeDecidir(ag);
+      if (!decisao.podeDecidir) {
+        const apos = decisao.podeDecidirApos
+          ? decisao.podeDecidirApos.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'America/Sao_Paulo',
+            })
+          : null;
+        return errorResponse(
+          apos
+            ? `Aprovação só é permitida após o candidato cumprir 50% da carga horária (a partir das ${apos}).`
+            : 'Aprovação ainda não é permitida — candidato precisa cumprir pelo menos 50% da carga horária do dia.',
           409,
         );
       }

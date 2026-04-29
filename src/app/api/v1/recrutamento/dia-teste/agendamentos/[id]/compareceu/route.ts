@@ -56,6 +56,7 @@ export async function POST(
         `UPDATE people.dia_teste_agendamento
             SET status = 'compareceu',
                 gestor_id = COALESCE(gestor_id, $1),
+                comparecimento_em = NOW(),
                 atualizado_em = NOW()
           WHERE id = $2::bigint`,
         [user.userId, id],

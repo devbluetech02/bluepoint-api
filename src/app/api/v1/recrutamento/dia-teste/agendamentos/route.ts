@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
+import { calcularPodeDecidir, type AgendamentoRow } from './[id]/_helpers';
 
 // GET /api/v1/recrutamento/dia-teste/agendamentos
 //
@@ -28,6 +29,7 @@ interface Row {
   // node-pg serializa bigint como string por default (overflow safety).
   decidido_por: string | number | null;
   decidido_em: Date | null;
+  comparecimento_em: Date | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   criado_em: Date;
@@ -114,6 +116,7 @@ export async function GET(request: NextRequest) {
             a.status,
             a.decidido_por,
             a.decidido_em,
+            a.comparecimento_em,
             a.percentual_concluido,
             a.valor_a_pagar::text       AS valor_a_pagar,
             a.criado_em,
@@ -217,8 +220,21 @@ export async function GET(request: NextRequest) {
         const cargoId = toIntOrNull(r.cargo_id);
         const empresaId = toIntOrNull(r.empresa_id);
         const departamentoId = toIntOrNull(r.departamento_id);
+
+        // Calcula podeDecidir/podeDecidirAposISO usando o mesmo helper
+        // do _helpers.ts pra manter consistência com /aprovar e os
+        // demais endpoints de decisão. Bloqueia o gestor antes de 50%
+        // da carga horária ter sido cumprida desde o comparecimento.
+        const podeDecidir = calcularPodeDecidir({
+          ...r,
+          processo_seletivo_id: r.processo_id,
+        } as unknown as AgendamentoRow);
+
         return {
           id: r.id,
+          // Mobile espera `agendamentoId` no fromJson — devolver os dois
+          // mantém compat com clientes velhos que liam só `id`.
+          agendamentoId: r.id,
           processoId: r.processo_id,
           ordem: r.ordem,
           data: r.data,
@@ -227,6 +243,9 @@ export async function GET(request: NextRequest) {
           status: r.status,
           decididoPor: toIntOrNull(r.decidido_por),
           decididoEm: r.decidido_em,
+          comparecimentoEm: r.comparecimento_em,
+          podeDecidir: podeDecidir.podeDecidir,
+          podeDecidirAposISO: podeDecidir.podeDecidirApos?.toISOString() ?? null,
           percentualConcluido: r.percentual_concluido,
           valorAPagar: r.valor_a_pagar !== null ? parseFloat(r.valor_a_pagar) : null,
           criadoEm: r.criado_em,
