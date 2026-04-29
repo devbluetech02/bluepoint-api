@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { errorResponse, forbiddenResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 import PDFDocument from 'pdfkit';
 import path from 'path';
 import fs from 'fs';
@@ -42,6 +43,13 @@ export async function GET(request: NextRequest) {
       const colabIdNum = parseInt(colaboradorId);
       if (isNaN(colabIdNum)) {
         return errorResponse('colaboradorId deve ser um número', 400);
+      }
+
+      // Relatório de auditoria contém histórico sensível — só próprio,
+      // admin ou gestor com escopo podem gerar pra outro.
+      const acesso = await asseguraAcessoColaborador(user, colabIdNum);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const colabResult = await query<{

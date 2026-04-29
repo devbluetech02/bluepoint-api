@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, errorResponse, forbiddenResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { salvarFotoColaborador } from '@/lib/storage';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 // CORS headers
 const corsHeaders = {
@@ -129,6 +130,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       // Verificar se colaborador existe

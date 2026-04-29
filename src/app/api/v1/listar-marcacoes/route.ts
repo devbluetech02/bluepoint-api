@@ -1,24 +1,55 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
+import { paginatedSuccessResponse, forbiddenResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { resolverColaboradorIdComAcesso, obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
+import { isSuperAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
-      
-      const colaboradorId = searchParams.get('colaboradorId');
+
+      const colaboradorIdParam = searchParams.get('colaboradorId');
       const dataInicio = searchParams.get('dataInicio');
       const dataFim = searchParams.get('dataFim');
       const tipo = searchParams.get('tipo');
       const departamentoId = searchParams.get('filtro[departamentoId]');
 
-      // Gerar chave de cache
+      // Resolver escopo do caller — colaborador comum só vê o próprio;
+      // gestor vê o escopo (próprio + atribuídos); super admin / API Key
+      // veem tudo (não filtra).
+      const colaboradorIdNum = colaboradorIdParam ? parseInt(colaboradorIdParam, 10) : null;
+      let colaboradorIdsPermitidos: number[] | null = null; // null = sem restrição (admin)
+
+      if (!isSuperAdmin(user) && user.userId > 0) {
+        if (colaboradorIdNum != null) {
+          // Pediu colaborador específico → valida acesso pontual.
+          const acesso = await resolverColaboradorIdComAcesso(user, colaboradorIdNum);
+          if (!acesso.permitido) {
+            return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+          }
+        } else {
+          // Sem param → restringe pelo escopo (próprio + gestão atribuída).
+          const escopo = await obterEscopoGestor(user.userId);
+          colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+          // Garantia: o próprio sempre incluído (mesmo se não estiver
+          // ativo ou não tiver dept).
+          if (!colaboradorIdsPermitidos.includes(user.userId)) {
+            colaboradorIdsPermitidos.push(user.userId);
+          }
+        }
+      }
+
+      // Cache key inclui o caller pra evitar cross-tenant cache hit
+      const cacheScope = isSuperAdmin(user) || user.userId < 0
+        ? 'admin'
+        : (colaboradorIdNum != null ? `c${colaboradorIdNum}` : `u${user.userId}`);
+
       const cacheKey = buildListCacheKey(CACHE_KEYS.MARCACOES, {
-        pagina, limite, colaboradorId, dataInicio, dataFim, tipo, departamentoId,
+        pagina, limite, colaboradorId: colaboradorIdParam, dataInicio, dataFim, tipo, departamentoId, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -27,9 +58,14 @@ export async function GET(request: NextRequest) {
         const params: unknown[] = [];
         let paramIndex = 1;
 
-        if (colaboradorId) {
+        if (colaboradorIdNum != null) {
           conditions.push(`m.colaborador_id = $${paramIndex}`);
-          params.push(parseInt(colaboradorId));
+          params.push(colaboradorIdNum);
+          paramIndex++;
+        } else if (colaboradorIdsPermitidos != null) {
+          // Restringe ao escopo do gestor (ou apenas o próprio).
+          conditions.push(`m.colaborador_id = ANY($${paramIndex}::int[])`);
+          params.push(colaboradorIdsPermitidos);
           paramIndex++;
         }
 

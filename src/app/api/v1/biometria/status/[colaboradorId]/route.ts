@@ -1,20 +1,26 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, serverErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, forbiddenResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 interface Params {
   params: Promise<{ colaboradorId: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  return withAuth(request, async () => {
+  return withAuth(request, async (_req, user) => {
     try {
       const { colaboradorId: id } = await params;
       const colaboradorId = parseInt(id);
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       // Verificar se colaborador existe

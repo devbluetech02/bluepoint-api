@@ -1,20 +1,40 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { successResponse, errorResponse, forbiddenResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { getDayName, formatDateBR } from '@/lib/utils';
+import { resolverColaboradorIdComAcesso, obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
+import { isSuperAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const dataInicio = searchParams.get('dataInicio');
       const dataFim = searchParams.get('dataFim');
-      const colaboradorId = searchParams.get('colaboradorId');
+      const colaboradorIdParam = searchParams.get('colaboradorId');
       const departamentoId = searchParams.get('departamentoId');
 
       if (!dataInicio || !dataFim) {
         return errorResponse('Data início e fim são obrigatórias', 400);
+      }
+
+      const colaboradorIdNum = colaboradorIdParam ? parseInt(colaboradorIdParam, 10) : null;
+      let colaboradorIdsPermitidos: number[] | null = null;
+
+      if (!isSuperAdmin(user) && user.userId > 0) {
+        if (colaboradorIdNum != null) {
+          const acesso = await resolverColaboradorIdComAcesso(user, colaboradorIdNum);
+          if (!acesso.permitido) {
+            return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+          }
+        } else {
+          const escopo = await obterEscopoGestor(user.userId);
+          colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+          if (!colaboradorIdsPermitidos.includes(user.userId)) {
+            colaboradorIdsPermitidos.push(user.userId);
+          }
+        }
       }
 
       // Construir filtros
@@ -22,9 +42,13 @@ export async function GET(request: NextRequest) {
       const params: unknown[] = ['ativo'];
       let paramIndex = 2;
 
-      if (colaboradorId) {
+      if (colaboradorIdNum != null) {
         conditions.push(`c.id = $${paramIndex}`);
-        params.push(parseInt(colaboradorId));
+        params.push(colaboradorIdNum);
+        paramIndex++;
+      } else if (colaboradorIdsPermitidos != null) {
+        conditions.push(`c.id = ANY($${paramIndex}::int[])`);
+        params.push(colaboradorIdsPermitidos);
         paramIndex++;
       }
 

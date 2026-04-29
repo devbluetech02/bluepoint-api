@@ -19,6 +19,7 @@
  */
 
 import { query } from './db';
+import { JWTPayload, isSuperAdmin } from './auth';
 
 export interface EscopoGestor {
   /** IDs de departamentos com gestão direta + o departamento próprio. */
@@ -203,4 +204,116 @@ export async function gestorPodeAcessarColaborador(
     return true;
   }
   return false;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Asserção de acesso (handler de autorização) — usar em endpoints que
+// recebem `colaboradorId` como param/query e precisam respeitar a regra
+// "colaborador comum só vê os próprios dados".
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AcessoColaboradorResultado {
+  permitido: boolean;
+  /** Mensagem de erro humano-legível quando `permitido = false`. */
+  motivo?: string;
+}
+
+/**
+ * Verifica se um usuário JWT pode acessar dados de um colaborador alvo.
+ *
+ * Regras (ordem de avaliação):
+ *   1. Super admin (`userId === 1`): sempre permitido.
+ *   2. API Key (`userId < 0`): sempre permitido — quem usa API Key é sistema
+ *      externo autenticado pela aplicação que a emitiu, e a granularidade
+ *      por colaborador não se aplica (a chave já tem escopo próprio).
+ *   3. Próprio colaborador (`userId === alvoId`): permitido.
+ *   4. Provisório (`tipo === 'provisorio'`): proibido — fluxo provisório
+ *      só acessa dados próprios da admissão, nunca de outros colaboradores.
+ *   5. Tem escopo de gestão sobre o alvo (via tabelas
+ *      `gestor_departamentos` / `gestor_empresas` ou departamento próprio
+ *      em comum): permitido.
+ *   6. Caso contrário: proibido.
+ *
+ * Use no início do handler:
+ *
+ *   const acesso = await asseguraAcessoColaborador(user, alvoId);
+ *   if (!acesso.permitido) return forbiddenResponse(acesso.motivo);
+ */
+export async function asseguraAcessoColaborador(
+  user: JWTPayload,
+  alvoId: number,
+): Promise<AcessoColaboradorResultado> {
+  // 1. Super admin
+  if (isSuperAdmin(user)) {
+    return { permitido: true };
+  }
+  // 2. API Key
+  if (user.userId < 0) {
+    return { permitido: true };
+  }
+  // 3. Próprio
+  if (user.userId === alvoId) {
+    return { permitido: true };
+  }
+  // 4. Provisório nunca acessa dados de terceiros
+  if (user.tipo === 'provisorio') {
+    return {
+      permitido: false,
+      motivo: 'Acesso provisório restrito ao próprio cadastro',
+    };
+  }
+  // 5. Verifica escopo
+  const ok = await gestorPodeAcessarColaborador(user.userId, alvoId);
+  if (ok) return { permitido: true };
+  return {
+    permitido: false,
+    motivo: 'Você não tem permissão para acessar dados deste colaborador',
+  };
+}
+
+/**
+ * Versão "fail-closed" pra endpoints que aceitam `colaboradorId` opcional
+ * via query/param. Se o param vier vazio, devolve o ID do próprio usuário
+ * (não vaza dados de terceiros). Se vier preenchido, valida acesso.
+ *
+ * Retorno: `{ permitido, colaboradorIdEfetivo, motivo? }`. Quando
+ * `permitido = false`, `colaboradorIdEfetivo` é null.
+ */
+export async function resolverColaboradorIdComAcesso(
+  user: JWTPayload,
+  colaboradorIdParam: number | null | undefined,
+): Promise<{
+  permitido: boolean;
+  colaboradorIdEfetivo: number | null;
+  motivo?: string;
+}> {
+  // Provisório: só pode operar sobre si mesmo. JWT de provisório carrega
+  // userId do registro em `usuarios_provisorios` — semantically diferente
+  // de colaborador, mas na prática equivale ao próprio.
+  if (user.tipo === 'provisorio') {
+    if (colaboradorIdParam != null && colaboradorIdParam !== user.userId) {
+      return {
+        permitido: false,
+        colaboradorIdEfetivo: null,
+        motivo: 'Acesso provisório restrito ao próprio cadastro',
+      };
+    }
+    return { permitido: true, colaboradorIdEfetivo: user.userId };
+  }
+
+  // Sem param explícito → opera sobre si mesmo.
+  if (colaboradorIdParam == null) {
+    return { permitido: true, colaboradorIdEfetivo: user.userId };
+  }
+
+  // Param explícito → valida acesso.
+  const r = await asseguraAcessoColaborador(user, colaboradorIdParam);
+  if (!r.permitido) {
+    return {
+      permitido: false,
+      colaboradorIdEfetivo: null,
+      motivo: r.motivo,
+    };
+  }
+  return { permitido: true, colaboradorIdEfetivo: colaboradorIdParam };
 }

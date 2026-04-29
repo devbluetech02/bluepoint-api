@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { errorResponse, serverErrorResponse } from '@/lib/api-response';
+import { errorResponse, forbiddenResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { formatCPF, formatCNPJ } from '@/lib/utils';
 import { getDiasEmFeriasNoPeriodo } from '@/lib/periodos-ferias';
@@ -537,6 +538,17 @@ export async function GET(request: NextRequest) {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
       if (!dateRegex.test(dataInicio) || !dateRegex.test(dataFim)) {
         return errorResponse('As datas devem estar no formato YYYY-MM-DD', 400);
+      }
+
+      // Espelho de ponto contém histórico completo do colaborador —
+      // só próprio + admin + gestor com escopo podem gerar.
+      const colaboradorIdNum = parseInt(colaboradorId, 10);
+      if (Number.isNaN(colaboradorIdNum)) {
+        return errorResponse('colaboradorId inválido', 400);
+      }
+      const acesso = await asseguraAcessoColaborador(user, colaboradorIdNum);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       // ─── Buscar dados do colaborador ────────────────
