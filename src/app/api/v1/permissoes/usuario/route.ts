@@ -2,8 +2,9 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
-import { JWTPayload, isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
+import { JWTPayload, isSuperAdmin, resolveCargoFromColaborador } from '@/lib/auth';
 import { cacheAside, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 
 export async function GET(request: NextRequest) {
   return withAuth(request, async (_req: NextRequest, user: JWTPayload) => {
@@ -20,37 +21,41 @@ export async function GET(request: NextRequest) {
           userId: user.userId,
           tipo: tipoUsuario,
           nivelId: null,
+          cargoId: null,
           permissoes: todas.rows,
           codigos: todas.rows.map((r) => r.codigo),
         });
       }
 
-      // Resolve o nível: prioriza o JWT; cai para o banco se ausente.
-      let nivelId: number | null = null;
-      if (typeof user.nivelId === 'number') {
-        nivelId = user.nivelId;
-      } else if (user.userId > 0) {
-        nivelId = await resolveNivelFromColaborador(user.userId);
+      // Resolve cargo + nível: prioriza JWT; cai pro banco se faltar.
+      let nivelId: number | null = typeof user.nivelId === 'number' ? user.nivelId : null;
+      let cargoId: number | null = typeof user.cargoId === 'number' ? user.cargoId : null;
+      if ((nivelId === null || cargoId === null) && user.userId > 0) {
+        const r = await resolveCargoFromColaborador(user.userId);
+        if (nivelId === null) nivelId = r.nivelId;
+        if (cargoId === null) cargoId = r.cargoId;
       }
 
-      const cacheKey = `${CACHE_KEYS.PAPEL_PERMISSOES}usuario:n${nivelId ?? 'null'}:t${tipoUsuario}`;
+      const cacheKey = `${CACHE_KEYS.PAPEL_PERMISSOES}usuario:n${nivelId ?? 'null'}:c${cargoId ?? 'null'}:t${tipoUsuario}`;
       const data = await cacheAside(
         cacheKey,
         async () => {
-          // União: permissões do nível + permissões do tipo legado.
-          // Mantém compatibilidade com cargos ainda não reclassificados.
+          // Pega só os códigos efetivos (nível + overrides do cargo).
+          const efetivas = await obterPermissoesEfetivasDoCargo({
+            cargoId,
+            nivelId,
+            tipoLegado: tipoUsuario,
+          });
+          if (efetivas.codigos.length === 0) {
+            return { permissoes: [], codigos: [] };
+          }
+          // E busca o detalhe (id, nome, modulo, acao) pra resposta.
           const result = await query(
-            `SELECT p.id, p.codigo, p.nome, p.modulo, p.acao
-             FROM people.permissoes p
-             WHERE p.id IN (
-               SELECT permissao_id FROM people.nivel_acesso_permissoes
-                 WHERE nivel_id = $1 AND concedido = true
-               UNION
-               SELECT permissao_id FROM people.tipo_usuario_permissoes
-                 WHERE tipo_usuario = $2 AND concedido = true
-             )
-             ORDER BY p.modulo, p.acao`,
-            [nivelId, tipoUsuario]
+            `SELECT id, codigo, nome, modulo, acao
+               FROM people.permissoes
+              WHERE codigo = ANY($1::text[])
+              ORDER BY modulo, acao`,
+            [efetivas.codigos],
           );
           return {
             permissoes: result.rows,
@@ -64,6 +69,7 @@ export async function GET(request: NextRequest) {
         userId: user.userId,
         tipo: tipoUsuario,
         nivelId,
+        cargoId,
         ...data,
       });
     } catch (error) {

@@ -13,6 +13,7 @@ export interface JWTPayload {
   tipo: string;
   nome: string;
   nivelId?: number;
+  cargoId?: number;
 }
 
 const SUPER_ADMIN_USER_ID = 1;
@@ -32,6 +33,30 @@ export async function resolveNivelFromColaborador(colaboradorId: number): Promis
   );
   const row = result.rows[0];
   return row?.nivel_acesso_id ?? null;
+}
+
+/**
+ * Busca cargoId + nivelId de um colaborador. Útil pro middleware
+ * resolver overrides de cargo a partir de JWTs antigos que ainda
+ * não carregam cargoId.
+ */
+export async function resolveCargoFromColaborador(
+  colaboradorId: number,
+): Promise<{ cargoId: number | null; nivelId: number | null }> {
+  if (colaboradorId < 0) return { cargoId: null, nivelId: null };
+  const result = await query<{ cargo_id: number | null; nivel_acesso_id: number | null }>(
+    `SELECT c.cargo_id, cg.nivel_acesso_id
+       FROM people.colaboradores c
+       LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
+      WHERE c.id = $1
+      LIMIT 1`,
+    [colaboradorId],
+  );
+  const row = result.rows[0];
+  return {
+    cargoId: row?.cargo_id ?? null,
+    nivelId: row?.nivel_acesso_id ?? null,
+  };
 }
 
 export interface TokenPair {
@@ -75,15 +100,24 @@ export async function generateTokenPair(user: {
   tipo: string;
   nome: string;
   nivelId?: number | null;
+  cargoId?: number | null;
 }): Promise<TokenPair> {
-  const nivelId = user.nivelId ?? (await resolveNivelFromColaborador(user.id)) ?? undefined;
+  // Resolve nivel/cargo num só lookup se ambos faltarem; senão respeita o que veio.
+  let nivelId: number | null | undefined = user.nivelId;
+  let cargoId: number | null | undefined = user.cargoId;
+  if (nivelId === undefined || cargoId === undefined) {
+    const r = await resolveCargoFromColaborador(user.id);
+    if (nivelId === undefined) nivelId = r.nivelId;
+    if (cargoId === undefined) cargoId = r.cargoId;
+  }
 
   const payload: JWTPayload = {
     userId: user.id,
     email: user.email,
     tipo: user.tipo,
     nome: user.nome,
-    ...(nivelId !== undefined ? { nivelId } : {}),
+    ...(nivelId != null ? { nivelId } : {}),
+    ...(cargoId != null ? { cargoId } : {}),
   };
 
   const token = generateToken(payload);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, extractTokenFromHeader, JWTPayload, isSuperAdmin, resolveNivelFromColaborador } from './auth';
+import { verifyToken, extractTokenFromHeader, JWTPayload, isSuperAdmin, resolveNivelFromColaborador, resolveCargoFromColaborador } from './auth';
 import { forbiddenResponse } from './api-response';
 import { validarApiKey, registrarUsoApiKey, ApiKey, temPermissao } from './api-keys';
+import { cargoTemPermissao } from './permissoes-efetivas';
 import { TIPOS_GESTAO } from '@/types';
 
 // Resolve o nível de acesso do usuário: prioriza o JWT, cai para o banco se ausente.
@@ -10,6 +11,33 @@ async function getNivelIdFromUser(user: JWTPayload): Promise<number | null> {
   if (typeof user.nivelId === 'number') return user.nivelId;
   if (user.userId < 0) return null;
   return resolveNivelFromColaborador(user.userId);
+}
+
+/**
+ * Resolve cargoId + nivelId numa única consulta quando o JWT não traz
+ * ambos. JWTs antigos só carregam nivelId; aí vamos no banco buscar o
+ * cargo (precisamos dele pra aplicar overrides).
+ */
+async function getCargoENivelFromUser(
+  user: JWTPayload,
+): Promise<{ cargoId: number | null; nivelId: number | null }> {
+  const jwtNivel = typeof user.nivelId === 'number' ? user.nivelId : null;
+  const jwtCargo = typeof user.cargoId === 'number' ? user.cargoId : null;
+  // Se o JWT já tem os dois (ou pelo menos um e o outro é declaradamente
+  // ausente — caso de admin sem cargo) usa direto.
+  if (typeof user.nivelId === 'number' && typeof user.cargoId === 'number') {
+    return { cargoId: jwtCargo, nivelId: jwtNivel };
+  }
+  if (user.userId < 0) {
+    // API Key — não tem cargo nem nivel.
+    return { cargoId: null, nivelId: null };
+  }
+  // Pelo menos um faltando: vai no banco.
+  const r = await resolveCargoFromColaborador(user.userId);
+  return {
+    cargoId: typeof user.cargoId === 'number' ? user.cargoId : r.cargoId,
+    nivelId: typeof user.nivelId === 'number' ? user.nivelId : r.nivelId,
+  };
 }
 
 // Função local para resposta de não autorizado com código customizado
@@ -228,9 +256,9 @@ export async function withAdmissao(
 
 /**
  * Middleware que verifica se o usuário tem uma permissão específica.
- * Consulta nivel_acesso_permissoes pelo nível do usuário; cai pra
- * tipo_usuario_permissoes (sistema legado) se a primeira não conceder
- * — útil enquanto cargos ainda não foram reclassificados via UI.
+ * Aplica a regra efetiva (nível + override do cargo). Cai pra
+ * tipo_usuario_permissoes (sistema legado) se o usuário ainda não
+ * tem cargo/nível (compat — vai sumir na Fase 4).
  * userId === 1 (god mode) bypassa toda checagem.
  *
  * Exemplo de uso:
@@ -244,24 +272,19 @@ export async function withPermission(
   return withAuth(request, async (req, user) => {
     if (isSuperAdmin(user)) return handler(req, user);
 
-    const { query: dbQuery } = await import('./db');
+    const { cargoId, nivelId } = await getCargoENivelFromUser(user);
 
-    const nivelId = await getNivelIdFromUser(user);
-    if (nivelId !== null) {
-      const novo = await dbQuery(
-        `SELECT 1 FROM nivel_acesso_permissoes nap
-         JOIN permissoes p ON nap.permissao_id = p.id
-         WHERE nap.nivel_id = $1 AND p.codigo = $2 AND nap.concedido = true
-         LIMIT 1`,
-        [nivelId, codigoPermissao]
-      );
-      if (novo.rows.length > 0) return handler(req, user);
+    if (cargoId !== null || nivelId !== null) {
+      const ok = await cargoTemPermissao(cargoId, nivelId, codigoPermissao);
+      if (ok) return handler(req, user);
     }
 
-    // Fallback ao sistema legado (tipo_usuario_permissoes)
+    // Fallback ao sistema legado (tipo_usuario_permissoes) — colaborador
+    // ainda sem cargo classificado.
+    const { query: dbQuery } = await import('./db');
     const legado = await dbQuery(
-      `SELECT 1 FROM tipo_usuario_permissoes tp
-       JOIN permissoes p ON tp.permissao_id = p.id
+      `SELECT 1 FROM people.tipo_usuario_permissoes tp
+       JOIN people.permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = $2 AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigoPermissao]
@@ -285,23 +308,17 @@ export async function withAnyPermission(
   return withAuth(request, async (req, user) => {
     if (isSuperAdmin(user)) return handler(req, user);
 
-    const { query: dbQuery } = await import('./db');
+    const { cargoId, nivelId } = await getCargoENivelFromUser(user);
 
-    const nivelId = await getNivelIdFromUser(user);
-    if (nivelId !== null) {
-      const novo = await dbQuery(
-        `SELECT 1 FROM nivel_acesso_permissoes nap
-         JOIN permissoes p ON nap.permissao_id = p.id
-         WHERE nap.nivel_id = $1 AND p.codigo = ANY($2) AND nap.concedido = true
-         LIMIT 1`,
-        [nivelId, codigosPermissao]
-      );
-      if (novo.rows.length > 0) return handler(req, user);
+    if (cargoId !== null || nivelId !== null) {
+      const ok = await cargoTemPermissao(cargoId, nivelId, codigosPermissao);
+      if (ok) return handler(req, user);
     }
 
+    const { query: dbQuery } = await import('./db');
     const legado = await dbQuery(
-      `SELECT 1 FROM tipo_usuario_permissoes tp
-       JOIN permissoes p ON tp.permissao_id = p.id
+      `SELECT 1 FROM people.tipo_usuario_permissoes tp
+       JOIN people.permissoes p ON tp.permissao_id = p.id
        WHERE tp.tipo_usuario = $1 AND p.codigo = ANY($2) AND tp.concedido = true
        LIMIT 1`,
       [user.tipo, codigosPermissao]

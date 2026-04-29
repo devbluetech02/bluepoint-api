@@ -4,6 +4,7 @@ import { verifyPassword, generateTokenPair } from '@/lib/auth';
 import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
 import { loginSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
     const result = await query(
       `SELECT c.id, c.nome, c.email, c.cpf, c.senha_hash, c.tipo, c.status,
               c.foto_url, c.permite_ponto_mobile,
+              c.cargo_id,
               cg.nivel_acesso_id
        FROM people.colaboradores c
        LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
@@ -44,14 +46,16 @@ export async function POST(request: NextRequest) {
       return errorResponse('Email ou senha inválidos', 401);
     }
 
-    // Gerar tokens (passa nivelId pra que o JWT carregue ele direto e
-    // poupe consultas no middleware)
+    // Gerar tokens (passa nivelId/cargoId pra que o JWT carregue eles
+    // direto e poupe consultas no middleware — cargoId é necessário pra
+    // aplicar overrides de permissão por cargo).
     const { token, refreshToken } = await generateTokenPair({
       id: user.id,
       email: user.email,
       tipo: user.tipo,
       nome: user.nome,
       nivelId: user.nivel_acesso_id ?? null,
+      cargoId: user.cargo_id ?? null,
     });
 
     // Registrar auditoria
@@ -76,8 +80,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Buscar permissões concedidas: união entre o sistema novo (nível) e o
-    // legado (tipo). god mode (userId === 1) recebe o catálogo inteiro.
+    // Buscar permissões efetivas (nível + overrides do cargo). god mode
+    // (userId === 1) recebe o catálogo inteiro.
     let permissoes: string[];
     if (user.id === 1) {
       const todas = await query(
@@ -85,20 +89,12 @@ export async function POST(request: NextRequest) {
       );
       permissoes = todas.rows.map((r) => r.codigo);
     } else {
-      const permResult = await query(
-        `SELECT DISTINCT p.codigo
-         FROM people.permissoes p
-         WHERE p.id IN (
-           SELECT permissao_id FROM people.nivel_acesso_permissoes
-             WHERE nivel_id = $1 AND concedido = true
-           UNION
-           SELECT permissao_id FROM people.tipo_usuario_permissoes
-             WHERE tipo_usuario = $2 AND concedido = true
-         )
-         ORDER BY p.codigo`,
-        [user.nivel_acesso_id, user.tipo]
-      );
-      permissoes = permResult.rows.map((r) => r.codigo);
+      const efetivas = await obterPermissoesEfetivasDoCargo({
+        cargoId: user.cargo_id ?? null,
+        nivelId: user.nivel_acesso_id ?? null,
+        tipoLegado: user.tipo,
+      });
+      permissoes = efetivas.codigos;
     }
 
     return successResponse({
