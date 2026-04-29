@@ -14,7 +14,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     try {
       const { id } = await params;
 
-      const response = await fetch(`${SIGNPROOF_API_URL}/api/v1/integration/documents/${id}/send`, {
+      // Repassa toda a query string (skip_email=true é a mais importante —
+      // ela é o que faz o SignProof devolver `signing_links` no body em vez
+      // de só disparar email/WhatsApp internamente). Sem isso, o People
+      // manda WhatsApp pro candidato sem o link de assinatura.
+      const qs = request.nextUrl.search; // inclui o "?" se houver query
+      const url = `${SIGNPROOF_API_URL}/api/v1/integration/documents/${id}/send${qs}`;
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'X-API-Key': SIGNPROOF_API_KEY!,
