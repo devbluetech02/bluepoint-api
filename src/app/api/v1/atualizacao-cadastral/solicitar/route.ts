@@ -4,6 +4,7 @@ import { query } from '@/lib/db';
 import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
+import { enviarPushParaColaborador } from '@/lib/push-colaborador';
 import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 
@@ -103,6 +104,14 @@ export async function POST(request: NextRequest) {
           );
         }
       }
+
+      // Push notification no app (best-effort)
+      enviarPushParaColaborador(colaboradorId, {
+        titulo: 'Atualização Cadastral',
+        mensagem: 'O RH solicitou que você atualize seus dados cadastrais. Toque para abrir.',
+        severidade: 'atencao',
+        url: link,
+      }).catch(() => {});
 
       return createdResponse({
         id: solicitacaoId,
