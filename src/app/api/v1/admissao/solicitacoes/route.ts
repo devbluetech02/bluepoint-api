@@ -51,6 +51,9 @@ export async function GET(request: NextRequest) {
     try {
       const { searchParams } = request.nextUrl;
       const status = searchParams.get('status');
+      // statuses=a,b,c filtra por uma fase do funil (vários status agrupados na UI).
+      // Convive com `status` por back-compat — se ambos vierem, statuses tem precedência.
+      const statusesRaw = searchParams.get('statuses');
       const page   = Math.max(1, parseInt(searchParams.get('page')  ?? '1'));
       const limit  = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '20')));
       const offset = (page - 1) * limit;
@@ -58,7 +61,17 @@ export async function GET(request: NextRequest) {
       const conditions: string[] = [];
       const params: unknown[] = [];
 
-      if (status) {
+      if (statusesRaw) {
+        const lista = statusesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s && STATUS_VALIDOS.includes(s));
+        if (lista.length === 0) {
+          return successResponse({ solicitacoes: [], total: 0, page, limit });
+        }
+        params.push(lista);
+        conditions.push(`s.status = ANY($${params.length}::text[])`);
+      } else if (status) {
         if (!STATUS_VALIDOS.includes(status)) {
           return successResponse({ solicitacoes: [], total: 0, page, limit });
         }
@@ -125,7 +138,8 @@ export async function GET(request: NextRequest) {
            cl.bairro         AS clinica_bairro,
            cl.cidade         AS clinica_cidade,
            cl.estado         AS clinica_estado,
-           cl.cep            AS clinica_cep
+           cl.cep            AS clinica_cep,
+           s.documento_assinatura_id
          FROM filtradas s
          LEFT JOIN people.usuarios_provisorios up ON up.id = s.usuario_provisorio_id
          LEFT JOIN people.cargos   c ON c.id = up.cargo_id
@@ -155,6 +169,7 @@ export async function GET(request: NextRequest) {
             cargo:   row.cargo_id   ? { id: row.cargo_id,   nome: row.cargo_nome   } : null,
             empresa: row.empresa_id ? { id: row.empresa_id, nome: row.empresa_nome } : null,
           } : null,
+          documentoAssinaturaId: row.documento_assinatura_id ?? null,
           ...(aso ? { aso } : {}),
         };
       });
