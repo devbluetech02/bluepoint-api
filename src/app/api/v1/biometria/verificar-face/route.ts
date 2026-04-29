@@ -10,7 +10,7 @@ import {
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
-import { cacheGet, cacheSet, cacheDel, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { cacheGet, cacheSet, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { verificarEAplicarToleranciaHoraExtra, verificarEAplicarToleranciaHoraExtraEntrada } from '@/lib/hora-extra-tolerancia';
 import {
@@ -647,8 +647,10 @@ export async function POST(request: NextRequest) {
           [encodingBuffer, qualidade, bioId]
         );
 
-        // Invalidar cache para que o novo encoding seja usado na próxima verificação
-        await cacheDel(CACHE_KEYS.BIOMETRIA_ENCODINGS);
+        // Não invalidar o cache aqui: em horário de pico cada acerto dispararia
+        // cache MISS no request seguinte, forçando reload completo dos encodings
+        // do Aurora e saturando a CPU do banco. O novo encoding aprendido entra
+        // em uso no próximo refresh natural do cache (TTL LONG).
 
         console.log(`[Auto-Aprendizado] ✓ Encoding salvo! Pessoa: colab=${matchedRecord.colaboradorId || 'N/A'}, ` +
           `distância: ${matchResult.distance.toFixed(4)}, qualidade: ${qualidade.toFixed(2)}, ` +
