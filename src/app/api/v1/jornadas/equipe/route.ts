@@ -7,84 +7,88 @@ import {
 } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { isSuperAdmin } from '@/lib/auth';
+import {
+  obterEscopoGestor,
+  listarColaboradoresNoEscopo,
+} from '@/lib/escopo-gestor';
 
-// GET /api/v1/jornadas/equipe?data=YYYY-MM-DD&departamentoId=N
+// GET /api/v1/jornadas/equipe?data=YYYY-MM-DD
 //
-// Lista todos os colaboradores do mesmo departamento do gestor logado,
-// junto com as marcações de ponto do dia informado (default: hoje).
+// Lista colaboradores no escopo de gestão do líder logado, junto com
+// as marcações de ponto do dia informado (default: hoje).
 //
-// Comportamento:
-//  - Gestor padrão (Nível 2): equipe = colaboradores do próprio departamento.
-//  - Admin / god mode (userId === 1) ou Nível 3: pode escolher
-//    qualquer departamento via query param `departamentoId`. Sem o param,
-//    cai no comportamento padrão (próprio departamento).
+// Escopo (expandido pelas tabelas gestor_departamentos / gestor_empresas):
+//  - Departamento próprio do gestor (regra implícita).
+//  - Todos os departamentos onde ele está em `gestor_departamentos`.
+//  - Todos os colaboradores das empresas em `gestor_empresas`.
+//  - Super admin (userId === 1): vê tudo (sem filtro).
 //
-// Resposta: { departamento: {id, nome}, data: 'YYYY-MM-DD',
-//            colaboradores: [{id, nome, foto, cargo, marcacoes: [...]}] }
+// Resposta: { escopo: {...}, data, totalColaboradores, colaboradores: [...] }
 
 export async function GET(request: NextRequest) {
   return withGestor(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const data = searchParams.get('data') ?? new Date().toISOString().slice(0, 10);
-      const departamentoIdParam = searchParams.get('departamentoId');
 
       if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
         return errorResponse('Parâmetro `data` deve estar no formato YYYY-MM-DD', 400);
       }
 
-      // Resolve departamento alvo:
-      //   1. Super admin/Nível 3 podem escolher qualquer dept via query param
-      //   2. Caso contrário, usa o departamento do próprio gestor logado
-      let departamentoId: number | null = null;
-      if (departamentoIdParam && isSuperAdmin(user)) {
-        const n = parseInt(departamentoIdParam, 10);
-        if (!Number.isNaN(n)) departamentoId = n;
-      }
-      if (departamentoId === null) {
-        // Pega departamento do colaborador autenticado.
-        const meResult = await query<{ departamento_id: number | null }>(
-          `SELECT departamento_id FROM people.colaboradores WHERE id = $1 LIMIT 1`,
-          [user.userId],
+      // Resolve escopo do gestor
+      const escopo = await obterEscopoGestor(user.userId);
+      const ehSuperAdmin = isSuperAdmin(user);
+
+      // Lista colaboradores no escopo. Super admin = todos os ativos.
+      let colaboradorIds: number[];
+      if (ehSuperAdmin) {
+        const r = await query<{ id: number }>(
+          `SELECT id FROM people.colaboradores
+            WHERE status = 'ativo'
+            ORDER BY nome ASC`,
         );
-        departamentoId = meResult.rows[0]?.departamento_id ?? null;
+        colaboradorIds = r.rows.map((row) => row.id);
+      } else {
+        colaboradorIds = await listarColaboradoresNoEscopo(escopo);
       }
 
-      if (departamentoId === null) {
-        return errorResponse(
-          'Você não está vinculado a nenhum departamento. Peça ao admin para associar o seu cadastro a um departamento.',
-          400,
-        );
+      if (colaboradorIds.length === 0) {
+        return successResponse({
+          escopo: {
+            departamentoIds: escopo.departamentoIds,
+            empresaIds: escopo.empresaIds,
+            ehSuperAdmin,
+          },
+          data,
+          totalColaboradores: 0,
+          colaboradores: [],
+        });
       }
 
-      // Carrega o nome do departamento (também valida existência).
-      const deptResult = await query<{ id: number; nome: string }>(
-        `SELECT id, nome FROM people.departamentos WHERE id = $1 LIMIT 1`,
-        [departamentoId],
-      );
-      const departamento = deptResult.rows[0];
-      if (!departamento) {
-        return errorResponse('Departamento não encontrado', 404);
-      }
-
-      // Lista colaboradores ATIVOS do departamento.
+      // Carrega dados dos colaboradores em uma query
       const colabResult = await query<{
         id: number;
         nome: string;
         foto_url: string | null;
         cargo_id: number | null;
         cargo_nome: string | null;
+        departamento_id: number | null;
+        departamento_nome: string | null;
+        empresa_id: number | null;
       }>(
-        `SELECT c.id, c.nome, c.foto_url, c.cargo_id, cg.nome AS cargo_nome
+        `SELECT c.id, c.nome, c.foto_url,
+                c.cargo_id, cg.nome AS cargo_nome,
+                c.departamento_id, d.nome AS departamento_nome,
+                c.empresa_id
            FROM people.colaboradores c
            LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
-          WHERE c.departamento_id = $1 AND c.status = 'ativo'
+           LEFT JOIN people.departamentos d ON d.id = c.departamento_id
+          WHERE c.id = ANY($1::int[]) AND c.status = 'ativo'
           ORDER BY c.nome ASC`,
-        [departamentoId],
+        [colaboradorIds],
       );
 
-      // Carrega marcações do dia para todos os colaboradores em uma única query.
-      const colaboradorIds = colabResult.rows.map((r) => r.id);
+      // Marcações do dia em uma única query
       const marcacoesPorColab = new Map<
         number,
         Array<{
@@ -92,54 +96,38 @@ export async function GET(request: NextRequest) {
           dataHora: Date;
           tipo: string;
           metodo: string | null;
-          fotoUrl: string | null;
-          latitude: number | null;
-          longitude: number | null;
         }>
       >();
 
-      if (colaboradorIds.length > 0) {
-        const margResult = await query<{
-          id: number;
-          colaborador_id: number;
-          data_hora: Date;
-          tipo: string;
-          metodo: string | null;
-          foto_url: string | null;
-          latitude: string | null;
-          longitude: string | null;
-        }>(
-          `SELECT id, colaborador_id, data_hora, tipo, metodo, foto_url,
-                  latitude::text AS latitude, longitude::text AS longitude
-             FROM people.marcacoes
-            WHERE colaborador_id = ANY($1::int[])
-              AND data_hora >= $2::date
-              AND data_hora < ($2::date + interval '1 day')
-            ORDER BY data_hora ASC`,
-          [colaboradorIds, data],
-        );
+      const margResult = await query<{
+        id: number;
+        colaborador_id: number;
+        data_hora: Date;
+        tipo: string;
+        metodo: string | null;
+      }>(
+        `SELECT id, colaborador_id, data_hora, tipo, metodo
+           FROM people.marcacoes
+          WHERE colaborador_id = ANY($1::int[])
+            AND data_hora >= $2::date
+            AND data_hora < ($2::date + interval '1 day')
+          ORDER BY data_hora ASC`,
+        [colaboradorIds, data],
+      );
 
-        for (const m of margResult.rows) {
-          const lista = marcacoesPorColab.get(m.colaborador_id) ?? [];
-          lista.push({
-            id: m.id,
-            dataHora: m.data_hora,
-            tipo: m.tipo,
-            metodo: m.metodo,
-            fotoUrl: m.foto_url,
-            latitude: m.latitude !== null ? parseFloat(m.latitude) : null,
-            longitude: m.longitude !== null ? parseFloat(m.longitude) : null,
-          });
-          marcacoesPorColab.set(m.colaborador_id, lista);
-        }
+      for (const m of margResult.rows) {
+        const lista = marcacoesPorColab.get(m.colaborador_id) ?? [];
+        lista.push({
+          id: m.id,
+          dataHora: m.data_hora,
+          tipo: m.tipo,
+          metodo: m.metodo,
+        });
+        marcacoesPorColab.set(m.colaborador_id, lista);
       }
 
       const colaboradores = colabResult.rows.map((c) => {
         const marcacoes = marcacoesPorColab.get(c.id) ?? [];
-        // Status visual da jornada do dia, derivado das marcações:
-        //  - sem_marcacao: ainda não bateu nada
-        //  - em_andamento: bateu entrada mas não bateu saída
-        //  - finalizado: já bateu saída
         let statusJornada: 'sem_marcacao' | 'em_andamento' | 'finalizado';
         if (marcacoes.length === 0) {
           statusJornada = 'sem_marcacao';
@@ -148,12 +136,14 @@ export async function GET(request: NextRequest) {
         } else {
           statusJornada = 'em_andamento';
         }
-
         return {
           id: c.id,
           nome: c.nome,
           foto: c.foto_url,
           cargo: c.cargo_id ? { id: c.cargo_id, nome: c.cargo_nome ?? '' } : null,
+          departamento: c.departamento_id
+            ? { id: c.departamento_id, nome: c.departamento_nome ?? '' }
+            : null,
           statusJornada,
           totalMarcacoes: marcacoes.length,
           marcacoes,
@@ -161,7 +151,11 @@ export async function GET(request: NextRequest) {
       });
 
       return successResponse({
-        departamento: { id: departamento.id, nome: departamento.nome },
+        escopo: {
+          departamentoIds: escopo.departamentoIds,
+          empresaIds: escopo.empresaIds,
+          ehSuperAdmin,
+        },
         data,
         totalColaboradores: colaboradores.length,
         colaboradores,
