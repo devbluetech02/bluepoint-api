@@ -246,6 +246,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         ).catch((err) => console.error('[assinatura_solicitada] Falha ao notificar candidato:', err));
       }
 
+      // Warnings agregados (ex.: WhatsApp do candidato/clínica falhou) —
+      // declarado aqui pra ficar acessível tanto no bloco de push do candidato
+      // (que dispara WhatsApp pro próprio candidato) quanto no bloco de
+      // WhatsApp pra clínica mais abaixo.
+      const warnings: string[] = [];
+
       // ── Push para o candidato ─────────────────────────────────────────────
       // assinatura_solicitada é tratada acima com link de assinatura dedicado.
       if (sol.usuario_provisorio_id && body.status !== 'assinatura_solicitada') {
@@ -308,6 +314,59 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           },
           sol.onesignal_subscription_id,
         ).catch(console.error);
+
+        // ── WhatsApp para o candidato (só em aso_solicitado) ────────────────
+        // Reforça a notificação push no canal mais visível e à prova de app
+        // desinstalado/sem permissão de push. Mesmas infos do push (clínica,
+        // endereço, data, hora, observações) — sem deep-link porque o app
+        // ainda não tem Universal/App Links configurados, então o candidato
+        // navega pelo app manualmente.
+        if (body.status === 'aso_solicitado') {
+          const candWpp = await query<{ telefone: string | null; nome: string }>(
+            `SELECT telefone, nome FROM people.usuarios_provisorios WHERE id = $1`,
+            [sol.usuario_provisorio_id],
+          );
+          const c = candWpp.rows[0];
+          const telCand = (c?.telefone ?? '').replace(/\D/g, '');
+          if (telCand.length >= 10) {
+            const primeiroNome = (c?.nome ?? 'Candidato').split(' ')[0];
+            const linhasCand: string[] = [
+              `🏥 *Exame admissional agendado*`,
+              ``,
+              `Olá, ${primeiroNome}!`,
+              `Seu exame admissional foi agendado. Confira os detalhes abaixo:`,
+            ];
+            if (pushData.clinica) {
+              linhasCand.push(``, `🩺 *Clínica:* ${pushData.clinica}`);
+            }
+            if (pushData.endereco) {
+              linhasCand.push(`📍 *Endereço:* ${pushData.endereco}`);
+            }
+            if (dataExameTs) {
+              const [y, m, d] = dataExameTs.substring(0, 10).split('-');
+              linhasCand.push(`📅 *Data:* ${d}/${m}/${y}`);
+              const hora = dataExameTs.substring(11, 16);
+              if (hora && hora !== '00:00') {
+                linhasCand.push(`⏰ *Hora:* ${hora}`);
+              }
+            }
+            if (body.mensagemAso?.trim()) {
+              linhasCand.push(``, `📌 *Observações do DP:*`, body.mensagemAso.trim());
+            }
+            linhasCand.push(
+              ``,
+              `Acompanhe os detalhes da sua admissão no app *People*.`,
+            );
+
+            const r = await enviarMensagemWhatsApp(telCand, linhasCand.join('\n'));
+            if (!r.ok) {
+              warnings.push('whatsapp_candidato_falhou');
+              console.warn(`[ASO] WhatsApp candidato falhou: ${r.erro}`);
+            }
+          } else {
+            warnings.push('whatsapp_candidato_sem_telefone');
+          }
+        }
       }
 
       // ── Push para cargo Administrador ─────────────────────────────────────
@@ -325,7 +384,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // ── WhatsApp para a clínica ────────────────────────────────────────────
       // Dispara sempre que a clínica tiver whatsapp_numero,
       // EXCETO quando canal_agendamento = 'site' (DP já agendou pelo site).
-      const warnings: string[] = [];
+      // (warnings já foi declarado mais acima, junto do bloco de push.)
 
       if (body.status === 'aso_solicitado' && body.clinicaId) {
         const clinicaResult = await query<{
