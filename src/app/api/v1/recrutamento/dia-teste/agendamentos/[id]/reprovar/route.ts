@@ -12,15 +12,16 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
+  calcularValorProporcional,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/reprovar
 //
-// Reprova o candidato após o dia de teste. Paga o valor integral da
-// diária (candidato cumpriu o expediente). Implementação simplificada
-// — Sprint 2.3 cobre o cálculo proporcional baseado em
-// percentual_concluido. Transição: 'compareceu' → 'reprovado' (terminal).
-// Encerra o processo seletivo (cancelado).
+// Reprova o candidato após o dia de teste. Paga proporcional aos
+// períodos cumpridos (1 dia = 2 períodos de 50% cada). Como a trava
+// dos 50% já bloqueia a decisão antes da manhã, o valor sempre fica
+// em 50% (manhã) ou 100% (dia inteiro).
+// Transição: 'compareceu' → 'reprovado' (terminal). Encerra o processo.
 
 const schema = z.object({
   motivo: z.string().max(2000).optional(),
@@ -49,8 +50,9 @@ export async function POST(
         );
       }
 
-      // Paga a diária integral (candidato cumpriu o teste).
-      const valorAPagar = parseFloat(ag.valor_diaria);
+      // Pagamento proporcional aos períodos cumpridos.
+      const { periodos, percentual, valor: valorAPagar } =
+        calcularValorProporcional(ag);
 
       await query(
         `UPDATE people.dia_teste_agendamento
@@ -58,10 +60,10 @@ export async function POST(
                 decidido_por = $1,
                 decidido_em = NOW(),
                 valor_a_pagar = $2,
-                percentual_concluido = COALESCE(percentual_concluido, 100),
+                percentual_concluido = $3,
                 atualizado_em = NOW()
-          WHERE id = $3::bigint`,
-        [user.userId, valorAPagar, id],
+          WHERE id = $4::bigint`,
+        [user.userId, valorAPagar, percentual, id],
       );
 
       const proximoStatus = await avancarProcessoAposDecisao(
@@ -77,6 +79,8 @@ export async function POST(
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
+            periodosCumpridos: periodos,
+            percentualConcluido: percentual,
             valorAPagar,
             motivo: parsed.data.motivo ?? null,
           },
@@ -87,6 +91,8 @@ export async function POST(
         agendamentoId: id,
         status: 'reprovado',
         valorAPagar,
+        periodosCumpridos: periodos,
+        percentualConcluido: percentual,
         decididoEm: new Date().toISOString(),
         proximoPasso: 'encerrado',
         processo: {

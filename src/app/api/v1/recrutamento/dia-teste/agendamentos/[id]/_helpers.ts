@@ -50,6 +50,52 @@ function toDate(v: Date | string | null | undefined): Date | null {
 }
 
 /**
+ * Calcula quantos períodos do dia de teste o candidato cumpriu até `agora`
+ * (default: now). 1 dia = 2 períodos (manhã + tarde, 50% cada). Base:
+ * `comparecimento_em` + `carga_horaria`.
+ *
+ * Retorna:
+ *   - `periodos`   ∈ {0, 1, 2}
+ *   - `percentual` ∈ {0, 50, 100} — espelho útil pra `percentual_concluido`
+ *
+ * Regras:
+ *   - Sem `comparecimento_em` (não compareceu): 0 períodos.
+ *   - Tempo decorrido < 50% da carga: 0 períodos (manhã incompleta).
+ *   - 50% ≤ decorrido < 100%: 1 período (só manhã).
+ *   - decorrido ≥ 100%: 2 períodos (dia inteiro).
+ */
+export function calcularPeriodosCumpridos(
+  row: AgendamentoRow,
+  agora: Date = new Date(),
+): { periodos: 0 | 1 | 2; percentual: 0 | 50 | 100 } {
+  const comparecimento = toDate(row.comparecimento_em);
+  if (!comparecimento) return { periodos: 0, percentual: 0 };
+  const decorridoMs = agora.getTime() - comparecimento.getTime();
+  const cargaMs = row.carga_horaria * 60 * 60 * 1000;
+  if (cargaMs <= 0 || decorridoMs < cargaMs * 0.5) {
+    return { periodos: 0, percentual: 0 };
+  }
+  if (decorridoMs < cargaMs) {
+    return { periodos: 1, percentual: 50 };
+  }
+  return { periodos: 2, percentual: 100 };
+}
+
+/**
+ * Valor proporcional aos períodos cumpridos. Arredonda em 2 casas
+ * (centavos) — mesma granularidade do `valor_diaria`.
+ */
+export function calcularValorProporcional(
+  row: AgendamentoRow,
+  agora: Date = new Date(),
+): { periodos: 0 | 1 | 2; percentual: 0 | 50 | 100; valor: number } {
+  const { periodos, percentual } = calcularPeriodosCumpridos(row, agora);
+  const diaria = parseFloat(row.valor_diaria);
+  const valor = Math.round(((diaria * percentual) / 100) * 100) / 100;
+  return { periodos, percentual, valor };
+}
+
+/**
  * Calcula quando o gestor pode tomar decisão final no dia de teste
  * (regra §3.6 do FLUXO_RECRUTAMENTO: bloqueado antes de 50% da carga
  * horária ter sido cumprida).

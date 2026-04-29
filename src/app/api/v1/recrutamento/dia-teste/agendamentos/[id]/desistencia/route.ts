@@ -12,15 +12,17 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
+  calcularValorProporcional,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/desistencia
 //
-// Candidato desistiu durante o dia de teste. Se já compareceu, paga
-// proporcional ao tempo trabalhado (percentual_concluido se preenchido,
-// senão valor proporcional aos dias do teste). Implementação simplificada —
-// Sprint 2.3 cobre o cálculo refinado.
-//
+// Candidato desistiu durante o dia de teste. Pagamento proporcional aos
+// períodos cumpridos (1 dia = 2 períodos de 50%). Faixas:
+//   - Saiu antes da metade da carga horária → R$ 0 (manhã incompleta)
+//   - Saiu entre 50% e 100% da carga              → 50% (só manhã)
+//   - Cumpriu o dia inteiro                      → 100%
+// Status 'agendado' (não compareceu) sempre é R$ 0.
 // Transições válidas: 'agendado' ou 'compareceu' → 'desistencia' (terminal).
 // Encerra o processo seletivo.
 
@@ -51,13 +53,11 @@ export async function POST(
         );
       }
 
-      // Pagamento proporcional: se compareceu, usa percentual_concluido
-      // (default 100% se ausente); se não compareceu, sem pagamento.
-      let valorAPagar: number | null = null;
-      if (ag.status === 'compareceu') {
-        const percentual = ag.percentual_concluido ?? 100;
-        valorAPagar = (parseFloat(ag.valor_diaria) * percentual) / 100;
-      }
+      // Pagamento proporcional aos períodos cumpridos.
+      // 'agendado' (não compareceu) cai em 0 períodos = R$ 0 porque
+      // calcularPeriodosCumpridos ignora quando comparecimento_em é null.
+      const { periodos, percentual, valor: valorAPagar } =
+        calcularValorProporcional(ag);
 
       await query(
         `UPDATE people.dia_teste_agendamento
@@ -65,9 +65,10 @@ export async function POST(
                 decidido_por = $1,
                 decidido_em = NOW(),
                 valor_a_pagar = $2,
+                percentual_concluido = $3,
                 atualizado_em = NOW()
-          WHERE id = $3::bigint`,
-        [user.userId, valorAPagar, id],
+          WHERE id = $4::bigint`,
+        [user.userId, valorAPagar, percentual, id],
       );
 
       const proximoStatus = await avancarProcessoAposDecisao(
@@ -79,10 +80,12 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `DESISTÊNCIA registrada no dia de teste #${id} (a pagar: ${valorAPagar !== null ? `R$ ${valorAPagar.toFixed(2)}` : 'sem pagamento'})`,
+          descricao: `DESISTÊNCIA registrada no dia de teste #${id} (a pagar: R$ ${valorAPagar.toFixed(2)} — ${periodos} período(s))`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
+            periodosCumpridos: periodos,
+            percentualConcluido: percentual,
             valorAPagar,
             motivo: parsed.data.motivo ?? null,
           },
@@ -93,6 +96,8 @@ export async function POST(
         agendamentoId: id,
         status: 'desistencia',
         valorAPagar,
+        periodosCumpridos: periodos,
+        percentualConcluido: percentual,
         decididoEm: new Date().toISOString(),
         proximoPasso: 'encerrado',
         processo: {
