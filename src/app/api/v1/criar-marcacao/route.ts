@@ -1,12 +1,13 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { createdResponse, errorResponse, forbiddenResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { criarMarcacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateMarcacaoCache } from '@/lib/cache';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { criarNotificacaoComPush } from '@/lib/notificacoes';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -19,6 +20,14 @@ export async function POST(request: NextRequest) {
       }
 
       const data = validation.data;
+
+      // Privacidade: gestor só pode criar marcação para colaborador do
+      // próprio escopo. Super admin e API Key bypassam. withGestor já
+      // bloqueou colaboradores comuns acima.
+      const acesso = await asseguraAcessoColaborador(user, data.colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+      }
 
       // Verificar se colaborador existe
       const colaboradorResult = await query(
