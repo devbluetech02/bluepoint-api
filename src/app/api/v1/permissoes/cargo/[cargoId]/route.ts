@@ -48,9 +48,20 @@ export async function GET(
         return errorResponse('cargoId inválido', 400);
       }
 
-      const data = await cacheAside(
-        `${CACHE_KEYS.PAPEL_PERMISSOES}cargo:${cargoId}`,
-        async () => {
+      // Override do nível pra preview client-side: quando o usuário muda
+      // o nível no modal mas ainda não salvou, o front passa ?nivelId=N
+      // pra que a base seja calculada com o nível escolhido.
+      const url = new URL(request.url);
+      const nivelOverrideRaw = url.searchParams.get('nivelId');
+      const nivelOverride = nivelOverrideRaw !== null
+        ? parseInt(nivelOverrideRaw, 10)
+        : null;
+      const nivelOverrideValido = nivelOverride !== null
+        && Number.isFinite(nivelOverride)
+        && nivelOverride > 0;
+
+      // Quando há override, NÃO usa cache (pra não poluir as outras keys).
+      const fetcher = async () => {
           // Cargo + nível.
           const cargoRes = await query<{
             id: number;
@@ -70,6 +81,27 @@ export async function GET(
           if (cargoRes.rows.length === 0) return null;
           const cargo = cargoRes.rows[0];
 
+          // Nível efetivo pra cálculo da base: prioriza override do query
+          // string. Se override aponta pra um nível diferente do salvo,
+          // busca também o nome/descrição pra exibir corretamente.
+          let nivelEfetivoId: number | null = cargo.nivel_acesso_id;
+          let nivelEfetivoNome: string | null = cargo.nivel_nome;
+          let nivelEfetivoDescricao: string | null = cargo.nivel_descricao;
+          if (nivelOverrideValido && nivelOverride !== cargo.nivel_acesso_id) {
+            nivelEfetivoId = nivelOverride;
+            const nivelInfoRes = await query<{ nome: string; descricao: string | null }>(
+              `SELECT nome, descricao FROM people.niveis_acesso WHERE id = $1 LIMIT 1`,
+              [nivelOverride],
+            );
+            if (nivelInfoRes.rows.length > 0) {
+              nivelEfetivoNome = nivelInfoRes.rows[0].nome;
+              nivelEfetivoDescricao = nivelInfoRes.rows[0].descricao;
+            } else {
+              nivelEfetivoNome = null;
+              nivelEfetivoDescricao = null;
+            }
+          }
+
           const todasRes = await query(
             `SELECT id, codigo, nome, descricao, modulo, acao
                FROM people.permissoes
@@ -77,12 +109,12 @@ export async function GET(
           );
 
           // Base: o que o nível concede.
-          const baseRes = cargo.nivel_acesso_id
+          const baseRes = nivelEfetivoId !== null
             ? await query<{ permissao_id: number }>(
                 `SELECT permissao_id
                    FROM people.nivel_acesso_permissoes
                   WHERE nivel_id = $1 AND concedido = true`,
-                [cargo.nivel_acesso_id],
+                [nivelEfetivoId],
               )
             : { rows: [] as { permissao_id: number }[] };
           const baseSet = new Set(baseRes.rows.map((r) => r.permissao_id));
@@ -138,11 +170,11 @@ export async function GET(
             cargo: {
               id: cargo.id,
               nome: cargo.nome,
-              nivel: cargo.nivel_acesso_id
+              nivel: nivelEfetivoId !== null
                 ? {
-                    id: cargo.nivel_acesso_id,
-                    nome: cargo.nivel_nome,
-                    descricao: cargo.nivel_descricao,
+                    id: nivelEfetivoId,
+                    nome: nivelEfetivoNome,
+                    descricao: nivelEfetivoDescricao,
                   }
                 : null,
             },
@@ -153,9 +185,17 @@ export async function GET(
             permissoes,
             porModulo,
           };
-        },
-        CACHE_TTL.MEDIUM,
-      );
+      };
+
+      // Sem override: cacheável. Com override (preview de mudança pendente
+      // do nível no modal): bypass do cache pra não cruzar dados.
+      const data = nivelOverrideValido
+        ? await fetcher()
+        : await cacheAside(
+            `${CACHE_KEYS.PAPEL_PERMISSOES}cargo:${cargoId}`,
+            fetcher,
+            CACHE_TTL.MEDIUM,
+          );
 
       if (data === null) return errorResponse('Cargo não encontrado', 404);
       return successResponse(data);
