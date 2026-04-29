@@ -48,6 +48,22 @@ export async function POST(request: NextRequest) {
 
       const colaborador = colabResult.rows[0] as { id: number; nome: string; telefone: string | null };
 
+      // Buscar formulário ativo (ou criar um default se não existir)
+      let formularioId: string;
+      const formResult = await query<{ id: string }>(
+        `SELECT id FROM people.formularios_atualizacao_cadastral WHERE ativo = true ORDER BY criado_em DESC LIMIT 1`
+      );
+      if (formResult.rows.length > 0) {
+        formularioId = formResult.rows[0].id;
+      } else {
+        const newForm = await query<{ id: string }>(
+          `INSERT INTO people.formularios_atualizacao_cadastral (titulo, campos, ativo)
+           VALUES ('Atualização Cadastral', '[]'::jsonb, true)
+           RETURNING id`
+        );
+        formularioId = newForm.rows[0].id;
+      }
+
       // Gerar token público
       const tokenPublico = crypto.randomBytes(24).toString('hex');
 
@@ -58,10 +74,11 @@ export async function POST(request: NextRequest) {
       // Inserir solicitação
       const insertResult = await query(
         `INSERT INTO people.solicitacoes_atualizacao_cadastral
-           (colaborador_id, campos_selecionados, documentos_selecionados, token_publico, status, expira_em)
-         VALUES ($1, $2::jsonb, $3::jsonb, $4, 'pendente', $5)
+           (formulario_id, colaborador_id, campos_selecionados, documentos_selecionados, token_publico, status, expira_em)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, 'pendente', $6)
          RETURNING id`,
         [
+          formularioId,
           colaboradorId,
           JSON.stringify(camposSelecionados),
           JSON.stringify(documentosSelecionados),
