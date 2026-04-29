@@ -812,6 +812,81 @@ async function notificarPrazoContestacao(): Promise<void> {
 }
 
 // =====================================================
+// 4b. GERAÇÃO MENSAL DOS RELATÓRIOS (DIA 1º)
+// No dia 1º de cada mês, cria o registro `relatorios_mensais` (status=pendente)
+// para cada colaborador ATIVO admitido até o último dia do mês anterior, e
+// dispara o push "Relatório de ponto disponível". Idempotente — pode rodar
+// várias vezes no dia (ON CONFLICT DO NOTHING + cache de 30d para o push).
+// =====================================================
+
+async function gerarRelatoriosMensaisDia1(): Promise<void> {
+  try {
+    const hojeSP = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' })
+    );
+    if (hojeSP.getDate() !== 1) return;
+
+    // Mês de referência = mês anterior ao corrente
+    const mesRef = hojeSP.getMonth() === 0 ? 12 : hojeSP.getMonth();
+    const anoRef = hojeSP.getMonth() === 0 ? hojeSP.getFullYear() - 1 : hojeSP.getFullYear();
+    const ultimoDiaMesRef = new Date(anoRef, mesRef, 0).getDate();
+    const ultimoDiaMesRefStr = `${anoRef}-${String(mesRef).padStart(2, '0')}-${String(ultimoDiaMesRef).padStart(2, '0')}`;
+
+    const colabResult = await query<{ id: number }>(
+      `SELECT id
+       FROM people.colaboradores
+       WHERE status = 'ativo'
+         AND data_admissao <= $1::date`,
+      [ultimoDiaMesRefStr]
+    );
+
+    if (colabResult.rows.length === 0) return;
+
+    const mesesNome = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+    const nomeMes = mesesNome[mesRef - 1];
+
+    for (const { id: colaboradorId } of colabResult.rows) {
+      // Cria o registro do relatório (pendente, valores zerados — serão
+      // preenchidos no primeiro GET do endpoint /api/v1/relatorio-mensal/[id]).
+      await query(
+        `INSERT INTO people.relatorios_mensais
+           (colaborador_id, mes, ano, status)
+         VALUES ($1, $2, $3, 'pendente')
+         ON CONFLICT (colaborador_id, mes, ano) DO NOTHING`,
+        [colaboradorId, mesRef, anoRef]
+      );
+
+      // Dispara push só uma vez por (colaborador, mês, ano).
+      const cacheKey = `notif_relatorio:${colaboradorId}:${mesRef}:${anoRef}`;
+      if (await jaEnviou(cacheKey)) continue;
+      await cacheSet(cacheKey, true, 30 * 24 * 3600);
+
+      const titulo = 'Relatório de ponto disponível';
+      const mensagem = `Seu relatório de ponto de ${nomeMes} de ${anoRef} está disponível para assinatura. Acesse o app para assinar.`;
+
+      criarNotificacao({
+        usuarioId: colaboradorId,
+        tipo: 'sistema',
+        titulo,
+        mensagem,
+        link: '/relatorios',
+        metadados: { acao: 'relatorio_disponivel', mes: mesRef, ano: anoRef },
+      }).catch(err => console.error('[Alertas Periodicos] Erro notif relatório dia 1º:', err));
+
+      await enviarPushParaColaboradores([colaboradorId], {
+        titulo,
+        mensagem,
+        severidade: 'info',
+        data: { tipo: 'relatorio_disponivel', mes: mesRef, ano: anoRef },
+        url: '/relatorios',
+      });
+    }
+  } catch (error) {
+    console.error('[Alertas Periodicos] Erro ao gerar relatórios mensais dia 1º:', error);
+  }
+}
+
+// =====================================================
 // 5. REUNIÃO EM BREVE
 // Avisa todos os participantes 30 minutos antes.
 // Usa a flag notificacao_enviada no banco para garantir envio único.
@@ -1108,6 +1183,9 @@ async function executarCiclo(): Promise<void> {
 
     // Colaboradores sem férias futuras há 12+ meses (passivo trabalhista)
     await notificarFeriasVencendo();
+
+    // Geração mensal dos relatórios — dispara apenas no dia 1º
+    await gerarRelatoriosMensaisDia1();
 
     // Relatórios mensais sem assinatura/contestação (3d e 5d)
     await notificarPrazoContestacao();

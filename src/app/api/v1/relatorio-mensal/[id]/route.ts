@@ -5,8 +5,6 @@ import { withAuth } from '@/lib/middleware';
 import { JWTPayload } from '@/lib/auth';
 import { gerarUrlPublica } from '@/lib/storage';
 import { getDiasEmFeriasNoPeriodo } from '@/lib/periodos-ferias';
-import { criarNotificacaoComPush } from '@/lib/notificacoes';
-import { cacheGet, cacheSet } from '@/lib/cache';
 
 interface Periodo {
   entrada: string;
@@ -378,27 +376,6 @@ export async function GET(
         );
 
         await client.query('COMMIT');
-
-        // Notificar colaborador que o relatório está disponível para assinatura.
-        // Usa cache para enviar apenas uma vez por mês por colaborador.
-        if (upsertResult.rows.length > 0) {
-          const chaveNotif = `notif_relatorio:${colaboradorId}:${mes}:${ano}`;
-          cacheGet<boolean>(chaveNotif).then(async (jaNotificado) => {
-            if (!jaNotificado) {
-              await cacheSet(chaveNotif, true, 30 * 24 * 3600); // 30 dias
-              const nomeMes = new Date(ano, mes - 1, 1).toLocaleString('pt-BR', { month: 'long' });
-              criarNotificacaoComPush({
-                usuarioId: colaboradorId,
-                tipo: 'sistema',
-                titulo: 'Relatório de ponto disponível',
-                mensagem: `Seu relatório de ponto de ${nomeMes} de ${ano} está disponível para assinatura. Acesse o app para assinar.`,
-                link: '/relatorios',
-                metadados: { acao: 'relatorio_disponivel', mes, ano },
-                pushSeveridade: 'info',
-              }).catch((err) => console.error('[Notificação] Erro ao notificar relatório:', err));
-            }
-          }).catch(() => {});
-        }
 
         let relatorio;
         if (upsertResult.rows.length > 0) {
