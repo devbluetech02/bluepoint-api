@@ -66,18 +66,42 @@ export const enderecoSchema = z.object({
   estado: z.string().max(2).optional().nullable(),
 });
 
+export const dadosBancariosSchema = z.object({
+  banco: z.string().max(100).optional().nullable(),
+  tipoConta: z.string().max(30).optional().nullable(),
+  agencia: z.string().max(20).optional().nullable(),
+  conta: z.string().max(30).optional().nullable(),
+  pixTipo: z.string().max(20).optional().nullable(),
+  pixChave: z.string().max(120).optional().nullable(),
+});
+
+export const contatoEmergenciaSchema = z.object({
+  nome: z.string().max(120).optional().nullable(),
+  telefone: z.string().max(20).optional().nullable(),
+});
+
 export const criarColaboradorSchema = z.object({
   nome: z.string().min(3, 'Nome deve ter no mínimo 3 caracteres').max(255),
   email: z.string().email('Email inválido'),
   cpf: z.string().min(11, 'CPF inválido').max(14),
   rg: z.string().max(20).optional().nullable(),
+  rgOrgaoEmissor: z.string().max(20).optional().nullable(),
+  rgUf: z.string().max(2).optional().nullable(),
   telefone: z.string().max(20).optional().nullable(),
   pis: z.string().max(20).optional().nullable(),
   externalId: z.string().max(100).optional().nullable(),
   categoria: z.enum(['empregado', 'empregado_clt', 'usuario_interno']).optional().nullable(),
   observacao: z.string().optional().nullable(),
+  estadoCivil: z.string().max(40).optional().nullable(),
+  formacao: z.string().max(255).optional().nullable(),
+  corRaca: z.string().max(20).optional().nullable(),
   empresaId: z.number().int().positive().optional().nullable(),
   endereco: enderecoSchema.optional().nullable(),
+  dadosBancarios: dadosBancariosSchema.optional().nullable(),
+  contatoEmergencia: contatoEmergenciaSchema.optional().nullable(),
+  uniformeTamanho: z.string().max(10).optional().nullable(),
+  alturaMetros: z.number().nonnegative().lt(10).optional().nullable(),
+  pesoKg: z.number().nonnegative().lt(1000).optional().nullable(),
   departamentoId: z.number().int().positive().optional().nullable(),
   jornadaId: z.number().int().positive().optional().nullable(),
   cargoId: z.number().int().positive().optional().nullable(),
@@ -88,6 +112,7 @@ export const criarColaboradorSchema = z.object({
   permitePontoQualquerEmpresa: z.boolean().optional().default(false),
   valeAlimentacao: z.boolean().optional().default(false),
   valeTransporte: z.boolean().optional().default(false),
+  auxilioCombustivel: z.boolean().optional().default(false),
   senha: z.string().min(6, 'Senha deve ter no mínimo 6 caracteres'),
 });
 

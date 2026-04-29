@@ -83,10 +83,18 @@ export async function PUT(request: NextRequest, { params }: Params) {
         email: 'email',
         cpf: 'cpf',
         rg: 'rg',
+        rgOrgaoEmissor: 'rg_orgao_emissor',
+        rgUf: 'rg_uf',
         telefone: 'telefone',
         pis: 'pis',
         categoria: 'categoria',
         observacao: 'observacao',
+        estadoCivil: 'estado_civil',
+        formacao: 'formacao',
+        corRaca: 'cor_raca',
+        uniformeTamanho: 'uniforme_tamanho',
+        alturaMetros: 'altura_metros',
+        pesoKg: 'peso_kg',
         cargoId: 'cargo_id',
         empresaId: 'empresa_id',
         departamentoId: 'departamento_id',
@@ -98,6 +106,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         permitePontoQualquerEmpresa: 'permite_ponto_qualquer_empresa',
         valeAlimentacao: 'vale_alimentacao',
         valeTransporte: 'vale_transporte',
+        auxilioCombustivel: 'auxilio_combustivel',
         status: 'status',
       };
 
@@ -141,6 +150,40 @@ export async function PUT(request: NextRequest, { params }: Params) {
           if (data.endereco[jsField as keyof typeof data.endereco] !== undefined) {
             setClauses.push(`${dbField} = $${paramIndex}`);
             values.push(data.endereco[jsField as keyof typeof data.endereco]);
+            paramIndex++;
+          }
+        }
+      }
+
+      // Dados bancários
+      if (data.dadosBancarios) {
+        const bancariosFields: Record<string, string> = {
+          banco: 'banco_nome',
+          tipoConta: 'banco_tipo_conta',
+          agencia: 'banco_agencia',
+          conta: 'banco_conta',
+          pixTipo: 'pix_tipo',
+          pixChave: 'pix_chave',
+        };
+        for (const [jsField, dbField] of Object.entries(bancariosFields)) {
+          if (data.dadosBancarios[jsField as keyof typeof data.dadosBancarios] !== undefined) {
+            setClauses.push(`${dbField} = $${paramIndex}`);
+            values.push(data.dadosBancarios[jsField as keyof typeof data.dadosBancarios]);
+            paramIndex++;
+          }
+        }
+      }
+
+      // Contato de emergência
+      if (data.contatoEmergencia) {
+        const emergenciaFields: Record<string, string> = {
+          nome: 'contato_emergencia_nome',
+          telefone: 'contato_emergencia_telefone',
+        };
+        for (const [jsField, dbField] of Object.entries(emergenciaFields)) {
+          if (data.contatoEmergencia[jsField as keyof typeof data.contatoEmergencia] !== undefined) {
+            setClauses.push(`${dbField} = $${paramIndex}`);
+            values.push(data.contatoEmergencia[jsField as keyof typeof data.contatoEmergencia]);
             paramIndex++;
           }
         }

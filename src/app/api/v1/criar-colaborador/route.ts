@@ -61,12 +61,27 @@ export async function POST(request: NextRequest) {
       // Inserir colaborador
       const result = await query(
         `INSERT INTO people.colaboradores (
-          nome, email, senha_hash, cpf, rg, telefone, pis, categoria, observacao, cargo_id,
+          nome, email, senha_hash, cpf, rg, rg_orgao_emissor, rg_uf, telefone, pis, categoria, observacao, cargo_id,
           tipo, empresa_id, departamento_id, jornada_id, data_admissao, data_nascimento, data_desligamento,
-          endereco_cep, endereco_logradouro, endereco_numero, 
+          endereco_cep, endereco_logradouro, endereco_numero,
           endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado,
-          permite_ponto_mobile, permite_ponto_qualquer_empresa, vale_alimentacao, vale_transporte
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+          estado_civil, formacao, cor_raca,
+          banco_nome, banco_tipo_conta, banco_agencia, banco_conta, pix_tipo, pix_chave,
+          contato_emergencia_nome, contato_emergencia_telefone,
+          uniforme_tamanho, altura_metros, peso_kg,
+          permite_ponto_mobile, permite_ponto_qualquer_empresa,
+          vale_alimentacao, vale_transporte, auxilio_combustivel
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+          $13, $14, $15, $16, $17, $18, $19,
+          $20, $21, $22, $23, $24, $25, $26,
+          $27, $28, $29,
+          $30, $31, $32, $33, $34, $35,
+          $36, $37,
+          $38, $39, $40,
+          $41, $42,
+          $43, $44, $45
+        )
         RETURNING id, nome, email, tipo`,
         [
           data.nome,
@@ -74,6 +89,8 @@ export async function POST(request: NextRequest) {
           senhaHash,
           cpfLimpo,
           data.rg || null,
+          data.rgOrgaoEmissor || null,
+          data.rgUf || null,
           data.telefone || null,
           data.pis || null,
           categoria,
@@ -93,10 +110,25 @@ export async function POST(request: NextRequest) {
           data.endereco?.bairro || null,
           data.endereco?.cidade || null,
           data.endereco?.estado || null,
+          data.estadoCivil || null,
+          data.formacao || null,
+          data.corRaca || null,
+          data.dadosBancarios?.banco || null,
+          data.dadosBancarios?.tipoConta || null,
+          data.dadosBancarios?.agencia || null,
+          data.dadosBancarios?.conta || null,
+          data.dadosBancarios?.pixTipo || null,
+          data.dadosBancarios?.pixChave || null,
+          data.contatoEmergencia?.nome || null,
+          data.contatoEmergencia?.telefone || null,
+          data.uniformeTamanho || null,
+          data.alturaMetros ?? null,
+          data.pesoKg ?? null,
           data.permitePontoMobile ?? false,
           data.permitePontoQualquerEmpresa ?? false,
           data.valeAlimentacao ?? false,
           data.valeTransporte ?? false,
+          data.auxilioCombustivel ?? false,
         ]
       );
 
