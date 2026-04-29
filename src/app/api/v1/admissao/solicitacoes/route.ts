@@ -6,7 +6,7 @@ import { withAdmissao } from '@/lib/middleware';
 const STATUS_VALIDOS = [
   'nao_acessado', 'aguardando_rh', 'correcao_solicitada', 'aso_solicitado',
   'aso_recebido', 'em_teste', 'aso_reprovado', 'assinatura_solicitada',
-  'contrato_assinado', 'admitido', 'rejeitado',
+  'contrato_assinado', 'admitido', 'rejeitado', 'cancelado',
 ];
 
 const STATUS_ASO = new Set(['aso_solicitado', 'aso_recebido']);
@@ -85,12 +85,31 @@ export async function GET(request: NextRequest) {
         conditions.push(`s.usuario_provisorio_id = $${params.length}`);
       }
 
+      // Busca livre por nome ou CPF do usuario_provisorio (toolbar da aba
+      // Pré-admitidos). Casa em LIKE no nome (case-insensitive) e nos dígitos
+      // do CPF — assim o usuário pode digitar com ou sem máscara.
+      const busca = searchParams.get('busca')?.trim();
+      if (busca) {
+        const buscaConds: string[] = [];
+        params.push(`%${busca}%`);
+        buscaConds.push(`LOWER(up.nome) LIKE LOWER($${params.length})`);
+        const buscaDigits = busca.replace(/\D/g, '');
+        if (buscaDigits.length >= 3) {
+          params.push(`%${buscaDigits}%`);
+          buscaConds.push(
+            `REGEXP_REPLACE(COALESCE(up.cpf, ''), '[^0-9]', '', 'g') LIKE $${params.length}`,
+          );
+        }
+        conditions.push(`(${buscaConds.join(' OR ')})`);
+      }
+
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       // Dedup por provisório: só a solicitação mais recente por usuario_provisorio_id entra no feed.
       // Solicitações sem vínculo (legado) não são agrupadas — caem pelo id próprio.
-      // Filtros (status, usuario_provisorio_id para token provisório) aplicam ANTES do ranking,
-      // garantindo que cada provisório aparece na sua última solicitação dentro do filtro.
+      // Filtros (status, usuario_provisorio_id para token provisório, busca) aplicam ANTES do
+      // ranking, garantindo que cada provisório aparece na sua última solicitação dentro do filtro.
+      // O JOIN com usuarios_provisorios entra aqui (não só na query final) porque a busca usa up.nome/up.cpf.
       const latestFilteredCTE = `
         WITH filtradas AS (
           SELECT s.*,
@@ -99,6 +118,7 @@ export async function GET(request: NextRequest) {
                    ORDER BY s.criado_em DESC
                  ) AS rn
           FROM people.solicitacoes_admissao s
+          LEFT JOIN people.usuarios_provisorios up ON up.id = s.usuario_provisorio_id
           ${where}
         )
       `;
