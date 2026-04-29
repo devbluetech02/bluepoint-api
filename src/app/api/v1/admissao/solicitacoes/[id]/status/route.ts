@@ -4,6 +4,7 @@ import { errorResponse, notFoundResponse, serverErrorResponse, successResponse }
 import { registrarOcorrenciaReadmissao } from '@/lib/ocorrencias-externas';
 import { mapCamposParaApi } from '@/lib/formulario-admissao';
 import { extrairCamposPessoaisParaColaborador, type CamposExtraidos } from '@/lib/admissao-dados-extractor';
+import { classificarTipoDocumento } from '@/lib/admissao-classificar-doc';
 import { withAdmissao } from '@/lib/middleware';
 import { enviarPushParaProvisorio } from '@/lib/push-provisorio';
 import { enviarPushParaCargoNome } from '@/lib/push-colaborador';
@@ -890,6 +891,13 @@ async function criarColaboradorAPartirDeAdmissao(
 
 /**
  * Copia os documentos enviados na pré-admissão para documentos_colaborador.
+ *
+ * Reclassifica cada documento via IA (Claude) baseando-se no nome do arquivo
+ * e no label do campo do formulário onde foi anexado. Isso resolve o caso
+ * comum de candidato anexar uma CNH no campo "Documento de Identificação"
+ * (que não tem tipo específico) e o documento ficar órfão na tabela do
+ * colaborador. Documentos sem classificação clara caem em 'outros'.
+ *
  * Diferente de substituirDocumentosNaReadmissao(), aqui é INSERT puro
  * (não há documentos antigos pra substituir).
  */
@@ -897,31 +905,81 @@ async function copiarDocumentosAdmissaoParaColaborador(
   colaboradorId: number,
   solicitacaoId: string
 ): Promise<void> {
+  // 1. Carrega tipos de documento disponíveis (lookup por código)
+  const tiposRes = await query<{ id: number; codigo: string; nome_exibicao: string }>(
+    `SELECT id, codigo, nome_exibicao FROM people.tipos_documento_colaborador`
+  );
+  const tipos = tiposRes.rows;
+  const tipoPorCodigo = new Map(tipos.map((t) => [t.codigo, t]));
+  const tiposDisponiveis = tipos.map((t) => ({
+    id: t.id,
+    codigo: t.codigo,
+    nomeExibicao: t.nome_exibicao,
+  }));
+
+  // 2. Busca TODOS os documentos da admissão (mesmo os sem tipo válido).
+  //    LEFT JOIN garante que docs órfãos não sejam descartados.
   const docs = await query<{
-    tipo_documento_id: number;
+    tipo_documento_id: number | null;
     codigo: string | null;
+    nome_exibicao: string | null;
     nome: string;
     url: string;
     storage_key: string | null;
     tamanho: number | null;
   }>(
-    `SELECT da.tipo_documento_id, t.codigo, da.nome, da.url, da.storage_key, da.tamanho
+    `SELECT da.tipo_documento_id, t.codigo, t.nome_exibicao,
+            da.nome, da.url, da.storage_key, da.tamanho
        FROM people.documentos_admissao da
        LEFT JOIN people.tipos_documento_colaborador t ON t.id = da.tipo_documento_id
       WHERE da.solicitacao_id = $1`,
     [solicitacaoId]
   );
-  for (const d of docs.rows) {
+
+  if (docs.rows.length === 0) return;
+
+  // 3. Classifica cada documento via IA + heurística (paralelo)
+  const classificacoes = await Promise.all(
+    docs.rows.map(async (d) => {
+      try {
+        const codigo = await classificarTipoDocumento({
+          nomeArquivo: d.nome,
+          labelCampo: d.nome_exibicao,
+          tipoOriginalCodigo: d.codigo,
+          tiposDisponiveis,
+        });
+        return codigo;
+      } catch (err) {
+        console.error(`[admitido] Falha ao classificar "${d.nome}":`, err);
+        return d.codigo ?? 'outros';
+      }
+    })
+  );
+
+  // 4. Persiste em documentos_colaborador com o tipo reclassificado
+  let reclassificados = 0;
+  for (let i = 0; i < docs.rows.length; i++) {
+    const d = docs.rows[i];
+    const codigoFinal = classificacoes[i];
+    const tipoFinal = tipoPorCodigo.get(codigoFinal) ?? tipoPorCodigo.get('outros');
+    if (!tipoFinal) {
+      console.warn(`[admitido] Sem tipo "outros" no banco — documento "${d.nome}" não copiado`);
+      continue;
+    }
+    if (d.codigo !== codigoFinal) reclassificados++;
+
     await query(
       `INSERT INTO people.documentos_colaborador
          (colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [colaboradorId, d.codigo ?? 'admissao', d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho]
+      [colaboradorId, tipoFinal.codigo, tipoFinal.id, d.nome, d.url, d.storage_key, d.tamanho]
     );
   }
-  if (docs.rows.length > 0) {
-    console.warn(`[admitido] ${docs.rows.length} documento(s) copiado(s) para colaborador ${colaboradorId}`);
-  }
+
+  console.warn(
+    `[admitido] ${docs.rows.length} documento(s) copiado(s) para colaborador ${colaboradorId} ` +
+    `(${reclassificados} reclassificado(s) por IA)`
+  );
 }
 
 /**
@@ -1046,23 +1104,37 @@ async function reativarColaboradorInativo(
 }
 
 /**
- * Para cada documento enviado na solicitação, substitui o documento
- * correspondente do colaborador (mesmo tipo_documento_id). Documentos de tipos
- * que o colaborador tinha mas não foram reenviados são preservados.
+ * Na readmissão, reclassifica os documentos enviados via IA (mesma lógica
+ * de copiarDocumentosAdmissaoParaColaborador) e substitui os documentos do
+ * colaborador apenas dos tipos reclassificados — documentos de outros
+ * tipos que o colaborador já tinha são preservados.
  */
 async function substituirDocumentosNaReadmissao(
   colaboradorId: number,
   solicitacaoId: string
 ): Promise<void> {
+  const tiposRes = await query<{ id: number; codigo: string; nome_exibicao: string }>(
+    `SELECT id, codigo, nome_exibicao FROM people.tipos_documento_colaborador`
+  );
+  const tipos = tiposRes.rows;
+  const tipoPorCodigo = new Map(tipos.map((t) => [t.codigo, t]));
+  const tiposDisponiveis = tipos.map((t) => ({
+    id: t.id,
+    codigo: t.codigo,
+    nomeExibicao: t.nome_exibicao,
+  }));
+
   const novos = await query<{
-    tipo_documento_id: number;
+    tipo_documento_id: number | null;
     codigo: string | null;
+    nome_exibicao: string | null;
     nome: string;
     url: string;
     storage_key: string | null;
     tamanho: number | null;
   }>(
-    `SELECT da.tipo_documento_id, t.codigo, da.nome, da.url, da.storage_key, da.tamanho
+    `SELECT da.tipo_documento_id, t.codigo, t.nome_exibicao,
+            da.nome, da.url, da.storage_key, da.tamanho
        FROM people.documentos_admissao da
        LEFT JOIN people.tipos_documento_colaborador t ON t.id = da.tipo_documento_id
       WHERE da.solicitacao_id = $1`,
@@ -1071,26 +1143,53 @@ async function substituirDocumentosNaReadmissao(
 
   if (novos.rows.length === 0) return;
 
-  const tipoIds = novos.rows.map((n) => n.tipo_documento_id);
-  // Remove documentos existentes dos tipos reenviados (documentos de outros tipos ficam).
-  await query(
-    `DELETE FROM people.documentos_colaborador
-      WHERE colaborador_id = $1
-        AND tipo_documento_id = ANY($2::int[])`,
-    [colaboradorId, tipoIds]
+  // Reclassifica via IA em paralelo
+  const codigos = await Promise.all(
+    novos.rows.map(async (d) => {
+      try {
+        return await classificarTipoDocumento({
+          nomeArquivo: d.nome,
+          labelCampo: d.nome_exibicao,
+          tipoOriginalCodigo: d.codigo,
+          tiposDisponiveis,
+        });
+      } catch {
+        return d.codigo ?? 'outros';
+      }
+    })
   );
 
-  for (const d of novos.rows) {
+  // Substitui documentos APENAS dos tipos reclassificados
+  const tipoIdsReclassificados = Array.from(
+    new Set(
+      codigos
+        .map((c) => tipoPorCodigo.get(c)?.id ?? tipoPorCodigo.get('outros')?.id)
+        .filter((id): id is number => typeof id === 'number')
+    )
+  );
+  if (tipoIdsReclassificados.length > 0) {
+    await query(
+      `DELETE FROM people.documentos_colaborador
+        WHERE colaborador_id = $1
+          AND tipo_documento_id = ANY($2::int[])`,
+      [colaboradorId, tipoIdsReclassificados]
+    );
+  }
+
+  for (let i = 0; i < novos.rows.length; i++) {
+    const d = novos.rows[i];
+    const tipoFinal = tipoPorCodigo.get(codigos[i]) ?? tipoPorCodigo.get('outros');
+    if (!tipoFinal) continue;
     await query(
       `INSERT INTO people.documentos_colaborador
          (colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [colaboradorId, d.codigo ?? 'admissao', d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho]
+      [colaboradorId, tipoFinal.codigo, tipoFinal.id, d.nome, d.url, d.storage_key, d.tamanho]
     );
   }
 
   console.warn(
-    `[admitido] ${novos.rows.length} documento(s) substituído(s) no colaborador ${colaboradorId} (tipos: ${tipoIds.join(',')})`
+    `[admitido] ${novos.rows.length} documento(s) substituído(s) no colaborador ${colaboradorId} (tipos: ${tipoIdsReclassificados.join(',')})`
   );
 }
 
