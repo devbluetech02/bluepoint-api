@@ -28,9 +28,9 @@ const documentoRequeridoSchema = z.object({
 
 const salvarFormularioAtualizacaoCadastralSchema = z.object({
   id: z.string().uuid('ID inválido').optional(),
-  titulo: z.string().min(3, 'Título deve ter no mínimo 3 caracteres').max(255),
+  titulo: z.string().max(255).default('Atualização Cadastral'),
   descricao: z.string().max(2000).optional().nullable(),
-  campos: z.array(campoSchema).min(1, 'Pelo menos 1 campo é obrigatório'),
+  campos: z.array(campoSchema).default([]),
   documentosRequeridos: z.array(documentoRequeridoSchema).optional().default([]),
 });
 
