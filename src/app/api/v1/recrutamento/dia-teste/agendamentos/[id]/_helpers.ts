@@ -18,11 +18,12 @@ export interface AgendamentoRow {
   carga_horaria: number;
   status: string;
   decidido_por: string | number | null;
-  decidido_em: Date | null;
-  comparecimento_em: Date | null;
+  // node-pg às vezes devolve TIMESTAMPTZ como string ISO; aceita os dois.
+  decidido_em: Date | string | null;
+  comparecimento_em: Date | string | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
-  criado_em: Date;
+  criado_em: Date | string;
   candidato_recrutamento_id: string | number;
   candidato_cpf_norm: string;
   vaga_snapshot: string | null;
@@ -34,6 +35,18 @@ export interface AgendamentoRow {
   departamento_id: string | number | null;
   departamento_nome: string | null;
   processo_status: string;
+}
+
+/**
+ * Coerção defensiva — node-pg parseia TIMESTAMPTZ como `Date` por
+ * default, mas com type parsers customizados no projeto pode vir
+ * como string ISO. Aceita os dois e devolve `Date | null`.
+ */
+function toDate(v: Date | string | null | undefined): Date | null {
+  if (v == null) return null;
+  if (v instanceof Date) return v;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /**
@@ -54,13 +67,14 @@ export function calcularPodeDecidir(row: AgendamentoRow): {
     return { podeDecidir: false, podeDecidirApos: null };
   }
   // Status pré-comparecimento: bloqueado, esperando o gestor marcar.
-  if (row.status !== 'compareceu' || row.comparecimento_em === null) {
+  const comparecimento = toDate(row.comparecimento_em);
+  if (row.status !== 'compareceu' || comparecimento === null) {
     return { podeDecidir: false, podeDecidirApos: null };
   }
   // Calcula meio da jornada a partir do comparecimento.
   // carga_horaria é em horas; *60 = minutos; *0.5 = metade.
   const meio = new Date(
-    row.comparecimento_em.getTime() + row.carga_horaria * 60 * 0.5 * 60 * 1000,
+    comparecimento.getTime() + row.carga_horaria * 60 * 0.5 * 60 * 1000,
   );
   return {
     podeDecidir: Date.now() >= meio.getTime(),
