@@ -227,7 +227,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // (o colaborador é criado pelo RH via POST /criar-colaborador separadamente).
       // Executado de forma não-bloqueante.
       if (body.status === 'admitido' && sol.usuario_provisorio_id) {
-        processarTransicaoAdmitido(id, sol.usuario_provisorio_id, sol.foto_perfil_url).catch(
+        const colaboradorIdExplicito = typeof body.colaboradorId === 'string' ? parseInt(body.colaboradorId, 10) : (typeof body.colaboradorId === 'number' ? body.colaboradorId : null);
+        processarTransicaoAdmitido(id, sol.usuario_provisorio_id, sol.foto_perfil_url, colaboradorIdExplicito).catch(
           (err) => console.error('[admitido] Erro no processamento pós-admissão:', err)
         );
       }
@@ -572,7 +573,8 @@ async function notificarAssinaturaContrato(
 async function processarTransicaoAdmitido(
   solicitacaoId: string,
   usuarioProvisorioId: number,
-  fotoPerfilUrl: string | null
+  fotoPerfilUrl: string | null,
+  colaboradorIdExplicito: number | null = null
 ): Promise<void> {
   const provResult = await query<{
     cpf: string | null;
@@ -622,17 +624,22 @@ async function processarTransicaoAdmitido(
     return;
   }
 
-  // Nenhum colaborador com esse CPF — comportamento legado: migra biometria
-  // somente se um colaborador ativo for criado paralelamente via POST /criar-colaborador.
-  const ativoResult = await query<{ id: number }>(
-    `SELECT id FROM people.colaboradores WHERE cpf = $1 AND status = 'ativo' LIMIT 1`,
-    [cpf]
-  );
-  if (ativoResult.rows.length === 0) {
+  // Nenhum colaborador inativo com esse CPF. Tenta:
+  // 1) colaboradorId explícito passado pelo frontend (criar-colaborador acabou de rodar)
+  // 2) busca por CPF ativo (comportamento legado)
+  let targetColabId: number | null = colaboradorIdExplicito;
+  if (!targetColabId) {
+    const ativoResult = await query<{ id: number }>(
+      `SELECT id FROM people.colaboradores WHERE cpf = $1 AND status = 'ativo' LIMIT 1`,
+      [cpf]
+    );
+    targetColabId = ativoResult.rows[0]?.id ?? null;
+  }
+  if (!targetColabId) {
     console.warn(`[admitido] Nenhum colaborador encontrado para CPF ${cpf} — biometria não migrada`);
     return;
   }
-  await migrarBiometriaParaColaborador(solicitacaoId, ativoResult.rows[0].id, fotoPerfilUrl);
+  await migrarBiometriaParaColaborador(solicitacaoId, targetColabId, fotoPerfilUrl);
 }
 
 /**
