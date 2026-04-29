@@ -3,13 +3,16 @@ import { query } from '@/lib/db';
 import { errorResponse, notFoundResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
 import { registrarOcorrenciaReadmissao } from '@/lib/ocorrencias-externas';
 import { mapCamposParaApi } from '@/lib/formulario-admissao';
-import { extrairCamposPessoaisParaColaborador } from '@/lib/admissao-dados-extractor';
+import { extrairCamposPessoaisParaColaborador, type CamposExtraidos } from '@/lib/admissao-dados-extractor';
 import { withAdmissao } from '@/lib/middleware';
 import { enviarPushParaProvisorio } from '@/lib/push-provisorio';
 import { enviarPushParaCargoNome } from '@/lib/push-colaborador';
 import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
 import { registrarAuditoria } from '@/lib/audit';
-import { cacheDel, CACHE_KEYS } from '@/lib/cache';
+import { cacheDel, CACHE_KEYS, invalidateColaboradorCache } from '@/lib/cache';
+import { hashPassword } from '@/lib/auth';
+import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
+import { embedTableRowAfterInsert } from '@/lib/embeddings';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -623,11 +626,13 @@ async function notificarAssinaturaContrato(
 /**
  * Chamada fire-and-forget quando a solicitação transita para 'admitido'.
  * Roteia entre:
- *   - inativo → readmissão (reativa, sobrescreve dados, substitui documentos,
- *     registra ocorrência "Readmissão", migra biometria)
  *   - ativo   → no-op (pré-check no handler já bloqueia; aqui é defensivo)
- *   - none    → só migra biometria se colaborador já tiver sido criado via
- *     POST /criar-colaborador (comportamento legado)
+ *   - inativo → readmissão (reativa, sobrescreve dados, substitui documentos,
+ *               registra ocorrência "Readmissão", migra biometria)
+ *   - none    → cria colaborador novo a partir dos dados da pré-admissão
+ *               (extrai do JSONB `dados` via heurística de label) e migra
+ *               biometria. Se `colaboradorIdExplicito` for passado, usa ele
+ *               em vez de criar (compat com fluxo antigo /criar-colaborador).
  */
 async function processarTransicaoAdmitido(
   solicitacaoId: string,
@@ -683,9 +688,13 @@ async function processarTransicaoAdmitido(
     return;
   }
 
-  // Nenhum colaborador inativo com esse CPF. Tenta:
-  // 1) colaboradorId explícito passado pelo frontend (criar-colaborador acabou de rodar)
-  // 2) busca por CPF ativo (comportamento legado)
+  // Nenhum colaborador encontrado para esse CPF.
+  //
+  // Caminho legado: o frontend pré-criava o colaborador via POST /criar-colaborador
+  // e mandava o id explícito aqui — só migrava biometria. Mantido por compat.
+  //
+  // Caminho novo (default): cria o colaborador automaticamente a partir dos dados
+  // coletados na pré-admissão, persistindo TODOS os campos do formulário.
   let targetColabId: number | null = colaboradorIdExplicito;
   if (!targetColabId) {
     const ativoResult = await query<{ id: number }>(
@@ -695,10 +704,224 @@ async function processarTransicaoAdmitido(
     targetColabId = ativoResult.rows[0]?.id ?? null;
   }
   if (!targetColabId) {
-    console.warn(`[admitido] Nenhum colaborador encontrado para CPF ${cpf} — biometria não migrada`);
-    return;
+    targetColabId = await criarColaboradorAPartirDeAdmissao(prov, cpf, solicitacaoId);
+    if (!targetColabId) {
+      console.warn(`[admitido] Falha ao criar colaborador para CPF ${cpf} — solicitação ${solicitacaoId}`);
+      return;
+    }
   }
   await migrarBiometriaParaColaborador(solicitacaoId, targetColabId, fotoPerfilUrl);
+}
+
+/**
+ * Cria um novo colaborador a partir dos dados da pré-admissão. Usa:
+ *   - usuarios_provisorios para nome, cpf, empresa_id, cargo_id,
+ *     departamento_id, jornada_id;
+ *   - solicitacoes_admissao.dados (JSONB) + extractor de labels para todos
+ *     os demais campos (email, telefone, RG, endereço, dados bancários,
+ *     contato de emergência, biometria física, vales, senha definida pelo
+ *     candidato, etc.).
+ *
+ * Pré-requisitos do INSERT (NOT NULL): nome, email, senha_hash, cpf,
+ * data_admissao. Se faltar algum, registra warning e aborta.
+ *
+ * Retorna o id do colaborador criado, ou null em caso de falha.
+ */
+async function criarColaboradorAPartirDeAdmissao(
+  prov: {
+    nome: string | null;
+    empresa_id: number | null;
+    cargo_id: number | null;
+    departamento_id: number | null;
+    jornada_id: number | null;
+  },
+  cpf: string,
+  solicitacaoId: string
+): Promise<number | null> {
+  // 1. Carrega formulário + dados + data_admissao da solicitação
+  const solRes = await query<{
+    dados: Record<string, unknown> | null;
+    campos: unknown;
+    data_admissao: string | null;
+  }>(
+    `SELECT s.dados, f.campos, s.data_admissao
+       FROM people.solicitacoes_admissao s
+       JOIN people.formularios_admissao f ON f.id = s.formulario_id
+      WHERE s.id = $1`,
+    [solicitacaoId]
+  );
+  if (solRes.rows.length === 0) {
+    console.warn(`[admitido] Solicitação ${solicitacaoId} não encontrada — abortando criação`);
+    return null;
+  }
+  const dados = solRes.rows[0].dados ?? {};
+  const campos = mapCamposParaApi(solRes.rows[0].campos, true);
+  const dataAdmissao = solRes.rows[0].data_admissao ?? new Date().toISOString().slice(0, 10);
+
+  // 2. Extrai todos os campos pessoais do JSONB
+  const ext: CamposExtraidos = await extrairCamposPessoaisParaColaborador(campos, dados);
+
+  // 3. Validações dos campos NOT NULL
+  if (!prov.nome || !prov.nome.trim()) {
+    console.warn(`[admitido] Provisório sem nome — abortando criação (solicitação ${solicitacaoId})`);
+    return null;
+  }
+  if (!ext.email) {
+    console.warn(`[admitido] E-mail não encontrado no formulário — abortando criação (solicitação ${solicitacaoId})`);
+    return null;
+  }
+  if (!ext.senha) {
+    console.warn(`[admitido] Senha não encontrada no formulário — abortando criação (solicitação ${solicitacaoId})`);
+    return null;
+  }
+
+  // 4. Conflito de e-mail (CPF já foi pré-checado no handler)
+  const emailConflict = await query<{ id: number }>(
+    `SELECT id FROM people.colaboradores WHERE email = $1 LIMIT 1`,
+    [ext.email]
+  );
+  if (emailConflict.rows.length > 0) {
+    console.warn(
+      `[admitido] E-mail "${ext.email}" já cadastrado (colaborador ${emailConflict.rows[0].id}) — abortando criação (solicitação ${solicitacaoId})`
+    );
+    return null;
+  }
+
+  // 5. Detecta tipo (admin/gestor/colaborador) pelo cargo
+  let tipoUsuario = 'colaborador';
+  if (prov.cargo_id) {
+    const cargoRes = await query<{ nome: string }>(
+      `SELECT nome FROM people.cargos WHERE id = $1`,
+      [prov.cargo_id]
+    );
+    if (cargoRes.rows.length > 0) {
+      tipoUsuario = detectarTipoPorCargo(cargoRes.rows[0].nome);
+    }
+  }
+
+  const senhaHash = await hashPassword(ext.senha);
+
+  // 6. INSERT
+  const insertRes = await query<{ id: number }>(
+    `INSERT INTO people.colaboradores (
+       nome, email, senha_hash, cpf, rg, rg_orgao_emissor, rg_uf, telefone,
+       cargo_id, tipo, empresa_id, departamento_id, jornada_id,
+       data_admissao, data_nascimento, status,
+       endereco_cep, endereco_logradouro, endereco_numero, endereco_complemento,
+       endereco_bairro, endereco_cidade, endereco_estado,
+       estado_civil, formacao, cor_raca,
+       banco_nome, banco_tipo_conta, banco_agencia, banco_conta, pix_tipo, pix_chave,
+       vale_transporte, vale_alimentacao, auxilio_combustivel,
+       uniforme_tamanho, altura_metros, peso_kg,
+       contato_emergencia_nome, contato_emergencia_telefone
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7, $8,
+       $9, $10, $11, $12, $13,
+       $14, $15, 'ativo',
+       $16, $17, $18, $19, $20, $21, $22,
+       $23, $24, $25,
+       $26, $27, $28, $29, $30, $31,
+       $32, $33, $34,
+       $35, $36, $37,
+       $38, $39
+     )
+     RETURNING id`,
+    [
+      prov.nome,
+      ext.email,
+      senhaHash,
+      cpf,
+      ext.rg ?? null,
+      ext.rg_orgao_emissor ?? null,
+      ext.rg_uf ?? null,
+      ext.telefone ?? null,
+      prov.cargo_id,
+      tipoUsuario,
+      prov.empresa_id,
+      prov.departamento_id,
+      prov.jornada_id,
+      dataAdmissao,
+      ext.data_nascimento ?? null,
+      ext.endereco_cep ?? null,
+      ext.endereco_logradouro ?? null,
+      ext.endereco_numero ?? null,
+      ext.endereco_complemento ?? null,
+      ext.endereco_bairro ?? null,
+      ext.endereco_cidade ?? null,
+      ext.endereco_estado ?? null,
+      ext.estado_civil ?? null,
+      ext.formacao ?? null,
+      ext.cor_raca ?? null,
+      ext.banco_nome ?? null,
+      ext.banco_tipo_conta ?? null,
+      ext.banco_agencia ?? null,
+      ext.banco_conta ?? null,
+      ext.pix_tipo ?? null,
+      ext.pix_chave ?? null,
+      ext.vale_transporte ?? false,
+      ext.vale_alimentacao ?? true,
+      ext.auxilio_combustivel ?? false,
+      ext.uniforme_tamanho ?? null,
+      ext.altura_metros ?? null,
+      ext.peso_kg ?? null,
+      ext.contato_emergencia_nome ?? null,
+      ext.contato_emergencia_telefone ?? null,
+    ]
+  );
+
+  const novoId = insertRes.rows[0].id;
+
+  // 7. Migra documentos da admissão pra documentos_colaborador
+  await copiarDocumentosAdmissaoParaColaborador(novoId, solicitacaoId);
+
+  // 8. Side-effects pós-INSERT
+  await invalidateColaboradorCache();
+  embedTableRowAfterInsert('colaboradores', novoId).catch((err) =>
+    console.error('[admitido] Falha ao gerar embedding do colaborador:', err)
+  );
+
+  console.warn(
+    `[admitido:${novoId}] Colaborador criado a partir da pré-admissão ${solicitacaoId} ` +
+    `(cpf=${cpf}, tipo=${tipoUsuario})`
+  );
+
+  return novoId;
+}
+
+/**
+ * Copia os documentos enviados na pré-admissão para documentos_colaborador.
+ * Diferente de substituirDocumentosNaReadmissao(), aqui é INSERT puro
+ * (não há documentos antigos pra substituir).
+ */
+async function copiarDocumentosAdmissaoParaColaborador(
+  colaboradorId: number,
+  solicitacaoId: string
+): Promise<void> {
+  const docs = await query<{
+    tipo_documento_id: number;
+    codigo: string | null;
+    nome: string;
+    url: string;
+    storage_key: string | null;
+    tamanho: number | null;
+  }>(
+    `SELECT da.tipo_documento_id, t.codigo, da.nome, da.url, da.storage_key, da.tamanho
+       FROM people.documentos_admissao da
+       LEFT JOIN people.tipos_documento_colaborador t ON t.id = da.tipo_documento_id
+      WHERE da.solicitacao_id = $1`,
+    [solicitacaoId]
+  );
+  for (const d of docs.rows) {
+    await query(
+      `INSERT INTO people.documentos_colaborador
+         (colaborador_id, tipo, tipo_documento_id, nome, url, storage_key, tamanho)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [colaboradorId, d.codigo ?? 'admissao', d.tipo_documento_id, d.nome, d.url, d.storage_key, d.tamanho]
+    );
+  }
+  if (docs.rows.length > 0) {
+    console.warn(`[admitido] ${docs.rows.length} documento(s) copiado(s) para colaborador ${colaboradorId}`);
+  }
 }
 
 /**
@@ -755,22 +978,41 @@ async function reativarColaboradorInativo(
   push('jornada_id',      prov.jornada_id);
 
   // Campos pessoais extraídos — só entram se presentes.
+  // Senha NÃO entra: na readmissão preservamos a senha existente do colaborador,
+  // que pode ter sido trocada via /alterar-senha desde o desligamento.
   const sobrescritosPessoais: string[] = [];
   const preservados: string[] = [];
-  const mapa: [keyof typeof extraidos, string][] = [
-    ['email',                'email'],
-    ['telefone',             'telefone'],
-    ['rg',                   'rg'],
-    ['data_nascimento',      'data_nascimento'],
-    ['endereco_cep',         'endereco.cep'],
-    ['endereco_logradouro',  'endereco.logradouro'],
-    ['endereco_numero',      'endereco.numero'],
-    ['endereco_complemento', 'endereco.complemento'],
-    ['endereco_bairro',      'endereco.bairro'],
-    ['endereco_cidade',      'endereco.cidade'],
-    ['endereco_estado',      'endereco.estado'],
-    ['vale_transporte',      'vale_transporte'],
-    ['vale_alimentacao',     'vale_alimentacao'],
+  const mapa: [Exclude<keyof typeof extraidos, 'senha'>, string][] = [
+    ['email',                       'email'],
+    ['telefone',                    'telefone'],
+    ['rg',                          'rg'],
+    ['rg_orgao_emissor',            'rg_orgao_emissor'],
+    ['rg_uf',                       'rg_uf'],
+    ['data_nascimento',             'data_nascimento'],
+    ['endereco_cep',                'endereco.cep'],
+    ['endereco_logradouro',         'endereco.logradouro'],
+    ['endereco_numero',             'endereco.numero'],
+    ['endereco_complemento',        'endereco.complemento'],
+    ['endereco_bairro',             'endereco.bairro'],
+    ['endereco_cidade',             'endereco.cidade'],
+    ['endereco_estado',             'endereco.estado'],
+    ['vale_transporte',             'vale_transporte'],
+    ['vale_alimentacao',            'vale_alimentacao'],
+    ['auxilio_combustivel',         'auxilio_combustivel'],
+    ['estado_civil',                'estado_civil'],
+    ['formacao',                    'formacao'],
+    ['cor_raca',                    'cor_raca'],
+    ['banco_nome',                  'banco_nome'],
+    ['banco_tipo_conta',            'banco_tipo_conta'],
+    ['banco_agencia',               'banco_agencia'],
+    ['banco_conta',                 'banco_conta'],
+    ['pix_tipo',                    'pix_tipo'],
+    ['pix_chave',                   'pix_chave'],
+    ['uniforme_tamanho',            'uniforme_tamanho'],
+    ['altura_metros',               'altura_metros'],
+    ['peso_kg',                     'peso_kg'],
+    ['contato_emergencia_nome',     'contato_emergencia_nome'],
+    ['contato_emergencia_telefone', 'contato_emergencia_telefone'],
   ];
   for (const [chave, label] of mapa) {
     const v = extraidos[chave];

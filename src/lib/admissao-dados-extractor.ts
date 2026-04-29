@@ -121,6 +121,8 @@ export interface CamposExtraidos {
   email?: string;
   telefone?: string;
   rg?: string;
+  rg_orgao_emissor?: string;
+  rg_uf?: string;                 // UF 2 letras
   data_nascimento?: string;       // ISO YYYY-MM-DD
   endereco_cep?: string;
   endereco_logradouro?: string;
@@ -131,6 +133,26 @@ export interface CamposExtraidos {
   endereco_estado?: string;       // UF 2 letras
   vale_transporte?: boolean;
   vale_alimentacao?: boolean;
+  auxilio_combustivel?: boolean;
+  // Senha definida pelo candidato no formulário (texto cru — caller faz hash)
+  senha?: string;
+  // Dados pessoais adicionais
+  estado_civil?: string;
+  formacao?: string;
+  cor_raca?: string;
+  // Dados bancários
+  banco_nome?: string;
+  banco_tipo_conta?: string;
+  banco_agencia?: string;
+  banco_conta?: string;
+  pix_tipo?: string;
+  pix_chave?: string;
+  // Dados complementares
+  uniforme_tamanho?: string;
+  altura_metros?: number;
+  peso_kg?: number;
+  contato_emergencia_nome?: string;
+  contato_emergencia_telefone?: string;
 }
 
 /**
@@ -152,8 +174,23 @@ export async function extrairCamposPessoaisParaColaborador(
   const email = extrairValorPorLabel(campos, dados, ['e-mail', 'email']);
   if (email) out.email = email;
 
-  const rg = extrairValorPorLabel(campos, dados, ['rg', 'identidade']);
+  // RG principal — exclui campos vizinhos com "rg" no label (órgão emissor, UF RG)
+  const rg = extrairValorPorLabel(
+    campos,
+    dados,
+    ['rg', 'identidade'],
+    ['órgão', 'orgao', 'emissor', 'uf rg', 'rg uf']
+  );
   if (rg) out.rg = rg;
+
+  const rgOrgao = extrairValorPorLabel(campos, dados, ['órgão emissor', 'orgao emissor', 'emissor']);
+  if (rgOrgao) out.rg_orgao_emissor = rgOrgao;
+
+  const rgUfRaw = extrairValorPorLabel(campos, dados, ['uf rg', 'rg uf']);
+  if (rgUfRaw) {
+    const uf = normalizarUF(rgUfRaw);
+    if (uf) out.rg_uf = uf;
+  }
 
   // Telefone: só dígitos
   const telRaw = extrairValorPorLabel(campos, dados, ['telefone', 'celular', 'whatsapp']);
@@ -196,7 +233,13 @@ export async function extrairCamposPessoaisParaColaborador(
   const cidade = extrairValorPorLabel(campos, dados, ['cidade', 'município', 'municipio']);
   if (cidade) out.endereco_cidade = cidade;
 
-  const estadoRaw = extrairValorPorLabel(campos, dados, ['estado', 'uf']);
+  // UF do endereço — exclui "Estado Civil" e "UF RG" pra não confundir
+  const estadoRaw = extrairValorPorLabel(
+    campos,
+    dados,
+    ['estado', 'uf'],
+    ['civil', 'rg']
+  );
   if (estadoRaw) {
     const uf = normalizarUF(estadoRaw);
     if (uf) out.endereco_estado = uf;
@@ -214,24 +257,149 @@ export async function extrairCamposPessoaisParaColaborador(
     }
   }
 
-  // Benefícios — vale_transporte e vale_alimentacao
-  const { vt, va } = extrairVales(campos, dados);
+  // Benefícios — vale_transporte, vale_alimentacao, auxilio_combustivel
+  const { vt, va, ac } = extrairVales(campos, dados);
   out.vale_transporte = vt;
   out.vale_alimentacao = va;
+  out.auxilio_combustivel = ac;
+
+  // Senha definida pelo candidato (campo "Crie uma senha")
+  const senhaRaw = extrairValorPorLabel(campos, dados, ['crie uma senha', 'senha']);
+  if (senhaRaw) out.senha = senhaRaw;
+
+  // Estado civil
+  const estadoCivil = extrairValorPorLabel(campos, dados, ['estado civil']);
+  if (estadoCivil) out.estado_civil = estadoCivil;
+
+  // Formação / escolaridade
+  const formacao = extrairValorPorLabel(campos, dados, ['formação', 'formacao', 'escolaridade']);
+  if (formacao) out.formacao = formacao;
+
+  // Cor / raça / etnia
+  const corRaca = extrairValorPorLabel(campos, dados, ['cor', 'raça', 'raca', 'etnia']);
+  if (corRaca) out.cor_raca = corRaca;
+
+  // Dados bancários — exclui "tipo de conta" da busca por "conta" pra não conflitar
+  const bancoNome = extrairValorPorLabel(campos, dados, ['banco']);
+  if (bancoNome) out.banco_nome = bancoNome;
+
+  const tipoConta = extrairValorPorLabel(campos, dados, ['tipo de conta', 'tipo da conta']);
+  if (tipoConta) out.banco_tipo_conta = tipoConta;
+
+  const agencia = extrairValorPorLabel(campos, dados, ['agência', 'agencia']);
+  if (agencia) out.banco_agencia = agencia;
+
+  const conta = extrairValorPorLabel(
+    campos,
+    dados,
+    ['conta'],
+    ['tipo de conta', 'tipo da conta']
+  );
+  if (conta) out.banco_conta = conta;
+
+  // PIX — "tipo de chave" antes de "chave" pra evitar overlap
+  const pixTipo = extrairValorPorLabel(campos, dados, ['tipo de chave pix', 'tipo da chave pix', 'tipo chave pix']);
+  if (pixTipo) out.pix_tipo = pixTipo;
+
+  const pixChave = extrairValorPorLabel(
+    campos,
+    dados,
+    ['chave pix', 'pix'],
+    ['tipo de chave', 'tipo da chave', 'tipo chave']
+  );
+  if (pixChave) out.pix_chave = pixChave;
+
+  // Tamanho do uniforme
+  const uniforme = extrairValorPorLabel(campos, dados, ['uniforme', 'tamanho da camisa', 'tamanho camisa']);
+  if (uniforme) out.uniforme_tamanho = uniforme;
+
+  // Altura — converte vírgula em ponto e aceita "1,75" / "1.75" / "175" (cm)
+  const alturaRaw = extrairValorPorLabel(campos, dados, ['altura']);
+  if (alturaRaw) {
+    const alt = parseAltura(alturaRaw);
+    if (alt !== null) out.altura_metros = alt;
+  }
+
+  // Peso — converte vírgula em ponto
+  const pesoRaw = extrairValorPorLabel(campos, dados, ['peso']);
+  if (pesoRaw) {
+    const p = parseFloat(pesoRaw.replace(',', '.'));
+    if (Number.isFinite(p) && p > 0) out.peso_kg = p;
+  }
+
+  // Contato de emergência (label permitido aqui — labelValido() bloqueia em outros campos)
+  const ceNome = extrairValorPorLabelInclusivo(
+    campos,
+    dados,
+    ['nome do contato de emergência', 'nome do contato de emergencia', 'contato de emergência', 'contato de emergencia'],
+    ['telefone']
+  );
+  if (ceNome) out.contato_emergencia_nome = ceNome;
+
+  const ceTelRaw = extrairValorPorLabelInclusivo(
+    campos,
+    dados,
+    ['telefone do contato de emergência', 'telefone do contato de emergencia', 'telefone de emergência', 'telefone de emergencia'],
+    []
+  );
+  if (ceTelRaw) {
+    const d = soDigitos(ceTelRaw);
+    if (d) out.contato_emergencia_telefone = d;
+  }
 
   return out;
 }
 
 /**
- * Heurística de benefícios. Label costuma ser "Benefício" (select/radio)
- * e o valor indica qual benefício foi escolhido.
- *   - vt: true se qualquer valor de campo-benefício contém "transporte" ou "combustível"
+ * Variante de extrairValorPorLabel que NÃO aplica labelValido (não bloqueia
+ * "emergência"). Usada exclusivamente pra campos de contato de emergência.
+ */
+function extrairValorPorLabelInclusivo(
+  campos: FormularioCampoApi[],
+  dados: Record<string, unknown>,
+  needles: string[],
+  exclusoes: string[] = []
+): string | null {
+  for (const campo of campos) {
+    if (!campo.id) continue;
+    if (exclusoes.length && labelContem(campo.label, exclusoes)) continue;
+    if (!labelContem(campo.label, needles)) continue;
+    const raw = dados[campo.id];
+    if (raw === undefined || raw === null) continue;
+    const s = String(raw).trim();
+    if (s === '') continue;
+    return s;
+  }
+  return null;
+}
+
+/**
+ * Aceita "1,75", "1.75", "175" (cm), "175 cm". Retorna metros (NUMERIC 3,2 → 0..9.99).
+ */
+function parseAltura(raw: string): number | null {
+  const v = raw.replace(',', '.').replace(/[^\d.]/g, '');
+  const n = parseFloat(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  // Heurística: se vier em cm (>= 100), divide por 100
+  const metros = n >= 10 ? n / 100 : n;
+  if (metros < 0.5 || metros >= 10) return null;
+  return Math.round(metros * 100) / 100;
+}
+
+/**
+ * Heurística de benefícios. Label costuma ser "Vale transporte ou Auxílio
+ * combustível?" (select) ou "Benefício" — e o valor indica qual foi escolhido.
+ *   - vt: true se valor selecionado contém "transporte"
+ *   - ac: true se valor selecionado contém "combustível"/"combustivel"
  *   - va: default true; preservado quando o formulário não dá sinal claro de exclusão
+ *
+ * vt e ac são mutuamente exclusivos no formulário default — se ambos baterem,
+ * mantém ambos true (defensivo, mas raríssimo na prática).
  */
 function extrairVales(
   campos: FormularioCampoApi[],
   dados: Record<string, unknown>
-): { vt: boolean; va: boolean } {
+): { vt: boolean; va: boolean; ac: boolean } {
   const beneficioCampos = campos.filter((c) => {
     if (!c.id || !labelValido(c.label)) return false;
     const l = c.label.toLowerCase();
@@ -245,16 +413,16 @@ function extrairVales(
   });
 
   let vt = false;
+  let ac = false;
   const va = true; // default per contrato
 
   for (const c of beneficioCampos) {
     const raw = dados[c.id!];
     if (raw === undefined || raw === null) continue;
     const v = String(raw).toLowerCase();
-    if (v.includes('transporte') || v.includes('combustível') || v.includes('combustivel')) {
-      vt = true;
-    }
+    if (v.includes('transporte')) vt = true;
+    if (v.includes('combustível') || v.includes('combustivel')) ac = true;
   }
 
-  return { vt, va };
+  return { vt, va, ac };
 }
