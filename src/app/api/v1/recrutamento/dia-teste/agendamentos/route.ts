@@ -90,8 +90,15 @@ export async function GET(request: NextRequest) {
         params.push(status);
       }
 
+      // `todos=false` (default) esconde APENAS agendamentos cancelados
+      // administrativamente (RH cancelando o processo). Decisões terminais
+      // do gestor no dia de teste — aprovado, reprovado, nao_compareceu,
+      // desistencia — devem CONTINUAR visíveis pro RH acompanhar (e pro
+      // gestor ver o histórico). Antes filtrávamos `ps.status` (do processo)
+      // mas isso escondia tudo, já que reprovado/desistencia/nao_compareceu
+      // marcam o processo como 'cancelado' via avancarProcessoAposDecisao.
       if (!todos) {
-        filtros.push(`ps.status NOT IN ('cancelado')`);
+        filtros.push(`a.status != 'cancelado'`);
       }
 
       const where = filtros.length > 0 ? `WHERE ${filtros.join(' AND ')}` : '';
