@@ -14,6 +14,7 @@ import {
   definirEscopoGestor,
 } from '@/lib/escopo-gestor';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/v1/colaboradores/:id/escopo
@@ -174,6 +175,22 @@ export async function PUT(
         { departamentoIds, empresaIds },
         { atualizadoPor: user.userId > 0 ? user.userId : null },
       );
+
+      // Mudança de escopo afeta filtros de listagem (colaboradores,
+      // marcacoes, solicitacoes, pendencias, ferias, horas extras).
+      // Invalida caches dependentes para evitar stale data.
+      try {
+        await Promise.all([
+          cacheDelPattern(`${CACHE_KEYS.COLABORADORES}*`),
+          cacheDelPattern(`${CACHE_KEYS.MARCACOES}*`),
+          cacheDelPattern(`${CACHE_KEYS.SOLICITACOES}*`),
+          cacheDelPattern(`${CACHE_KEYS.PENDENCIAS}*`),
+          cacheDelPattern(`${CACHE_KEYS.HORAS_EXTRAS}*`),
+        ]);
+      } catch (e) {
+        // best-effort — não falha o request por cache miss
+        console.warn('[escopo] falha ao invalidar cache:', e);
+      }
 
       await registrarAuditoria(
         buildAuditParams(req, user, {
