@@ -7,7 +7,7 @@ import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateSolicitacaoCache } from '@/lib/cache';
 import { calcularCustoHoraExtra, salvarCustoHoraExtra } from '@/lib/custoHorasExtrasService';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
-import { criarNotificacaoComPush } from '@/lib/notificacoes';
+import { criarNotificacaoComPush, obterColaboradoresComPermissao } from '@/lib/notificacoes';
 import { obterFotoColaborador } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
@@ -206,6 +206,18 @@ const NOMES_TIPO: Record<string, string> = {
   outros: 'solicitação',
 };
 
+/// Mapeia o tipo de solicitação pro código de permissão de notificação que
+/// libera receber alerta sobre ela. Quem NÃO tem o código correspondente
+/// (na lista efetiva do cargo) não recebe push nem entrada na sino.
+function _permissaoNotificacaoPorTipo(tipo: string): string {
+  switch (tipo) {
+    case 'atraso':
+      return 'notificacao:atraso_colaborador';
+    default:
+      return 'notificacao:nova_solicitacao';
+  }
+}
+
 async function notificarGestoresSobreSolicitacao(opts: {
   solicitacaoId: number;
   tipo: string;
@@ -232,7 +244,10 @@ async function notificarGestoresSobreSolicitacao(opts: {
     // Hora extra: notifica apenas o gestor escolhido pelo colaborador
     gestorIds = [gestorIdEspecifico];
   } else {
-    // Demais tipos: liderancas do departamento + todos admins/gestores
+    // Demais tipos: lideranças do departamento + colaboradores que têm
+    // a permissão `notificacao:*` correspondente ao tipo da solicitação.
+    // Antes era `WHERE tipo IN ('admin','gestor')` — broadcast cego que
+    // ignorava as preferências de notificação do RBAC novo.
     const ids = new Set<number>();
 
     if (empresa_id && departamento_id) {
@@ -250,10 +265,11 @@ async function notificarGestoresSobreSolicitacao(opts: {
       }
     }
 
-    const adminsResult = await query(
-      `SELECT id FROM people.colaboradores WHERE tipo IN ('admin', 'gestor') AND status = 'ativo'`
-    );
-    for (const row of adminsResult.rows) ids.add(row.id);
+    // Mapeia o tipo da solicitação pra o código da permissão de
+    // notificação. Quem não tem a permissão correspondente NÃO recebe.
+    const codigoPermissao = _permissaoNotificacaoPorTipo(tipo);
+    const comPermissao = await obterColaboradoresComPermissao(codigoPermissao);
+    for (const id of comPermissao) ids.add(id);
 
     gestorIds = [...ids];
   }
