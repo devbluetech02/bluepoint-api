@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, extractTokenFromHeader, JWTPayload, isSuperAdmin, resolveNivelFromColaborador, resolveCargoFromColaborador } from './auth';
 import { forbiddenResponse } from './api-response';
 import { validarApiKey, registrarUsoApiKey, ApiKey, temPermissao } from './api-keys';
-import { cargoTemPermissao } from './permissoes-efetivas';
+import { colaboradorTemPermissao } from './permissoes-efetivas';
 import { TIPOS_GESTAO } from '@/types';
 
 // Resolve o nível de acesso do usuário: prioriza o JWT, cai para o banco se ausente.
@@ -275,7 +275,7 @@ export async function withPermission(
     const { cargoId, nivelId } = await getCargoENivelFromUser(user);
 
     if (cargoId !== null || nivelId !== null) {
-      const ok = await cargoTemPermissao(cargoId, nivelId, codigoPermissao);
+      const ok = await colaboradorTemPermissao(user.userId, cargoId, nivelId, codigoPermissao);
       if (ok) return handler(req, user);
     }
 
@@ -311,7 +311,7 @@ export async function withAnyPermission(
     const { cargoId, nivelId } = await getCargoENivelFromUser(user);
 
     if (cargoId !== null || nivelId !== null) {
-      const ok = await cargoTemPermissao(cargoId, nivelId, codigosPermissao);
+      const ok = await colaboradorTemPermissao(user.userId, cargoId, nivelId, codigosPermissao);
       if (ok) return handler(req, user);
     }
 

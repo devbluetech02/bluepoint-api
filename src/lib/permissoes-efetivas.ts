@@ -1,13 +1,19 @@
 /**
- * Cálculo de permissões efetivas considerando o sistema de override
- * por cargo (migration 044). Substitui a leitura direta de
- * `nivel_acesso_permissoes` em todos os pontos que precisam saber
- * "quais permissões esse colaborador realmente tem".
+ * Cálculo de permissões efetivas considerando os dois níveis de override:
+ * por CARGO (migration 044) e por COLABORADOR/PESSOA (migration 050).
+ * Override por colaborador tem precedência sobre o de cargo.
  *
- * Regra:
+ * Regra completa:
  *   permissões efetivas = (do nível do cargo)
- *                       ∪ (overrides do cargo com concedido = TRUE)
- *                       − (overrides do cargo com concedido = FALSE)
+ *                       ∪ (cargo_overrides com concedido = TRUE)
+ *                       ∪ (colab_overrides com concedido = TRUE)
+ *                       − (cargo_overrides com concedido = FALSE)
+ *                       − (colab_overrides com concedido = FALSE)
+ *
+ * Resolução de conflito: como a UNION é ordenada (cargo antes de colab),
+ * e a remoção é avaliada por NOT IN agrupando ambos os níveis, o
+ * colab_override(true) prevalece sobre cargo_override(false) — pois
+ * adiciona a permissão à base e só removemos via colab_override(false).
  *
  * Sem cargo / sem nível: cai no comportamento legado de
  * `tipo_usuario_permissoes` (compat — vai sumir na Fase 4).
@@ -54,11 +60,104 @@ export async function obterPermissoesEfetivasDoColaborador(
     return { codigos: [], nivelId: null, cargoId: null };
   }
 
-  return obterPermissoesEfetivasDoCargo({
+  return obterPermissoesEfetivasComColaborador({
+    colaboradorId,
     cargoId: colab.cargo_id,
     nivelId: colab.nivel_acesso_id,
     tipoLegado: colab.tipo,
   });
+}
+
+/**
+ * Versão completa: aplica override por colaborador sobre o resultado de
+ * obterPermissoesEfetivasDoCargo.
+ *
+ * Retorna também `origem` mapeando cada código → fonte (`nivel` | `cargo`
+ * | `pessoa`). Útil pra UI mostrar de onde a permissão vem.
+ */
+export async function obterPermissoesEfetivasComColaborador(args: {
+  colaboradorId: number;
+  cargoId: number | null;
+  nivelId: number | null;
+  tipoLegado?: string | null;
+}): Promise<{
+  codigos: string[];
+  nivelId: number | null;
+  cargoId: number | null;
+  origem: Record<string, 'nivel' | 'cargo' | 'pessoa'>;
+}> {
+  const { colaboradorId, cargoId, nivelId, tipoLegado } = args;
+
+  // Sem cargo/nivel: legado, ignora override individual.
+  if (cargoId === null && nivelId === null) {
+    const base = await obterPermissoesEfetivasDoCargo({ cargoId, nivelId, tipoLegado });
+    const origem: Record<string, 'nivel' | 'cargo' | 'pessoa'> = {};
+    for (const c of base.codigos) origem[c] = 'nivel';
+    return { ...base, origem };
+  }
+
+  // Resolução em uma query: base (nivel + cargo_add + colab_add) menos
+  // remoções (cargo_remove + colab_remove). Conflito colab_add vs
+  // cargo_remove: colab_add prevalece (entra na base; só sai se
+  // colab_remove existir explicitamente).
+  const r = await query<{ codigo: string; origem: 'nivel' | 'cargo' | 'pessoa' }>(
+    `WITH base AS (
+       SELECT permissao_id, 'nivel'::text AS origem
+         FROM people.nivel_acesso_permissoes
+        WHERE nivel_id = $1 AND concedido = true
+       UNION ALL
+       SELECT permissao_id, 'cargo'::text AS origem
+         FROM people.cargo_permissoes_override
+        WHERE cargo_id = $2 AND concedido = true
+       UNION ALL
+       SELECT permissao_id, 'pessoa'::text AS origem
+         FROM people.colaborador_permissoes_override
+        WHERE colaborador_id = $3 AND concedido = true
+     ),
+     remocoes_cargo AS (
+       SELECT permissao_id
+         FROM people.cargo_permissoes_override
+        WHERE cargo_id = $2 AND concedido = false
+     ),
+     remocoes_pessoa AS (
+       SELECT permissao_id
+         FROM people.colaborador_permissoes_override
+        WHERE colaborador_id = $3 AND concedido = false
+     ),
+     ranked AS (
+       -- Origem mais específica vence: pessoa > cargo > nivel.
+       SELECT base.permissao_id,
+              base.origem,
+              ROW_NUMBER() OVER (
+                PARTITION BY base.permissao_id
+                ORDER BY CASE base.origem
+                  WHEN 'pessoa' THEN 1
+                  WHEN 'cargo'  THEN 2
+                  ELSE 3 END
+              ) AS rn
+         FROM base
+        WHERE base.permissao_id NOT IN (SELECT permissao_id FROM remocoes_pessoa)
+          AND (
+            base.origem = 'pessoa'  -- override pessoal sempre vale, mesmo se cargo remove
+            OR base.permissao_id NOT IN (SELECT permissao_id FROM remocoes_cargo)
+          )
+     )
+     SELECT p.codigo, ranked.origem
+       FROM ranked
+       JOIN people.permissoes p ON p.id = ranked.permissao_id
+      WHERE ranked.rn = 1
+      ORDER BY p.codigo`,
+    [nivelId, cargoId, colaboradorId],
+  );
+
+  const origem: Record<string, 'nivel' | 'cargo' | 'pessoa'> = {};
+  for (const row of r.rows) origem[row.codigo] = row.origem;
+  return {
+    codigos: r.rows.map((row) => row.codigo),
+    nivelId,
+    cargoId,
+    origem,
+  };
 }
 
 /**
@@ -129,8 +228,70 @@ export async function obterPermissoesEfetivasDoCargo(args: {
 }
 
 /**
- * Verifica se um cargo concede uma permissão específica (após override).
- * Usado pelos middlewares `withPermission` / `withAnyPermission`.
+ * Verifica se um colaborador específico tem uma permissão (após overrides
+ * de cargo e pessoais). Usado pelos middlewares `withPermission` /
+ * `withAnyPermission`. Quando `colaboradorId` é null/inválido, cai no
+ * `cargoTemPermissao` clássico.
+ *
+ * Override por pessoa(true) prevalece sobre cargo_override(false). Override
+ * por pessoa(false) sempre remove.
+ */
+export async function colaboradorTemPermissao(
+  colaboradorId: number | null,
+  cargoId: number | null,
+  nivelId: number | null,
+  codigos: string[] | string,
+): Promise<boolean> {
+  const codigosArray = Array.isArray(codigos) ? codigos : [codigos];
+  if (codigosArray.length === 0) return false;
+  if (colaboradorId === null || colaboradorId <= 0) {
+    return cargoTemPermissao(cargoId, nivelId, codigosArray);
+  }
+  if (cargoId === null && nivelId === null) return false;
+
+  const r = await query<{ exists: boolean }>(
+    `WITH base AS (
+       SELECT permissao_id, 'n'::text AS o
+         FROM people.nivel_acesso_permissoes
+        WHERE nivel_id = $1 AND concedido = true
+       UNION ALL
+       SELECT permissao_id, 'c'::text AS o
+         FROM people.cargo_permissoes_override
+        WHERE cargo_id = $2 AND concedido = true
+       UNION ALL
+       SELECT permissao_id, 'p'::text AS o
+         FROM people.colaborador_permissoes_override
+        WHERE colaborador_id = $3 AND concedido = true
+     ),
+     remocoes_cargo AS (
+       SELECT permissao_id FROM people.cargo_permissoes_override
+        WHERE cargo_id = $2 AND concedido = false
+     ),
+     remocoes_pessoa AS (
+       SELECT permissao_id FROM people.colaborador_permissoes_override
+        WHERE colaborador_id = $3 AND concedido = false
+     )
+     SELECT EXISTS(
+       SELECT 1
+         FROM people.permissoes p
+         JOIN base ON base.permissao_id = p.id
+        WHERE p.codigo = ANY($4::text[])
+          AND p.id NOT IN (SELECT permissao_id FROM remocoes_pessoa)
+          AND (
+            base.o = 'p'
+            OR p.id NOT IN (SELECT permissao_id FROM remocoes_cargo)
+          )
+     ) AS exists`,
+    [nivelId, cargoId, colaboradorId, codigosArray],
+  );
+  return r.rows[0]?.exists === true;
+}
+
+/**
+ * Verifica se um cargo concede uma permissão específica (após override
+ * por cargo, sem considerar override pessoal). Mantido para casos onde
+ * o cálculo é abstrato — "esse cargo tem X?". Para checagem de runtime
+ * de um usuário concreto, prefira `colaboradorTemPermissao`.
  */
 export async function cargoTemPermissao(
   cargoId: number | null,
