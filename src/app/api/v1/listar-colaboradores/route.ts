@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
         // Buscar dados
         const dataParams = [...params, limite, offset];
         const result = await query(
-          `SELECT 
+          `SELECT
             c.id,
             c.nome,
             c.email,
@@ -69,6 +69,8 @@ export async function GET(request: NextRequest) {
             c.status,
             c.foto_url,
             c.data_admissao,
+            c.criado_em,
+            c.atualizado_em,
             c.empresa_id,
             c.vale_alimentacao,
             c.vale_transporte,
@@ -125,6 +127,8 @@ export async function GET(request: NextRequest) {
             cargo: row.cargo_id ? { id: row.cargo_id, nome: row.cargo_nome } : null,
             tipo: row.tipo ?? 'colaborador',
             dataAdmissao: row.data_admissao,
+            criadoEm: row.criado_em,
+            atualizadoEm: row.atualizado_em,
             status: row.status,
             foto: row.foto_url,
             valeAlimentacao: row.vale_alimentacao === true,
