@@ -41,6 +41,11 @@ interface Row {
   // e status='compareceu' (cumpridos sem decisão). Usado pra calcular
   // o valor TOTAL cumulativo do processo a pagar.
   valor_dias_anteriores: string | null;
+  // Quantidade de dias com ordem < esta e status='compareceu'.
+  // Cada um vale 2 períodos no cálculo de "X/Y períodos cumpridos".
+  dias_anteriores_compareceu_count: string | null;
+  // Total de dias do processo (excluindo cancelados). × 2 = total de períodos.
+  total_dias_processo: string | null;
   criado_em: Date;
   // do processo
   processo_status: string;
@@ -136,6 +141,17 @@ export async function GET(request: NextRequest) {
                  AND a2.ordem < a.ordem
                  AND a2.status = 'compareceu'
             ), 0)::text                 AS valor_dias_anteriores,
+            (SELECT COUNT(*)
+               FROM people.dia_teste_agendamento a3
+              WHERE a3.processo_seletivo_id = a.processo_seletivo_id
+                AND a3.ordem < a.ordem
+                AND a3.status = 'compareceu')::text
+                                        AS dias_anteriores_compareceu_count,
+            (SELECT COUNT(*)
+               FROM people.dia_teste_agendamento a4
+              WHERE a4.processo_seletivo_id = a.processo_seletivo_id
+                AND a4.status != 'cancelado')::text
+                                        AS total_dias_processo,
             a.criado_em,
             ps.status                   AS processo_status,
             ps.candidato_recrutamento_id,
@@ -259,6 +275,25 @@ export async function GET(request: NextRequest) {
           proporcional !== null
             ? Math.round((valorDiasAnteriores + proporcional.valor) * 100) / 100
             : null;
+        // Períodos do processo INTEIRO (X/Y).
+        // - Cada dia anterior `compareceu` vale 2 períodos.
+        // - Dia atual contribui com `proporcional.periodos` (0/1/2) se ainda
+        //   pode decidir; OU 2 se já passou pra terminal aprovado/reprovado/
+        //   desistencia (foram contados 100% no momento da decisão).
+        // - Total = 2 × dias do processo (excluindo cancelados).
+        const diasAnterioresCompareceuCount = parseInt(
+          r.dias_anteriores_compareceu_count ?? '0',
+          10,
+        ) || 0;
+        const totalDiasProcesso = parseInt(r.total_dias_processo ?? '0', 10) || 0;
+        const periodosTotaisProcesso = totalDiasProcesso * 2;
+        const periodosAtualParaSoma =
+          proporcional?.periodos ??
+          (r.percentual_concluido != null
+            ? Math.round((r.percentual_concluido / 50)) // 0/50/100 → 0/1/2
+            : 0);
+        const periodosCumpridosProcesso =
+          diasAnterioresCompareceuCount * 2 + periodosAtualParaSoma;
 
         return {
           id: r.id,
@@ -283,6 +318,8 @@ export async function GET(request: NextRequest) {
           periodosCumpridosAgora: proporcional?.periodos ?? null,
           valorDiasAnteriores,
           valorTotalSeAprovarAgora,
+          periodosCumpridosProcesso,
+          periodosTotaisProcesso,
           criadoEm: r.criado_em,
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,

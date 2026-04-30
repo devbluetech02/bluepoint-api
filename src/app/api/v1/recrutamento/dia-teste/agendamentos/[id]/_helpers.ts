@@ -126,6 +126,13 @@ export async function calcularValorTotalProcesso(
   valorAgendamentoAtual: number;
   valorDiasAnteriores: number;
   valorTotal: number;
+  // Períodos cumpridos no processo INTEIRO (cumulativo).
+  // Cada dia anterior `compareceu` vale 2 períodos; o dia atual contribui
+  // com `periodosAtual` (0/1/2). Usado em "X/Y períodos cumpridos".
+  periodosCumpridosProcesso: number;
+  // Total de períodos do processo = 2 × número de dias agendados.
+  // Não inclui dias cancelados (que viraram dead após decisão final).
+  periodosTotaisProcesso: number;
 }> {
   const proporcional = calcularValorProporcional(row, agora);
   const r = await query<{ valor_diaria: string }>(
@@ -142,12 +149,28 @@ export async function calcularValorTotalProcesso(
   );
   const valorTotal =
     Math.round((valorDiasAnteriores + proporcional.valor) * 100) / 100;
+
+  // Total de dias do processo (excluindo cancelados).
+  const tot = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint
+        AND status != 'cancelado'`,
+    [row.processo_seletivo_id],
+  );
+  const totalDias = parseInt(tot.rows[0]?.count ?? '0', 10) || 0;
+  const periodosTotaisProcesso = totalDias * 2;
+  const periodosCumpridosProcesso =
+    r.rows.length * 2 + proporcional.periodos;
+
   return {
     periodosAtual: proporcional.periodos,
     percentualAtual: proporcional.percentual,
     valorAgendamentoAtual: proporcional.valor,
     valorDiasAnteriores: Math.round(valorDiasAnteriores * 100) / 100,
     valorTotal,
+    periodosCumpridosProcesso,
+    periodosTotaisProcesso,
   };
 }
 
@@ -314,6 +337,8 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
     valorTotalSeAprovarAgora: total.valorTotal,
     valorDiasAnteriores: total.valorDiasAnteriores,
     valorAPagarSeFinalDoExpediente: total.valorDiasAnteriores + parseFloat(row.valor_diaria),
+    periodosCumpridosProcesso: total.periodosCumpridosProcesso,
+    periodosTotaisProcesso: total.periodosTotaisProcesso,
     decididoPor: row.decidido_por?.toString(),
     decididoEm: row.decidido_em,
     observacaoDecisao: row.observacao_decisao,
