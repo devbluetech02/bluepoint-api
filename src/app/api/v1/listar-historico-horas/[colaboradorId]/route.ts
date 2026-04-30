@@ -1,21 +1,29 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
+import { successResponse, notFoundResponse, forbiddenResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 interface Params {
   params: Promise<{ colaboradorId: string }>;
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { colaboradorId: id } = await params;
       const colaboradorId = parseInt(id);
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      // Privacidade: colaborador comum só vê próprios dados; gestor precisa
+      // estar no escopo do alvo.
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const { searchParams } = new URL(req.url);

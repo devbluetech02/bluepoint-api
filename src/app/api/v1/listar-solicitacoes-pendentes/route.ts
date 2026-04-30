@@ -3,19 +3,34 @@ import { query } from '@/lib/db';
 import { successResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { isSuperAdmin } from '@/lib/auth';
+import { obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
 
 export async function GET(request: NextRequest) {
-  return withGestor(request, async (req) => {
+  return withGestor(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
-      
+
       const departamentoId = searchParams.get('departamentoId');
       const tipo = searchParams.get('tipo');
       const gestorId = searchParams.get('gestorId');
 
+      // Escopo: gestor comum só vê pendentes do escopo (próprio + atribuído).
+      // Super admin / API key: tudo.
+      const escopoGlobal = isSuperAdmin(user) || user.userId < 0;
+      let colaboradorIdsPermitidos: number[] | null = null;
+      if (!escopoGlobal) {
+        const escopo = await obterEscopoGestor(user.userId);
+        colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+        if (!colaboradorIdsPermitidos.includes(user.userId)) {
+          colaboradorIdsPermitidos.push(user.userId);
+        }
+      }
+
+      const cacheScope = escopoGlobal ? 'admin' : `u${user.userId}`;
       const cacheKey = buildListCacheKey(CACHE_KEYS.SOLICITACOES, {
-        tipo: 'pendentes', pagina, limite, departamentoId, tipoSolicitacao: tipo, gestorId,
+        tipo: 'pendentes', pagina, limite, departamentoId, tipoSolicitacao: tipo, gestorId, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -23,6 +38,15 @@ export async function GET(request: NextRequest) {
       const conditions: string[] = ["s.status = 'pendente'"];
       const params: unknown[] = [];
       let paramIndex = 1;
+
+      if (colaboradorIdsPermitidos !== null) {
+        if (colaboradorIdsPermitidos.length === 0) {
+          return { ...buildPaginatedResponse([], 0, pagina, limite), total: 0 };
+        }
+        conditions.push(`s.colaborador_id = ANY($${paramIndex}::int[])`);
+        params.push(colaboradorIdsPermitidos);
+        paramIndex++;
+      }
 
       if (departamentoId) {
         conditions.push(`c.departamento_id = $${paramIndex}`);

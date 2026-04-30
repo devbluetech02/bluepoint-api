@@ -1,11 +1,13 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, errorResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
+import { successResponse, forbiddenResponse, serverErrorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { resolverColaboradorIdComAcesso, obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
+import { isSuperAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
@@ -16,9 +18,32 @@ export async function GET(request: NextRequest) {
       const dataInicio = searchParams.get('dataInicio');
       const dataFim = searchParams.get('dataFim');
 
-      // Gerar chave de cache
+      // Escopo: super admin / API key veem tudo; demais limitam ao próprio +
+      // escopo de gestão. Param `colaboradorId` é validado individualmente.
+      const colaboradorIdNum = colaboradorId ? parseInt(colaboradorId, 10) : null;
+      let colaboradorIdsPermitidos: number[] | null = null;
+
+      if (!isSuperAdmin(user) && user.userId > 0) {
+        if (colaboradorIdNum != null) {
+          const acesso = await resolverColaboradorIdComAcesso(user, colaboradorIdNum);
+          if (!acesso.permitido) {
+            return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+          }
+        } else {
+          const escopo = await obterEscopoGestor(user.userId);
+          colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+          if (!colaboradorIdsPermitidos.includes(user.userId)) {
+            colaboradorIdsPermitidos.push(user.userId);
+          }
+        }
+      }
+
+      const cacheScope = isSuperAdmin(user) || user.userId < 0
+        ? 'admin'
+        : (colaboradorIdNum != null ? `c${colaboradorIdNum}` : `u${user.userId}`);
+
       const cacheKey = buildListCacheKey(CACHE_KEYS.HORAS_EXTRAS, {
-        pagina, limite, colaboradorId, departamentoId, status, dataInicio, dataFim,
+        pagina, limite, colaboradorId, departamentoId, status, dataInicio, dataFim, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -26,9 +51,19 @@ export async function GET(request: NextRequest) {
         const params: unknown[] = [];
         let paramIndex = 1;
 
-        if (colaboradorId) {
+        if (colaboradorIdNum != null) {
           conditions.push(`s.colaborador_id = $${paramIndex}`);
-          params.push(parseInt(colaboradorId));
+          params.push(colaboradorIdNum);
+          paramIndex++;
+        } else if (colaboradorIdsPermitidos != null) {
+          if (colaboradorIdsPermitidos.length === 0) {
+            return {
+              dados: [], total: 0, pagina, limite,
+              totalizadores: { totalRegistros: 0, pendentes: 0, aprovadas: 0, rejeitadas: 0, totalHorasAprovadas: 0, totalColaboradores: 0 },
+            };
+          }
+          conditions.push(`s.colaborador_id = ANY($${paramIndex}::int[])`);
+          params.push(colaboradorIdsPermitidos);
           paramIndex++;
         }
 

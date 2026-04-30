@@ -3,9 +3,11 @@ import { query } from '@/lib/db';
 import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { isSuperAdmin } from '@/lib/auth';
+import { obterEscopoGestor } from '@/lib/escopo-gestor';
 
 export async function GET(request: NextRequest) {
-  return withGestor(request, async (req) => {
+  return withGestor(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
@@ -16,14 +18,38 @@ export async function GET(request: NextRequest) {
       const departamentoId = searchParams.get('departamentoId');
       const tipo = searchParams.get('tipo');
 
+      // Escopo: gestor comum só vê pendências do próprio escopo
+      // (destinatário=ele, ou departamento dentro do escopo de gestão).
+      // Super admin / API key veem tudo.
+      const escopoGlobal = isSuperAdmin(user) || user.userId < 0;
+      let escopo: { departamentoIds: number[]; empresaIds: number[] } | null = null;
+      if (!escopoGlobal) {
+        escopo = await obterEscopoGestor(user.userId);
+      }
+
+      const cacheScope = escopoGlobal ? 'admin' : `u${user.userId}`;
       const cacheKey = buildListCacheKey(CACHE_KEYS.PENDENCIAS, {
-        pagina, limite, status, prioridade, destinatarioId, departamentoId, tipo,
+        pagina, limite, status, prioridade, destinatarioId, departamentoId, tipo, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
         const conditions: string[] = [];
         const params: unknown[] = [];
         let paramIndex = 1;
+
+        // Restrição de escopo: pendência precisa ter destinatario_id == user
+        // OU departamento_id dentro do escopo do gestor.
+        if (escopo !== null) {
+          const escopoConds: string[] = [`p.destinatario_id = $${paramIndex}`];
+          params.push(user.userId);
+          paramIndex++;
+          if (escopo.departamentoIds.length > 0) {
+            escopoConds.push(`p.departamento_id = ANY($${paramIndex}::int[])`);
+            params.push(escopo.departamentoIds);
+            paramIndex++;
+          }
+          conditions.push(`(${escopoConds.join(' OR ')})`);
+        }
 
         if (status) {
           conditions.push(`p.status = $${paramIndex}`);

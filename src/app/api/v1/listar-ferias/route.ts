@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { paginatedSuccessResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
+import { paginatedSuccessResponse, forbiddenResponse, serverErrorResponse, getPaginationParams } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
+import { resolverColaboradorIdComAcesso, obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
+import { isSuperAdmin } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
@@ -14,13 +16,41 @@ export async function GET(request: NextRequest) {
       const dataFim = searchParams.get('dataFim');
       const ativo = searchParams.get('ativo');
 
+      // Escopo: super admin / API key veem tudo; demais limitam ao próprio
+      // (e ao escopo de gestão se aplicável). Param `colaboradorId` exige
+      // validação via resolverColaboradorIdComAcesso.
+      const colaboradorIdNum = colaboradorId ? parseInt(colaboradorId, 10) : null;
+      let colaboradorIdsPermitidos: number[] | null = null;
+
+      if (!isSuperAdmin(user) && user.userId > 0) {
+        if (colaboradorIdNum != null) {
+          const acesso = await resolverColaboradorIdComAcesso(user, colaboradorIdNum);
+          if (!acesso.permitido) {
+            return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+          }
+        } else {
+          const escopo = await obterEscopoGestor(user.userId);
+          colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+          if (!colaboradorIdsPermitidos.includes(user.userId)) {
+            colaboradorIdsPermitidos.push(user.userId);
+          }
+        }
+      }
+
       const conditions: string[] = [];
       const params: unknown[] = [];
       let pi = 1;
 
-      if (colaboradorId) {
+      if (colaboradorIdNum != null) {
         conditions.push(`pf.colaborador_id = $${pi}`);
-        params.push(parseInt(colaboradorId));
+        params.push(colaboradorIdNum);
+        pi++;
+      } else if (colaboradorIdsPermitidos != null) {
+        if (colaboradorIdsPermitidos.length === 0) {
+          return paginatedSuccessResponse([], 0, pagina, limite);
+        }
+        conditions.push(`pf.colaborador_id = ANY($${pi}::int[])`);
+        params.push(colaboradorIdsPermitidos);
         pi++;
       }
 

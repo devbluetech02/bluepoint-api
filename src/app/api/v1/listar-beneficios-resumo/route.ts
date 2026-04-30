@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { successResponse, serverErrorResponse, errorResponse, buildPaginatedResponse, getPaginationParams } from '@/lib/api-response';
-import { withAuth } from '@/lib/middleware';
+import { withGestor } from '@/lib/middleware';
+import { isSuperAdmin } from '@/lib/auth';
+import { obterEscopoGestor, listarColaboradoresNoEscopo } from '@/lib/escopo-gestor';
 import { getDiasDescontoPorColaborador } from '@/lib/beneficios-desconto';
 
 function valorVABasePorTipo(
@@ -18,7 +20,7 @@ function valorVABasePorTipo(
 }
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withGestor(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const mesReferencia = searchParams.get('mesReferencia');
@@ -35,12 +37,32 @@ export async function GET(request: NextRequest) {
       const { pagina, limite, offset } = getPaginationParams(searchParams);
       const busca = searchParams.get('busca');
 
+      // Escopo: gestor comum só vê benefícios do próprio escopo. Super admin
+      // / API key veem tudo.
+      const escopoGlobal = isSuperAdmin(user) || user.userId < 0;
+      let colaboradorIdsPermitidos: number[] | null = null;
+      if (!escopoGlobal) {
+        const escopo = await obterEscopoGestor(user.userId);
+        colaboradorIdsPermitidos = await listarColaboradoresNoEscopo(escopo);
+        if (!colaboradorIdsPermitidos.includes(user.userId)) {
+          colaboradorIdsPermitidos.push(user.userId);
+        }
+      }
+
       const conditions: string[] = ["c.status = 'ativo'"];
       const params: unknown[] = [];
       let paramIndex = 1;
       if (busca) {
         conditions.push(`(c.nome ILIKE $${paramIndex} OR c.email ILIKE $${paramIndex} OR c.cpf ILIKE $${paramIndex})`);
         params.push(`%${busca}%`);
+        paramIndex++;
+      }
+      if (colaboradorIdsPermitidos !== null) {
+        if (colaboradorIdsPermitidos.length === 0) {
+          return successResponse(buildPaginatedResponse([], 0, pagina, limite));
+        }
+        conditions.push(`c.id = ANY($${paramIndex}::int[])`);
+        params.push(colaboradorIdsPermitidos);
         paramIndex++;
       }
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

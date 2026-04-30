@@ -5,6 +5,9 @@ import { withAuth } from '@/lib/middleware';
 import { cacheAside, buildListCacheKey, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { getDiasDescontoPorColaborador } from '@/lib/beneficios-desconto';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
+import { obterEscopoGestor } from '@/lib/escopo-gestor';
+import { NIVEL_ADMIN, NIVEL_GESTOR } from '@/lib/niveis';
 
 export async function GET(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -12,14 +15,51 @@ export async function GET(request: NextRequest) {
       const { searchParams } = new URL(req.url);
       const { pagina, limite, offset } = getPaginationParams(searchParams);
       const { orderBy, orderDir } = getOrderParams(searchParams, ['nome', 'email', 'data_admissao', 'criado_em']);
-      
+
       const busca = searchParams.get('busca');
       const departamentoId = searchParams.get('filtro[departamentoId]');
       const status = searchParams.get('filtro[status]');
       const mesReferencia = searchParams.get('filtro[mesReferencia]'); // "YYYY-MM" opcional
 
+      // Resolver escopo do solicitante:
+      //  - super admin / API key → vê todos
+      //  - nivelId >= 3 (admin)  → vê todos
+      //  - nivelId === 2 (gestor) → restrito a departamentos/empresas do escopo
+      //  - nivelId <= 1 (colaborador) → só o próprio cadastro
+      const isSuper = isSuperAdmin(user);
+      const isApiKey = user.userId < 0;
+      const nivelId = typeof user.nivelId === 'number'
+        ? user.nivelId
+        : (isApiKey ? null : await resolveNivelFromColaborador(user.userId));
+      const escopoGlobal = isSuper || isApiKey || (nivelId !== null && nivelId >= NIVEL_ADMIN);
+
+      let escopoIdsColaboradores: number[] | null = null;
+      if (!escopoGlobal) {
+        if (nivelId === NIVEL_GESTOR) {
+          const escopo = await obterEscopoGestor(user.userId);
+          // Gestor sempre vê pelo menos a si próprio.
+          const ids = new Set<number>([user.userId]);
+          if (escopo.departamentoIds.length > 0 || escopo.empresaIds.length > 0) {
+            const r = await query<{ id: number }>(
+              `SELECT id FROM people.colaboradores
+                WHERE departamento_id = ANY($1::int[])
+                   OR empresa_id = ANY($2::int[])`,
+              [escopo.departamentoIds, escopo.empresaIds],
+            );
+            for (const row of r.rows) ids.add(row.id);
+          }
+          escopoIdsColaboradores = Array.from(ids);
+        } else {
+          // Nível 1 (ou desconhecido) — só vê a si.
+          escopoIdsColaboradores = [user.userId];
+        }
+      }
+
+      // Cache por usuário quando há filtro de escopo (evita poluição cross-user).
       const cacheKey = buildListCacheKey(CACHE_KEYS.COLABORADORES, {
-        pagina, limite, orderBy, orderDir, busca, departamentoId, status, mesReferencia: mesReferencia ?? '',
+        pagina, limite, orderBy, orderDir, busca, departamentoId, status,
+        mesReferencia: mesReferencia ?? '',
+        escopo: escopoGlobal ? 'global' : `u${user.userId}`,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -43,6 +83,15 @@ export async function GET(request: NextRequest) {
         if (status) {
           conditions.push(`c.status = $${paramIndex}`);
           params.push(status);
+          paramIndex++;
+        }
+
+        if (escopoIdsColaboradores !== null) {
+          if (escopoIdsColaboradores.length === 0) {
+            return { dados: [], total: 0, pagina, limite };
+          }
+          conditions.push(`c.id = ANY($${paramIndex}::int[])`);
+          params.push(escopoIdsColaboradores);
           paramIndex++;
         }
 
