@@ -16,6 +16,7 @@ interface SignerPayload {
   phone?: string;
   notification_channel?: string;
   auth_method?: string;
+  validations?: unknown;
   [key: string]: unknown;
 }
 
@@ -49,6 +50,22 @@ function enforceWhatsAppForAdmissao(body: DocumentPayload): string | null {
   return null;
 }
 
+/**
+ * Pré-admissão também exige `validations: "selfie_with_document"` em todos
+ * os contratos — o colaborador precisa enviar selfie com documento de
+ * identidade no momento da assinatura. Aplicado em cada signer (sobrepõe
+ * qualquer valor que o front tenha mandado) pra garantir consistência.
+ */
+function enforceSelfieWithDocumentForAdmissao(body: DocumentPayload): void {
+  const externalRef = typeof body.external_ref === 'string' ? body.external_ref : '';
+  if (!externalRef.startsWith(ADMISSAO_EXTERNAL_REF_PREFIX)) return;
+
+  const signers = Array.isArray(body.signers) ? body.signers : [];
+  for (const signer of signers) {
+    signer.validations = 'selfie_with_document';
+  }
+}
+
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req) => {
     try {
@@ -56,6 +73,8 @@ export async function POST(request: NextRequest) {
 
       const enforceError = enforceWhatsAppForAdmissao(body);
       if (enforceError) return errorResponse(enforceError, 400);
+
+      enforceSelfieWithDocumentForAdmissao(body);
 
       // Converte URLs de imagem (foto_colaborador, logo_empresa, …) em data
       // URI base64 — sem isso, SignProof renderiza a URL como texto.
