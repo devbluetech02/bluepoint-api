@@ -121,7 +121,7 @@ export const atualizarColaboradorSchema = criarColaboradorSchema
   .omit({ senha: true })
   .extend({
     status: z
-      .enum(['ativo', 'inativo'], { message: 'Status deve ser "ativo" ou "inativo"' })
+      .enum(['ativo', 'inativo', 'afastado'], { message: 'Status deve ser "ativo", "afastado" ou "inativo"' })
       .optional(),
     novaSenha: z
       .string()
