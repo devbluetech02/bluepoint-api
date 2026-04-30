@@ -23,6 +23,7 @@ export interface AgendamentoRow {
   comparecimento_em: Date | string | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
+  observacao_decisao: string | null;
   criado_em: Date | string;
   candidato_recrutamento_id: string | number;
   candidato_cpf_norm: string;
@@ -150,6 +151,7 @@ export async function loadAgendamento(
         a.comparecimento_em,
         a.percentual_concluido,
         a.valor_a_pagar::text       AS valor_a_pagar,
+        a.observacao_decisao,
         a.criado_em,
         ps.candidato_recrutamento_id,
         ps.candidato_cpf_norm,
@@ -255,20 +257,38 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
     valorAPagarSeFinalDoExpediente: parseFloat(row.valor_diaria),
     decididoPor: row.decidido_por?.toString(),
     decididoEm: row.decidido_em,
+    observacaoDecisao: row.observacao_decisao,
   };
 }
 
 /**
  * Avança o processo seletivo após uma decisão final no dia de teste.
- * - Se aprovado: status do processo vai pra `pre_admissao`.
- * - Se reprovado / nao_compareceu / desistencia: processo é cancelado.
+ * - Se aprovado: status do processo vai pra `pre_admissao` E os demais
+ *   dias agendados/pendentes do mesmo processo viram `cancelado`
+ *   (regra §3.6 do FLUXO: "pula dias restantes").
+ * - Se reprovado / nao_compareceu / desistencia: processo é cancelado e
+ *   todos os outros dias pendentes do processo também viram `cancelado`
+ *   (impede inconsistência de gestor decidir num dia de processo já encerrado).
  *
  * Retorna o status novo do processo (ou null se não mudou).
  */
 export async function avancarProcessoAposDecisao(
   processoId: string,
   decisao: 'aprovado' | 'reprovado' | 'desistencia' | 'nao_compareceu',
+  agendamentoIdAtual?: string,
 ): Promise<string | null> {
+  // Cancela TODOS os outros dias do processo ainda em estado não-terminal.
+  // Inclui 'agendado' e 'compareceu' — se ficarem ativos depois de uma
+  // decisão final, gestor consegue agir e gera inconsistência (caso Felipe).
+  await query(
+    `UPDATE people.dia_teste_agendamento
+        SET status = 'cancelado', atualizado_em = NOW()
+      WHERE processo_seletivo_id = $1::bigint
+        AND status IN ('agendado', 'compareceu')
+        AND ($2::bigint IS NULL OR id != $2::bigint)`,
+    [processoId, agendamentoIdAtual ?? null],
+  );
+
   if (decisao === 'aprovado') {
     await query(
       `UPDATE people.processo_seletivo

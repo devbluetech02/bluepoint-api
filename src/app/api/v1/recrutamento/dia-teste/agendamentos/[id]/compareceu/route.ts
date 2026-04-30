@@ -45,6 +45,13 @@ export async function POST(
       const ag = await loadAgendamento(id);
       if (!ag) return notFoundResponse('Agendamento não encontrado');
 
+      if (ag.processo_status === 'cancelado') {
+        return errorResponse(
+          'Processo seletivo está cancelado — nenhuma ação é permitida no agendamento',
+          409,
+        );
+      }
+
       if (ag.status !== 'agendado') {
         return errorResponse(
           `Agendamento já está em status "${ag.status}" — não pode marcar comparecimento`,

@@ -30,6 +30,13 @@ export async function POST(
       const ag = await loadAgendamento(id);
       if (!ag) return notFoundResponse('Agendamento não encontrado');
 
+      if (ag.processo_status === 'cancelado') {
+        return errorResponse(
+          'Processo seletivo está cancelado — nenhuma ação é permitida no agendamento',
+          409,
+        );
+      }
+
       if (ag.status !== 'agendado') {
         return errorResponse(
           `Agendamento está em status "${ag.status}" — só agendamentos pendentes podem ser marcados como ausência`,
@@ -49,7 +56,7 @@ export async function POST(
       );
 
       // Encerra o processo seletivo (não compareceu = não vira colaborador).
-      await avancarProcessoAposDecisao(ag.processo_seletivo_id, 'nao_compareceu');
+      await avancarProcessoAposDecisao(ag.processo_seletivo_id, 'nao_compareceu', id);
 
       const updated = await loadAgendamento(id);
       if (!updated) return serverErrorResponse('Estado inconsistente após update');

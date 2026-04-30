@@ -41,6 +41,13 @@ export async function POST(
       const ag = await loadAgendamento(id);
       if (!ag) return notFoundResponse('Agendamento não encontrado');
 
+      if (ag.processo_status === 'cancelado') {
+        return errorResponse(
+          'Processo seletivo está cancelado — nenhuma ação é permitida no agendamento',
+          409,
+        );
+      }
+
       if (ag.status !== 'compareceu') {
         return errorResponse(
           `Agendamento está em status "${ag.status}" — só pode aprovar candidatos que compareceram`,
@@ -74,14 +81,16 @@ export async function POST(
                 decidido_por = $1,
                 decidido_em = NOW(),
                 valor_a_pagar = NULL,
+                observacao_decisao = $2,
                 atualizado_em = NOW()
-          WHERE id = $2::bigint`,
-        [user.userId, id],
+          WHERE id = $3::bigint`,
+        [user.userId, parsed.data.observacao ?? null, id],
       );
 
       const proximoStatus = await avancarProcessoAposDecisao(
         ag.processo_seletivo_id,
         'aprovado',
+        id,
       );
 
       await registrarAuditoria(

@@ -36,6 +36,7 @@ interface Row {
   comparecimento_em: Date | null;
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
+  observacao_decisao: string | null;
   criado_em: Date;
   // do processo
   processo_status: string;
@@ -123,6 +124,7 @@ export async function GET(request: NextRequest) {
             a.comparecimento_em,
             a.percentual_concluido,
             a.valor_a_pagar::text       AS valor_a_pagar,
+            a.observacao_decisao,
             a.criado_em,
             ps.status                   AS processo_status,
             ps.candidato_recrutamento_id,
@@ -253,7 +255,8 @@ export async function GET(request: NextRequest) {
           valorDiaria: parseFloat(r.valor_diaria),
           cargaHoraria: r.carga_horaria,
           status: r.status,
-          decididoPor: toIntOrNull(r.decidido_por),
+          decididoPor: r.decidido_por != null ? String(r.decidido_por) : null,
+          observacaoDecisao: r.observacao_decisao,
           decididoEm: r.decidido_em,
           comparecimentoEm: r.comparecimento_em,
           podeDecidir: podeDecidir.podeDecidir,
