@@ -33,6 +33,23 @@ docker build -t valeris-people-api . && \
 docker tag valeris-people-api:latest 873153257687.dkr.ecr.us-east-1.amazonaws.com/valeris-people-api:latest && \
 docker push 873153257687.dkr.ecr.us-east-1.amazonaws.com/valeris-people-api:latest && \
 aws ecs update-service --cluster valeris-people --service valeris-people-api --force-new-deployment --region us-east-1
+
+# 5. Limpeza pós-deploy — apaga camadas dangling do build anterior
+# (cada `docker build` cria uma imagem nova; a anterior fica como
+# <none>:<none> ocupando GB. ~30GB desperdiçados por mês sem isso.)
+docker image prune -f
 ```
 
 Pré-requisito: **Docker Desktop precisa estar rodando**. AWS CLI já está instalado nativamente — ver `People/.claude/rules/ambiente-aws.md`.
+
+## Limpeza obrigatória após cada build
+
+Após cada `docker build` bem-sucedido (e push), rodar `docker image prune -f` é **regra**, não opcional. A imagem antiga fica untagged como `<none>:<none>` e nunca mais é usada — só ocupa disco.
+
+**Apenas dangling** (sem tag) — `docker image prune -f` é seguro:
+- ✓ remove camadas órfãs do build anterior
+- ✗ NÃO remove imagens com tag (mesmo que parecidas)
+- ✗ NÃO remove imagens em uso por containers ativos
+- ✗ NÃO remove o build cache (use `docker builder prune` separado se quiser limpar isso também — mais agressivo, faz o próximo build ser do zero)
+
+Se quiser uma limpeza mais profunda eventual (ex.: build cache acumulando muito), `docker builder prune -f` reclama o cache de camadas intermediárias — só rodar quando o disco estiver apertado, porque invalida cache do próximo build.
