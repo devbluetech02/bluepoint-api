@@ -2,7 +2,11 @@ import { NextRequest } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
-import { calcularPodeDecidir, type AgendamentoRow } from './[id]/_helpers';
+import {
+  calcularPodeDecidir,
+  calcularValorProporcional,
+  type AgendamentoRow,
+} from './[id]/_helpers';
 
 // GET /api/v1/recrutamento/dia-teste/agendamentos
 //
@@ -225,10 +229,18 @@ export async function GET(request: NextRequest) {
         // do _helpers.ts pra manter consistência com /aprovar e os
         // demais endpoints de decisão. Bloqueia o gestor antes de 50%
         // da carga horária ter sido cumprida desde o comparecimento.
-        const podeDecidir = calcularPodeDecidir({
+        const rowAsAg = {
           ...r,
           processo_seletivo_id: r.processo_id,
-        } as unknown as AgendamentoRow);
+        } as unknown as AgendamentoRow;
+        const podeDecidir = calcularPodeDecidir(rowAsAg);
+        // "Se decidir agora" — só faz sentido enquanto o status é
+        // 'compareceu' (gestor ainda pode decidir). Em status terminais
+        // ou pré-comparecimento, devolve null.
+        const proporcional =
+          r.status === 'compareceu'
+            ? calcularValorProporcional(rowAsAg)
+            : null;
 
         return {
           id: r.id,
@@ -248,6 +260,8 @@ export async function GET(request: NextRequest) {
           podeDecidirAposISO: podeDecidir.podeDecidirApos?.toISOString() ?? null,
           percentualConcluido: r.percentual_concluido,
           valorAPagar: r.valor_a_pagar !== null ? parseFloat(r.valor_a_pagar) : null,
+          valorAPagarSeAprovarAgora: proporcional?.valor ?? null,
+          periodosCumpridosAgora: proporcional?.periodos ?? null,
           criadoEm: r.criado_em,
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,

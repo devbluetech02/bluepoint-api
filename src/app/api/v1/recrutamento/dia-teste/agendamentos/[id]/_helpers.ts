@@ -222,6 +222,7 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
   const empresaId = toIntOrNull(row.empresa_id);
   const departamentoId = toIntOrNull(row.departamento_id);
   const podeDecidir = calcularPodeDecidir(row);
+  const proporcional = calcularValorProporcional(row);
 
   return {
     agendamentoId: row.id,
@@ -249,7 +250,8 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
     status: row.status,
     podeDecidir: podeDecidir.podeDecidir,
     podeDecidirAposISO: podeDecidir.podeDecidirApos?.toISOString() ?? null,
-    valorAPagarSeAprovarAgora: null,
+    valorAPagarSeAprovarAgora: proporcional.valor,
+    periodosCumpridosAgora: proporcional.periodos,
     valorAPagarSeFinalDoExpediente: parseFloat(row.valor_diaria),
     decididoPor: row.decidido_por?.toString(),
     decididoEm: row.decidido_em,
