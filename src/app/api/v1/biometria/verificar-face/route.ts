@@ -10,6 +10,7 @@ import {
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
+import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 import { cacheGet, cacheSet, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { verificarEAplicarToleranciaHoraExtra, verificarEAplicarToleranciaHoraExtraEntrada } from '@/lib/hora-extra-tolerancia';
@@ -737,12 +738,15 @@ export async function POST(request: NextRequest) {
       }, 200, rateLimitHeaders);
     }
 
-    // Se tem colaborador_id, busca dados do colaborador BluePoint
+    // Se tem colaborador_id, busca dados do colaborador BluePoint.
+    // Inclui cg.nivel_acesso_id pra montar payload coerente com /autenticar
+    // (login facial precisa do nivel pra mobile/web reconhecerem liderança).
     const colaboradorResult = await query(
       `SELECT
-        c.id, c.nome, c.email, c.tipo, c.foto_url, c.cargo_id, c.empresa_id,
+        c.id, c.nome, c.email, c.cpf, c.tipo, c.foto_url, c.cargo_id, c.empresa_id,
         c.permite_ponto_mobile,
         cg.nome as cargo_nome,
+        cg.nivel_acesso_id,
         d.nome as departamento_nome
        FROM people.colaboradores c
        LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
@@ -770,16 +774,50 @@ export async function POST(request: NextRequest) {
       }, 403, rateLimitHeaders);
     }
 
-    // Gerar tokens JWT
+    // Gerar tokens JWT — inclui nivelId/cargoId pra que middleware
+    // resolva permissoes/liderança sem consulta extra (mesmo padrão
+    // do /autenticar). Sem isso, login facial gera token "raso" e
+    // mobile/web nao reconhecem o usuario como gestor.
     const tokenPayload = {
       userId: colaborador.id,
       email: colaborador.email,
       tipo: colaborador.tipo,
       nome: colaborador.nome,
+      nivelId: colaborador.nivel_acesso_id ?? null,
+      cargoId: colaborador.cargo_id ?? null,
     };
 
     const token = generateToken(tokenPayload);
     const refreshToken = generateRefreshToken();
+
+    // Buscar nivel + permissoes efetivas (igual /autenticar). Sem isso, o
+    // payload retornado nao tem nivel nem permissoes -> mobile cai em
+    // tipo='colaborador' e perde acesso a telas de gestao.
+    let nivel: { id: number; nome: string; descricao: string | null } | null = null;
+    if (colaborador.nivel_acesso_id) {
+      const nivelResult = await query(
+        `SELECT id, nome, descricao FROM people.niveis_acesso WHERE id = $1`,
+        [colaborador.nivel_acesso_id]
+      );
+      if (nivelResult.rows.length > 0) {
+        const r = nivelResult.rows[0];
+        nivel = { id: r.id, nome: r.nome, descricao: r.descricao };
+      }
+    }
+    let permissoes: string[];
+    if (colaborador.id === 1) {
+      const todas = await query<{ codigo: string }>(
+        `SELECT codigo FROM people.permissoes ORDER BY codigo`
+      );
+      permissoes = todas.rows.map((r) => r.codigo);
+    } else {
+      const efetivas = await obterPermissoesEfetivasDoCargo({
+        cargoId: colaborador.cargo_id ?? null,
+        nivelId: colaborador.nivel_acesso_id ?? null,
+        tipoLegado: colaborador.tipo,
+      });
+      permissoes = efetivas.codigos;
+    }
 
     // Garantir que token foi gerado
     if (!token || !refreshToken) {
@@ -1088,10 +1126,17 @@ export async function POST(request: NextRequest) {
           id: colaborador.id,
           nome: colaborador.nome,
           email: colaborador.email,
+          cpf: colaborador.cpf,
           cargo: colaborador.cargo_id ? { id: colaborador.cargo_id, nome: colaborador.cargo_nome } : null,
           departamento: colaborador.departamento_nome || null,
+          // `tipo` é o nome canonico (mesmo do /autenticar). `perfil` mantido
+          // como alias por compat com clientes antigos.
+          tipo: colaborador.tipo,
           perfil: colaborador.tipo,
           foto: colaborador.foto_url || null,
+          permitePontoMobile: colaborador.permite_ponto_mobile ?? false,
+          nivel,
+          permissoes,
         },
         confianca: Math.max(0, Math.min(1, confianca)),
         token,
