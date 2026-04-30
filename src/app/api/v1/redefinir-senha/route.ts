@@ -26,8 +26,14 @@ export async function POST(request: NextRequest) {
     const senhaHash = await hashPassword(novaSenha);
 
     // Atualizar senha
+    // O usuário escolheu a senha — limpa o flag de senha temporária
+    // caso o reset venha de logo após um cadastro.
     await query(
-      `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+      `UPDATE people.colaboradores
+          SET senha_hash       = $1,
+              senha_temporaria = FALSE,
+              atualizado_em    = NOW()
+        WHERE id = $2`,
       [senhaHash, tokenData.usuario_id]
     );
 

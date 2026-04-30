@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       // Inserir colaborador
       const result = await query(
         `INSERT INTO people.colaboradores (
-          nome, email, senha_hash, cpf, rg, rg_orgao_emissor, rg_uf, telefone, pis, categoria, observacao, cargo_id,
+          nome, email, senha_hash, senha_temporaria, cpf, rg, rg_orgao_emissor, rg_uf, telefone, pis, categoria, observacao, cargo_id,
           tipo, empresa_id, departamento_id, jornada_id, data_admissao, data_nascimento, data_desligamento,
           endereco_cep, endereco_logradouro, endereco_numero,
           endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado,
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
           permite_ponto_mobile, permite_ponto_qualquer_empresa,
           vale_alimentacao, vale_transporte, auxilio_combustivel
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+          $1, $2, $3, TRUE, $4, $5, $6, $7, $8, $9, $10, $11, $12,
           $13, $14, $15, $16, $17, $18, $19,
           $20, $21, $22, $23, $24, $25, $26,
           $27, $28, $29,

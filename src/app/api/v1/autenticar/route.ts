@@ -5,6 +5,7 @@ import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-r
 import { loginSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
+import { calcularBiometriaPrompt } from '@/lib/primeiro-acesso';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -22,6 +23,8 @@ export async function POST(request: NextRequest) {
       `SELECT c.id, c.nome, c.email, c.cpf, c.senha_hash, c.tipo, c.status,
               c.foto_url, c.permite_ponto_mobile,
               c.cargo_id,
+              c.senha_temporaria, c.face_registrada,
+              c.biometria_dispensada_em, c.biometria_dispensas_count,
               cg.nivel_acesso_id
        FROM people.colaboradores c
        LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
@@ -97,6 +100,17 @@ export async function POST(request: NextRequest) {
       permissoes = efetivas.codigos;
     }
 
+    const senhaTemporaria = user.senha_temporaria === true;
+    // Quando a senha ainda é temporária, segura o prompt de biometria —
+    // o cliente força a troca de senha primeiro e só depois oferece face.
+    const biometriaPrompt = senhaTemporaria
+      ? { exibir: false, fase: null }
+      : calcularBiometriaPrompt({
+          faceRegistrada: user.face_registrada === true,
+          dispensasCount: user.biometria_dispensas_count ?? 0,
+          dispensadaEm: user.biometria_dispensada_em ?? null,
+        });
+
     return successResponse({
       token,
       refreshToken,
@@ -110,6 +124,8 @@ export async function POST(request: NextRequest) {
         permitePontoMobile: user.permite_ponto_mobile ?? false,
         nivel,
         permissoes,
+        senhaTemporaria,
+        biometriaPrompt,
       },
     });
   } catch (error) {

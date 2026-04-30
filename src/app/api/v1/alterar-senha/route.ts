@@ -6,8 +6,11 @@ import { withAuth } from '@/lib/middleware';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { z } from 'zod';
 
+// senhaAtual é opcional: quando senha_temporaria=true (admin acabou de
+// definir/resetar), o usuário escolhe a senha definitiva no primeiro
+// acesso sem precisar provar a temporária.
 const alterarSenhaSchema = z.object({
-  senhaAtual: z.string().min(1, 'Senha atual é obrigatória'),
+  senhaAtual: z.string().optional(),
   novaSenha: z.string().min(6, 'Nova senha deve ter no mínimo 6 caracteres'),
   confirmarSenha: z.string().min(1, 'Confirmação de senha é obrigatória'),
 }).refine((data) => data.novaSenha === data.confirmarSenha, {
@@ -19,7 +22,7 @@ export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
     try {
       const body = await req.json();
-      
+
       const validation = alterarSenhaSchema.safeParse(body);
       if (!validation.success) {
         const errors: Record<string, string[]> = {};
@@ -33,9 +36,8 @@ export async function POST(request: NextRequest) {
 
       const { senhaAtual, novaSenha } = validation.data;
 
-      // Buscar senha atual do usuário
-      const result = await query(
-        `SELECT senha_hash FROM people.colaboradores WHERE id = $1`,
+      const result = await query<{ senha_hash: string; senha_temporaria: boolean }>(
+        `SELECT senha_hash, senha_temporaria FROM people.colaboradores WHERE id = $1`,
         [user.userId]
       );
 
@@ -43,35 +45,47 @@ export async function POST(request: NextRequest) {
         return errorResponse('Usuário não encontrado', 404);
       }
 
-      const senhaHash = result.rows[0].senha_hash;
+      const { senha_hash: senhaHash, senha_temporaria: senhaTemporaria } = result.rows[0];
 
-      // Verificar senha atual
-      const senhaCorreta = await verifyPassword(senhaAtual, senhaHash);
-      if (!senhaCorreta) {
-        return errorResponse('Senha atual incorreta', 400);
+      if (senhaTemporaria) {
+        // Primeiro acesso: ignora senhaAtual. Mas garante que a nova
+        // não seja igual à temporária definida pelo admin.
+        const igualTemporaria = await verifyPassword(novaSenha, senhaHash);
+        if (igualTemporaria) {
+          return errorResponse('A nova senha deve ser diferente da senha temporária', 400);
+        }
+      } else {
+        if (!senhaAtual) {
+          return errorResponse('Senha atual é obrigatória', 400);
+        }
+        const senhaCorreta = await verifyPassword(senhaAtual, senhaHash);
+        if (!senhaCorreta) {
+          return errorResponse('Senha atual incorreta', 400);
+        }
+        const mesmaSenha = await verifyPassword(novaSenha, senhaHash);
+        if (mesmaSenha) {
+          return errorResponse('A nova senha deve ser diferente da senha atual', 400);
+        }
       }
 
-      // Verificar se nova senha é diferente da atual
-      const mesmaSenha = await verifyPassword(novaSenha, senhaHash);
-      if (mesmaSenha) {
-        return errorResponse('A nova senha deve ser diferente da senha atual', 400);
-      }
-
-      // Hash da nova senha
       const novaSenhaHash = await hashPassword(novaSenha);
 
-      // Atualizar senha
       await query(
-        `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.colaboradores
+            SET senha_hash       = $1,
+                senha_temporaria = FALSE,
+                atualizado_em    = NOW()
+          WHERE id = $2`,
         [novaSenhaHash, user.userId]
       );
 
-      // Registrar auditoria
       await registrarAuditoria({
         usuarioId: user.userId,
         acao: 'editar',
         modulo: 'colaboradores',
-        descricao: 'Senha alterada pelo próprio usuário',
+        descricao: senhaTemporaria
+          ? 'Senha definitiva escolhida no primeiro acesso'
+          : 'Senha alterada pelo próprio usuário',
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
       });

@@ -44,8 +44,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       const colaborador = result.rows[0];
       const novaSenhaHash = await hashPassword(novaSenha);
 
+      // Marca a senha como temporária — o próprio colaborador será forçado
+      // a escolher uma nova no próximo login.
       await query(
-        `UPDATE people.colaboradores SET senha_hash = $1, atualizado_em = NOW() WHERE id = $2`,
+        `UPDATE people.colaboradores
+            SET senha_hash       = $1,
+                senha_temporaria = TRUE,
+                atualizado_em    = NOW()
+          WHERE id = $2`,
         [novaSenhaHash, colaboradorId]
       );
 
