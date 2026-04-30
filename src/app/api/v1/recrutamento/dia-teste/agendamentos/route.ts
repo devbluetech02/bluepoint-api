@@ -37,6 +37,10 @@ interface Row {
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   observacao_decisao: string | null;
+  // Soma de valor_diaria dos dias do mesmo processo com ordem < esta
+  // e status='compareceu' (cumpridos sem decisão). Usado pra calcular
+  // o valor TOTAL cumulativo do processo a pagar.
+  valor_dias_anteriores: string | null;
   criado_em: Date;
   // do processo
   processo_status: string;
@@ -125,6 +129,13 @@ export async function GET(request: NextRequest) {
             a.percentual_concluido,
             a.valor_a_pagar::text       AS valor_a_pagar,
             a.observacao_decisao,
+            COALESCE((
+              SELECT SUM(a2.valor_diaria)
+                FROM people.dia_teste_agendamento a2
+               WHERE a2.processo_seletivo_id = a.processo_seletivo_id
+                 AND a2.ordem < a.ordem
+                 AND a2.status = 'compareceu'
+            ), 0)::text                 AS valor_dias_anteriores,
             a.criado_em,
             ps.status                   AS processo_status,
             ps.candidato_recrutamento_id,
@@ -243,6 +254,11 @@ export async function GET(request: NextRequest) {
           r.status === 'compareceu'
             ? calcularValorProporcional(rowAsAg)
             : null;
+        const valorDiasAnteriores = parseFloat(r.valor_dias_anteriores ?? '0');
+        const valorTotalSeAprovarAgora =
+          proporcional !== null
+            ? Math.round((valorDiasAnteriores + proporcional.valor) * 100) / 100
+            : null;
 
         return {
           id: r.id,
@@ -265,6 +281,8 @@ export async function GET(request: NextRequest) {
           valorAPagar: r.valor_a_pagar !== null ? parseFloat(r.valor_a_pagar) : null,
           valorAPagarSeAprovarAgora: proporcional?.valor ?? null,
           periodosCumpridosAgora: proporcional?.periodos ?? null,
+          valorDiasAnteriores,
+          valorTotalSeAprovarAgora,
           criadoEm: r.criado_em,
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,

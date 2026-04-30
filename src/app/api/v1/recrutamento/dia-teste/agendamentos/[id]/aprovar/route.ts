@@ -13,6 +13,7 @@ import {
   loadAgendamento,
   avancarProcessoAposDecisao,
   calcularPodeDecidir,
+  calcularValorTotalProcesso,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/aprovar
@@ -75,16 +76,29 @@ export async function POST(
         );
       }
 
+      // Calcula o valor TOTAL do processo até este agendamento (dias
+      // anteriores cumpridos + período atual). Aprovado também paga
+      // proporcional aos períodos cumpridos — a regra de "decisão pula
+      // dias restantes" só se aplica aos dias FUTUROS, não retroativo.
+      const total = await calcularValorTotalProcesso(ag);
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'aprovado',
                 decidido_por = $1,
                 decidido_em = NOW(),
-                valor_a_pagar = NULL,
-                observacao_decisao = $2,
+                valor_a_pagar = $2,
+                percentual_concluido = $3,
+                observacao_decisao = $4,
                 atualizado_em = NOW()
-          WHERE id = $3::bigint`,
-        [user.userId, parsed.data.observacao ?? null, id],
+          WHERE id = $5::bigint`,
+        [
+          user.userId,
+          total.valorAgendamentoAtual,
+          total.percentualAtual,
+          parsed.data.observacao ?? null,
+          id,
+        ],
       );
 
       const proximoStatus = await avancarProcessoAposDecisao(
@@ -97,10 +111,15 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato APROVADO no dia de teste #${id}; processo segue para pré-admissão`,
+          descricao: `Candidato APROVADO no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje); processo segue para pré-admissão`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
+            periodosCumpridos: total.periodosAtual,
+            percentualConcluido: total.percentualAtual,
+            valorAgendamentoAtual: total.valorAgendamentoAtual,
+            valorDiasAnteriores: total.valorDiasAnteriores,
+            valorTotal: total.valorTotal,
             observacao: parsed.data.observacao ?? null,
           },
         }),
@@ -108,10 +127,16 @@ export async function POST(
 
       // Formato esperado pelo mobile (DecisaoDiaTesteResponse): chaves
       // valorAPagar e proximoPasso indicam que é uma decisão.
+      // valorAPagar = total cumulativo do processo (dias anteriores +
+      // período atual). valorAgendamentoAtual = só o agendamento atual.
       return successResponse({
         agendamentoId: id,
         status: 'aprovado',
-        valorAPagar: null,
+        valorAPagar: total.valorTotal,
+        valorAgendamentoAtual: total.valorAgendamentoAtual,
+        valorDiasAnteriores: total.valorDiasAnteriores,
+        periodosCumpridos: total.periodosAtual,
+        percentualConcluido: total.percentualAtual,
         decididoEm: new Date().toISOString(),
         proximoPasso: proximoStatus === 'pre_admissao' ? 'pre_admissao' : 'encerrado',
         processo: {

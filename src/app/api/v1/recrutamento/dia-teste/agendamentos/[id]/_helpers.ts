@@ -83,8 +83,13 @@ export function calcularPeriodosCumpridos(
 }
 
 /**
- * Valor proporcional aos períodos cumpridos. Arredonda em 2 casas
+ * Valor proporcional aos períodos cumpridos NO AGENDAMENTO ATUAL.
+ * 1 dia = 2 períodos (manhã + tarde, 50% cada). Arredonda em 2 casas
  * (centavos) — mesma granularidade do `valor_diaria`.
+ *
+ * NÃO inclui dias anteriores do mesmo processo. Para o total cumulativo
+ * (regra: "valor proporcional aos períodos efetivamente cumpridos no
+ * processo todo"), use `calcularValorTotalProcesso`.
  */
 export function calcularValorProporcional(
   row: AgendamentoRow,
@@ -94,6 +99,56 @@ export function calcularValorProporcional(
   const diaria = parseFloat(row.valor_diaria);
   const valor = Math.round(((diaria * percentual) / 100) * 100) / 100;
   return { periodos, percentual, valor };
+}
+
+/**
+ * Valor TOTAL do processo a pagar se o gestor decidir AGORA neste agendamento.
+ * Soma:
+ *   - Valor cheio (`valor_diaria` × 100%) de cada dia anterior (ordem < atual)
+ *     com status `compareceu` — candidato cumpriu o dia inteiro sem decisão
+ *     do gestor naquele dia, então recebe o dia todo.
+ *   - Valor proporcional aos períodos cumpridos NO AGENDAMENTO ATUAL
+ *     (50% por período, 1 ou 2 períodos). Antes de 1 período = 0.
+ *
+ * Exemplo (R$100/dia, 2 dias):
+ *   - Decisão no dia 1, período 1 → 50
+ *   - Decisão no dia 1, período 2 → 100
+ *   - Dia 1 cumprido sem decisão (status `compareceu`, fim de dia) +
+ *     decisão no dia 2 período 1 → 100 + 50 = 150
+ *   - Idem + decisão dia 2 período 2 → 100 + 100 = 200
+ */
+export async function calcularValorTotalProcesso(
+  row: AgendamentoRow,
+  agora: Date = new Date(),
+): Promise<{
+  periodosAtual: 0 | 1 | 2;
+  percentualAtual: 0 | 50 | 100;
+  valorAgendamentoAtual: number;
+  valorDiasAnteriores: number;
+  valorTotal: number;
+}> {
+  const proporcional = calcularValorProporcional(row, agora);
+  const r = await query<{ valor_diaria: string }>(
+    `SELECT valor_diaria::text AS valor_diaria
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint
+        AND ordem < $2
+        AND status = 'compareceu'`,
+    [row.processo_seletivo_id, row.ordem],
+  );
+  const valorDiasAnteriores = r.rows.reduce(
+    (acc, x) => acc + parseFloat(x.valor_diaria),
+    0,
+  );
+  const valorTotal =
+    Math.round((valorDiasAnteriores + proporcional.valor) * 100) / 100;
+  return {
+    periodosAtual: proporcional.periodos,
+    percentualAtual: proporcional.percentual,
+    valorAgendamentoAtual: proporcional.valor,
+    valorDiasAnteriores: Math.round(valorDiasAnteriores * 100) / 100,
+    valorTotal,
+  };
 }
 
 /**
@@ -224,7 +279,7 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
   const empresaId = toIntOrNull(row.empresa_id);
   const departamentoId = toIntOrNull(row.departamento_id);
   const podeDecidir = calcularPodeDecidir(row);
-  const proporcional = calcularValorProporcional(row);
+  const total = await calcularValorTotalProcesso(row);
 
   return {
     agendamentoId: row.id,
@@ -252,9 +307,13 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
     status: row.status,
     podeDecidir: podeDecidir.podeDecidir,
     podeDecidirAposISO: podeDecidir.podeDecidirApos?.toISOString() ?? null,
-    valorAPagarSeAprovarAgora: proporcional.valor,
-    periodosCumpridosAgora: proporcional.periodos,
-    valorAPagarSeFinalDoExpediente: parseFloat(row.valor_diaria),
+    // Valor APENAS do agendamento atual (proporcional aos períodos do dia).
+    valorAPagarSeAprovarAgora: total.valorAgendamentoAtual,
+    periodosCumpridosAgora: total.periodosAtual,
+    // Valor TOTAL cumulativo do processo (dias anteriores + atual).
+    valorTotalSeAprovarAgora: total.valorTotal,
+    valorDiasAnteriores: total.valorDiasAnteriores,
+    valorAPagarSeFinalDoExpediente: total.valorDiasAnteriores + parseFloat(row.valor_diaria),
     decididoPor: row.decidido_por?.toString(),
     decididoEm: row.decidido_em,
     observacaoDecisao: row.observacao_decisao,

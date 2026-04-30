@@ -12,7 +12,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
-  calcularValorProporcional,
+  calcularValorTotalProcesso,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/desistencia
@@ -60,11 +60,10 @@ export async function POST(
         );
       }
 
-      // Pagamento proporcional aos períodos cumpridos.
-      // 'agendado' (não compareceu) cai em 0 períodos = R$ 0 porque
-      // calcularPeriodosCumpridos ignora quando comparecimento_em é null.
-      const { periodos, percentual, valor: valorAPagar } =
-        calcularValorProporcional(ag);
+      // Pagamento total cumulativo: dias anteriores cumpridos + período atual.
+      // Status 'agendado' (não compareceu hoje) → período atual = 0,
+      // mas dias anteriores cumpridos ainda contam.
+      const total = await calcularValorTotalProcesso(ag);
 
       await query(
         `UPDATE people.dia_teste_agendamento
@@ -76,7 +75,13 @@ export async function POST(
                 observacao_decisao = $4,
                 atualizado_em = NOW()
           WHERE id = $5::bigint`,
-        [user.userId, valorAPagar, percentual, parsed.data.motivo ?? null, id],
+        [
+          user.userId,
+          total.valorAgendamentoAtual,
+          total.percentualAtual,
+          parsed.data.motivo ?? null,
+          id,
+        ],
       );
 
       const proximoStatus = await avancarProcessoAposDecisao(
@@ -89,13 +94,15 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `DESISTÊNCIA registrada no dia de teste #${id} (a pagar: R$ ${valorAPagar.toFixed(2)} — ${periodos} período(s))`,
+          descricao: `DESISTÊNCIA registrada no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje, ${total.periodosAtual} período(s))`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
-            periodosCumpridos: periodos,
-            percentualConcluido: percentual,
-            valorAPagar,
+            periodosCumpridos: total.periodosAtual,
+            percentualConcluido: total.percentualAtual,
+            valorAgendamentoAtual: total.valorAgendamentoAtual,
+            valorDiasAnteriores: total.valorDiasAnteriores,
+            valorTotal: total.valorTotal,
             motivo: parsed.data.motivo ?? null,
           },
         }),
@@ -104,9 +111,11 @@ export async function POST(
       return successResponse({
         agendamentoId: id,
         status: 'desistencia',
-        valorAPagar,
-        periodosCumpridos: periodos,
-        percentualConcluido: percentual,
+        valorAPagar: total.valorTotal,
+        valorAgendamentoAtual: total.valorAgendamentoAtual,
+        valorDiasAnteriores: total.valorDiasAnteriores,
+        periodosCumpridos: total.periodosAtual,
+        percentualConcluido: total.percentualAtual,
         decididoEm: new Date().toISOString(),
         proximoPasso: 'encerrado',
         processo: {
