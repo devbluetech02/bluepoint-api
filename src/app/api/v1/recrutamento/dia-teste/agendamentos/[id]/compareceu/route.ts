@@ -16,9 +16,15 @@ import {
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/compareceu
 //
-// Marca o candidato como presente no dia de teste. Aceita opcionalmente
-// `horarioReal` (HH:mm) — guardado como observação na auditoria, sem
-// coluna dedicada.
+// Marca o candidato como presente no dia de teste.
+//
+// `horarioReal` (HH:mm, opcional): horário REAL de chegada do candidato.
+// Quando enviado, `comparecimento_em` é gravado como (data do agendamento +
+// hora informada) no fuso America/Sao_Paulo. Sem horarioReal, usa NOW()
+// — só recomendado quando o gestor marca no momento da chegada.
+// Validação: o gestor não pode informar horário antes de 04:00 nem
+// depois de 22:00 (jornadas reais — fora disso provavelmente erro de
+// digitação).
 //
 // Transição válida: status 'agendado' → 'compareceu'.
 
@@ -28,6 +34,16 @@ const schema = z.object({
     .regex(/^\d{2}:\d{2}$/, 'horarioReal deve ser HH:mm')
     .optional(),
 });
+
+// Constrói TIMESTAMPTZ no fuso America/Sao_Paulo a partir de
+// (data YYYY-MM-DD + hora HH:mm). Usa offset fixo de Brasília (-03:00) —
+// servidor está em UTC e o BR não tem horário de verão hoje.
+function buildComparecimentoEmISO(
+  dataAgendamento: string,
+  horario: string,
+): string {
+  return `${dataAgendamento}T${horario}:00-03:00`;
+}
 
 export async function POST(
   request: NextRequest,
@@ -59,14 +75,28 @@ export async function POST(
         );
       }
 
+      // Valida horarioReal (se enviado) e calcula comparecimento_em.
+      // Sem horarioReal, usa NOW() (compat com clientes velhos).
+      let comparecimentoEm: string | null = null;
+      if (parsed.data.horarioReal) {
+        const [hh, mm] = parsed.data.horarioReal.split(':').map(Number);
+        if (hh < 4 || hh > 22 || mm > 59) {
+          return errorResponse(
+            'Horário fora da faixa de jornada (04:00–22:00). Verifique o valor digitado.',
+            400,
+          );
+        }
+        comparecimentoEm = buildComparecimentoEmISO(ag.data, parsed.data.horarioReal);
+      }
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'compareceu',
                 gestor_id = COALESCE(gestor_id, $1),
-                comparecimento_em = NOW(),
+                comparecimento_em = COALESCE($2::timestamptz, NOW()),
                 atualizado_em = NOW()
-          WHERE id = $2::bigint`,
-        [user.userId, id],
+          WHERE id = $3::bigint`,
+        [user.userId, comparecimentoEm, id],
       );
 
       const updated = await loadAgendamento(id);
