@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { getClient } from '@/lib/db';
-import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse, forbiddenResponse } from '@/lib/api-response';
 import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { aprovarSolicitacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 import { invalidateSolicitacaoCache, invalidateMarcacaoCache, invalidateLimitesHeEmpresasCache, invalidateLimitesHeDepartamentosCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { criarNotificacao, criarNotificacaoComPush } from '@/lib/notificacoes';
 import { registrarOcorrenciaAtraso } from '@/lib/ocorrencias-externas';
@@ -50,6 +51,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
 
       const solicitacao = solicitacaoResult.rows[0];
+
+      const acesso = await asseguraAcessoColaborador(user, solicitacao.colaborador_id);
+      if (!acesso.permitido) {
+        await client.query('ROLLBACK');
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+      }
 
       if (solicitacao.status !== 'pendente') {
         await client.query('ROLLBACK');

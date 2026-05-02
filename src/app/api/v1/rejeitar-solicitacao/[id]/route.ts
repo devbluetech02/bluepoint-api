@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse, forbiddenResponse } from '@/lib/api-response';
 import { withGestor, isApiKeyAuth } from '@/lib/middleware';
 import { rejeitarSolicitacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 import { invalidateSolicitacaoCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { criarNotificacaoComPush } from '@/lib/notificacoes';
 
@@ -44,6 +45,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       }
 
       const solicitacao = solicitacaoResult.rows[0];
+
+      const acesso = await asseguraAcessoColaborador(user, solicitacao.colaborador_id);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+      }
 
       if (solicitacao.status !== 'pendente') {
         return errorResponse('Apenas solicitações pendentes podem ser rejeitadas', 400);

@@ -1,10 +1,11 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, serverErrorResponse, validationErrorResponse, forbiddenResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { atualizarMarcacaoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
 import { invalidateMarcacaoCache } from '@/lib/cache';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -43,6 +44,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const dadosAnteriores = atualResult.rows[0];
+
+      const acesso = await asseguraAcessoColaborador(user, dadosAnteriores.colaborador_id);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
+      }
 
       // Atualizar marcação
       const campos = [
