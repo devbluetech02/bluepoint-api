@@ -62,17 +62,49 @@ interface CriarNotificacaoParams {
   mensagem: string;
   link?: string;
   metadados?: Record<string, unknown>;
+  /**
+   * Janela de deduplicação em segundos. Se já existe notificação com
+   * mesmos campos (usuario+tipo+titulo+mensagem+metadados+link) NÃO LIDA
+   * dentro dessa janela, o INSERT é pulado e retorna null.
+   *
+   * Default 3600 (1h). Cobre retries de worker, race em multi-device e
+   * disparos duplicados acidentais. Casos onde a mesma mensagem deve
+   * aparecer várias vezes (ex.: lembretes diários) devem usar janela
+   * curta (ex.: 60) ou variar metadados (ex.: incluir data).
+   */
+  dedupSegundos?: number;
 }
 
 /**
  * Cria uma notificação na tabela notificacoes.
- * Retorna o ID da notificação criada ou null em caso de falha.
+ * Retorna o ID da notificação criada ou null em caso de falha OU dedup
+ * (nada inserido porque já havia notificação igual recente não lida).
  */
 export async function criarNotificacao(params: CriarNotificacaoParams): Promise<number | null> {
+  const dedupSec = params.dedupSegundos ?? 3600;
   try {
-    const result = await query(
+    const metadadosJson = params.metadados ? JSON.stringify(params.metadados) : null;
+    // INSERT condicional: só insere se NÃO existe duplicada não lida na janela.
+    // SELECT 1 FROM ... WHERE ... funciona como guard at-most-once sem lock.
+    // Em race condition entre 2 inserts simultâneos pode escapar 1 duplicado
+    // (NOT EXISTS é avaliado no início da query) — aceitável; client-side
+    // dedup pega o resíduo. Solução perfeita exigiria UNIQUE INDEX
+    // composto + ON CONFLICT, o que demanda migration.
+    const result = await query<{ id: number }>(
       `INSERT INTO people.notificacoes (usuario_id, tipo, titulo, mensagem, link, metadados)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       SELECT $1, $2, $3, $4, $5, $6::jsonb
+       WHERE NOT EXISTS (
+         SELECT 1
+           FROM people.notificacoes
+          WHERE usuario_id = $1
+            AND tipo       = $2
+            AND titulo     = $3
+            AND mensagem   = $4
+            AND COALESCE(link,'')               = COALESCE($5,'')
+            AND COALESCE(metadados::text,'')    = COALESCE($6::text,'')
+            AND lida       = false
+            AND criado_em  > NOW() - ($7::int * interval '1 second')
+       )
        RETURNING id`,
       [
         params.usuarioId,
@@ -80,7 +112,8 @@ export async function criarNotificacao(params: CriarNotificacaoParams): Promise<
         params.titulo,
         params.mensagem,
         params.link || null,
-        params.metadados ? JSON.stringify(params.metadados) : null,
+        metadadosJson,
+        dedupSec,
       ]
     );
     const id = result.rows[0]?.id ?? null;
@@ -106,6 +139,12 @@ export async function criarNotificacaoComPush(
   params: CriarNotificacaoParams & { pushSeveridade?: PushSeveridade; fotoUrl?: string }
 ): Promise<number | null> {
   const id = await criarNotificacao(params);
+
+  // Skip push quando dedupado: id null = duplicata recente, não há razão
+  // pra spammar o usuário com o mesmo push de novo.
+  if (id == null) {
+    return null;
+  }
 
   enviarPushParaColaborador(params.usuarioId, {
     titulo: params.titulo,
