@@ -4,11 +4,13 @@ import {
   successResponse,
   notFoundResponse,
   serverErrorResponse,
+  forbiddenResponse,
 } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { deletarDocumentoColaborador } from '@/lib/storage';
 import { invalidateDocumentosColaboradorCache } from '@/lib/cache';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 interface Params {
   params: Promise<{ id: string; docId: string }>;
@@ -27,6 +29,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
       if (isNaN(colaboradorId) || isNaN(documentoId)) {
         return notFoundResponse('Recurso não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const docResult = await query(

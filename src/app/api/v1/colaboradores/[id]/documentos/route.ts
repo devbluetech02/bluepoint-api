@@ -5,12 +5,14 @@ import {
   errorResponse,
   notFoundResponse,
   serverErrorResponse,
+  forbiddenResponse,
 } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { uploadDocumentoColaborador } from '@/lib/storage';
 import { invalidateDocumentosColaboradorCache } from '@/lib/cache';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { criarNotificacaoComPush } from '@/lib/notificacoes';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 const MAX_FILE_SIZE = 15 * 1024 * 1024; // 15 MB
 const EXTENSOES_PERMITIDAS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx']);
@@ -32,6 +34,11 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const colabResult = await query(

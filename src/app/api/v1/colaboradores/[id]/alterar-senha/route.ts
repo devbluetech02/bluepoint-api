@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
-import { successResponse, errorResponse, notFoundResponse, serverErrorResponse } from '@/lib/api-response';
+import { successResponse, errorResponse, notFoundResponse, serverErrorResponse, forbiddenResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -22,6 +23,11 @@ export async function POST(request: NextRequest, { params }: Params) {
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const body = await req.json();

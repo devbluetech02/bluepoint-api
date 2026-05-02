@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import { successResponse, notFoundResponse, errorResponse, serverErrorResponse, validationErrorResponse, forbiddenResponse } from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { atualizarColaboradorSchema, validateBody } from '@/lib/validation';
 import { hashPassword } from '@/lib/auth';
@@ -8,6 +8,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
+import { asseguraAcessoColaborador } from '@/lib/escopo-gestor';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -21,6 +22,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       if (isNaN(colaboradorId)) {
         return notFoundResponse('Colaborador não encontrado');
+      }
+
+      const acesso = await asseguraAcessoColaborador(user, colaboradorId);
+      if (!acesso.permitido) {
+        return forbiddenResponse(acesso.motivo ?? 'Acesso negado');
       }
 
       const body = await req.json();
