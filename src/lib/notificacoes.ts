@@ -149,3 +149,131 @@ export async function notificarAtrasoParaJustificar(params: {
     pushSeveridade: 'atencao',
   });
 }
+
+/**
+ * Notifica os gestores responsáveis sobre o atraso de um colaborador da
+ * sua equipe. Lideranças do departamento + colaboradores com permissão
+ * `notificacao:atraso_equipe` recebem push. Fire-and-forget — falhas não
+ * derrubam o registro de entrada.
+ */
+export async function notificarGestoresSobreAtraso(params: {
+  colaboradorId: number;
+  marcacaoId: number;
+  minutosAtraso: number;
+  dataOcorrencia: string;
+}): Promise<void> {
+  const { colaboradorId, marcacaoId, minutosAtraso, dataOcorrencia } = params;
+
+  const colabResult = await query<{
+    nome: string;
+    empresa_id: number | null;
+    departamento_id: number | null;
+  }>(
+    `SELECT nome, empresa_id, departamento_id
+       FROM people.colaboradores
+      WHERE id = $1`,
+    [colaboradorId],
+  );
+  if (colabResult.rows.length === 0) return;
+  const { nome: colabNome, empresa_id, departamento_id } = colabResult.rows[0];
+
+  const ids = new Set<number>();
+
+  if (empresa_id && departamento_id) {
+    const liderResult = await query<{
+      supervisor_ids: number[] | null;
+      coordenador_ids: number[] | null;
+      gerente_ids: number[] | null;
+    }>(
+      `SELECT supervisor_ids, coordenador_ids, gerente_ids
+         FROM people.liderancas_departamento
+        WHERE empresa_id = $1 AND departamento_id = $2`,
+      [empresa_id, departamento_id],
+    );
+    if (liderResult.rows.length > 0) {
+      const l = liderResult.rows[0];
+      for (const id of [
+        ...(l.supervisor_ids ?? []),
+        ...(l.coordenador_ids ?? []),
+        ...(l.gerente_ids ?? []),
+      ]) {
+        ids.add(id);
+      }
+    }
+  }
+
+  const comPermissao = await obterColaboradoresComPermissao('notificacao:atraso_equipe');
+  for (const id of comPermissao) ids.add(id);
+
+  ids.delete(colaboradorId);
+  if (ids.size === 0) return;
+
+  const titulo = 'Atraso na equipe';
+  const mensagem = `${colabNome} registrou entrada com ${minutosAtraso} min de atraso em ${dataOcorrencia}.`;
+
+  for (const gestorId of ids) {
+    criarNotificacaoComPush({
+      usuarioId: gestorId,
+      tipo: 'alerta',
+      titulo,
+      mensagem,
+      link: `/colaboradores/${colaboradorId}`,
+      metadados: {
+        acao: 'atraso_equipe',
+        colaboradorId,
+        colaboradorNome: colabNome,
+        marcacaoId,
+        minutosAtraso,
+        dataOcorrencia,
+      },
+      pushSeveridade: 'atencao',
+    }).catch((err) => console.error('[Notificação] Erro ao notificar gestor sobre atraso:', err));
+  }
+}
+
+/**
+ * Notifica os interessados (gestor designado no processo + colaboradores
+ * com permissão `notificacao:candidato_compareceu`) quando o candidato
+ * marca presença no dia de teste.
+ */
+export async function notificarCandidatoCompareceu(params: {
+  agendamentoId: string | number;
+  candidatoNome: string;
+  cargoNome?: string | null;
+  gestorId?: number | null;
+  marcadoPorId: number;
+}): Promise<void> {
+  const { agendamentoId, candidatoNome, cargoNome, gestorId, marcadoPorId } = params;
+
+  const ids = new Set<number>();
+  if (gestorId) ids.add(gestorId);
+
+  const comPermissao = await obterColaboradoresComPermissao('notificacao:candidato_compareceu');
+  for (const id of comPermissao) ids.add(id);
+
+  // Quem marcou comparecimento já sabe — não disparar pra si mesmo.
+  ids.delete(marcadoPorId);
+  if (ids.size === 0) return;
+
+  const titulo = 'Candidato compareceu ao dia de teste';
+  const mensagem = cargoNome
+    ? `${candidatoNome} (${cargoNome}) chegou para o dia de teste.`
+    : `${candidatoNome} chegou para o dia de teste.`;
+
+  for (const usuarioId of ids) {
+    criarNotificacaoComPush({
+      usuarioId,
+      tipo: 'alerta',
+      titulo,
+      mensagem,
+      link: `/recrutamento/dia-teste/${agendamentoId}`,
+      metadados: {
+        acao: 'candidato_compareceu',
+        agendamentoId,
+        candidatoNome,
+        cargoNome: cargoNome ?? null,
+      },
+      pushSeveridade: 'info',
+    }).catch((err) => console.error('[Notificação] Erro ao notificar candidato compareceu:', err));
+  }
+}

@@ -9,6 +9,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { notificarCandidatoCompareceu } from '@/lib/notificacoes';
 import {
   loadAgendamento,
   buildAgendamentoPayload,
@@ -85,6 +86,17 @@ export async function POST(
       );
 
       const payload = await buildAgendamentoPayload(updated);
+
+      notificarCandidatoCompareceu({
+        agendamentoId: id,
+        candidatoNome: payload.candidato.nome,
+        cargoNome: payload.cargo?.nome ?? null,
+        gestorId: null,
+        marcadoPorId: user.userId,
+      }).catch((err) =>
+        console.error('[Notificação] Erro ao notificar candidato compareceu:', err),
+      );
+
       return successResponse(payload);
     } catch (error) {
       console.error(

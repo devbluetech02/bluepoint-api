@@ -8,7 +8,7 @@ import { invalidateMarcacaoCache } from '@/lib/cache';
 import { uploadArquivo } from '@/lib/storage';
 import { registrarOcorrenciaAtraso } from '@/lib/ocorrencias-externas';
 import { verificarEAplicarToleranciaHoraExtraEntrada } from '@/lib/hora-extra-tolerancia';
-import { notificarAtrasoParaJustificar } from '@/lib/notificacoes';
+import { notificarAtrasoParaJustificar, notificarGestoresSobreAtraso } from '@/lib/notificacoes';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -190,6 +190,15 @@ export async function POST(request: NextRequest) {
           dataOcorrencia: agora.toISOString().split('T')[0],
         }).catch((err) => {
           console.error('[Notificação] Erro ao notificar atraso:', err);
+        });
+
+        notificarGestoresSobreAtraso({
+          colaboradorId: data.colaboradorId,
+          marcacaoId: marcacao.id,
+          minutosAtraso: divergencia.minutos,
+          dataOcorrencia: agora.toISOString().split('T')[0],
+        }).catch((err) => {
+          console.error('[Notificação] Erro ao notificar gestores sobre atraso:', err);
         });
       }
 
