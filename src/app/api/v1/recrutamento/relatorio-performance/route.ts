@@ -57,7 +57,22 @@ function normalizarRecrutador(s: string | null | undefined): string {
   return (s ?? '').trim().toUpperCase();
 }
 
-function coberturaMinima(): number {
+async function coberturaMinima(): Promise<number> {
+  // Prefere parâmetro do banco (configurável via UI). Fallback pro env.
+  try {
+    const r = await query<{ cobertura: number | string | null }>(
+      `SELECT cobertura_minima_entrevista AS cobertura
+         FROM people.parametros_rh
+        ORDER BY id DESC LIMIT 1`
+    );
+    const v = r.rows[0]?.cobertura;
+    if (v != null) {
+      const n = Number(v);
+      if (!Number.isNaN(n) && n >= 0 && n <= 100) return n;
+    }
+  } catch {
+    // ignora — cai pro env/default
+  }
   const raw = process.env.ENTREVISTA_COBERTURA_MINIMA;
   if (!raw) return 50;
   const n = parseInt(raw, 10);
@@ -82,7 +97,7 @@ export async function GET(request: NextRequest) {
         return errorResponse('Parâmetro `de` deve ser <= `ate`', 400);
       }
 
-      const coberturaMin = coberturaMinima();
+      const coberturaMin = await coberturaMinima();
 
       // ── 1) Candidatos entrevistados no período (banco recrutamento) ──
       const candFiltros: string[] = [

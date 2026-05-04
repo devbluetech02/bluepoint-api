@@ -498,6 +498,10 @@ export const parametrosRhSchema = z.object({
   cargaHorariaTestePadrao: z.number().int().min(1, 'Carga deve ser >= 1').max(12, 'Carga deve ser <= 12').optional(),
   valorDiariaTestePadrao: z.number().min(0, 'Valor deve ser >= 0').max(10000, 'Valor deve ser <= 10000').optional(),
   percentualMinimoDecisao: z.number().int().min(0, 'Percentual deve ser >= 0').max(100, 'Percentual deve ser <= 100').optional(),
+  // Migration 052 — Avaliação IA dos recrutadores
+  entrevistasParaAvaliarIa: z.number().int().min(1, 'Mínimo 1').max(100, 'Máximo 100').optional(),
+  coberturaMinimaEntrevista: z.number().int().min(0, 'Mínimo 0').max(100, 'Máximo 100').optional(),
+  avaliacaoIaAtiva: z.boolean().optional(),
 });
 
 // =====================================================

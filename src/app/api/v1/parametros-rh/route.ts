@@ -22,6 +22,10 @@ const DEFAULTS = {
   cargaHorariaTestePadrao: 8,
   valorDiariaTestePadrao: 10,
   percentualMinimoDecisao: 50,
+  // Migration 052 — Avaliação IA dos recrutadores
+  entrevistasParaAvaliarIa: 5,
+  coberturaMinimaEntrevista: 50,
+  avaliacaoIaAtiva: true,
 };
 
 const RETURNING_COLS = `id, telefone_rh, email_rh,
@@ -30,7 +34,8 @@ const RETURNING_COLS = `id, telefone_rh, email_rh,
   aplicar_beneficios_em_dia_teste,
   dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
   dias_teste_padrao, carga_horaria_teste_padrao,
-  valor_diaria_teste_padrao, percentual_minimo_decisao`;
+  valor_diaria_teste_padrao, percentual_minimo_decisao,
+  entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa`;
 
 type Row = {
   id: number;
@@ -48,6 +53,9 @@ type Row = {
   carga_horaria_teste_padrao: number | string | null;
   valor_diaria_teste_padrao: number | string | null;
   percentual_minimo_decisao: number | string | null;
+  entrevistas_para_avaliar_ia: number | string | null;
+  cobertura_minima_entrevista: number | string | null;
+  avaliacao_ia_ativa: boolean | null;
 };
 
 function mapRow(row: Row) {
@@ -66,6 +74,9 @@ function mapRow(row: Row) {
     cargaHorariaTestePadrao: Number(row.carga_horaria_teste_padrao ?? 8),
     valorDiariaTestePadrao: Number(row.valor_diaria_teste_padrao ?? 10),
     percentualMinimoDecisao: Number(row.percentual_minimo_decisao ?? 50),
+    entrevistasParaAvaliarIa: Number(row.entrevistas_para_avaliar_ia ?? 5),
+    coberturaMinimaEntrevista: Number(row.cobertura_minima_entrevista ?? 50),
+    avaliacaoIaAtiva: Boolean(row.avaliacao_ia_ativa ?? true),
   };
 }
 
@@ -139,9 +150,12 @@ export async function PUT(request: NextRequest) {
                carga_horaria_teste_padrao = COALESCE($12, carga_horaria_teste_padrao),
                valor_diaria_teste_padrao = COALESCE($13, valor_diaria_teste_padrao),
                percentual_minimo_decisao = COALESCE($14, percentual_minimo_decisao),
+               entrevistas_para_avaliar_ia = COALESCE($15, entrevistas_para_avaliar_ia),
+               cobertura_minima_entrevista = COALESCE($16, cobertura_minima_entrevista),
+               avaliacao_ia_ativa = COALESCE($17, avaliacao_ia_ativa),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $15
-           WHERE id = $16
+               atualizado_por = $18
+           WHERE id = $19
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
@@ -158,6 +172,9 @@ export async function PUT(request: NextRequest) {
             data.cargaHorariaTestePadrao ?? null,
             data.valorDiariaTestePadrao ?? null,
             data.percentualMinimoDecisao ?? null,
+            data.entrevistasParaAvaliarIa ?? null,
+            data.coberturaMinimaEntrevista ?? null,
+            data.avaliacaoIaAtiva ?? null,
             user.userId,
             parametroId,
           ]
@@ -172,8 +189,9 @@ export async function PUT(request: NextRequest) {
              dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
              dias_teste_padrao, carga_horaria_teste_padrao,
              valor_diaria_teste_padrao, percentual_minimo_decisao,
+             entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
@@ -190,6 +208,9 @@ export async function PUT(request: NextRequest) {
             data.cargaHorariaTestePadrao ?? 8,
             data.valorDiariaTestePadrao ?? 10,
             data.percentualMinimoDecisao ?? 50,
+            data.entrevistasParaAvaliarIa ?? 5,
+            data.coberturaMinimaEntrevista ?? 50,
+            data.avaliacaoIaAtiva ?? true,
             user.userId,
           ]
         );
