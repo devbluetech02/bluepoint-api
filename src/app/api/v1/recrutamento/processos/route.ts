@@ -383,7 +383,23 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // 2) Veta processo já vivo no People.
+      // 2a) Veta CPF que já é colaborador ATIVO — não faz sentido abrir
+      // processo seletivo pra alguém que já trabalha na empresa.
+      const colabAtivo = await query<{ id: number; nome: string }>(
+        `SELECT id, nome FROM people.colaboradores
+          WHERE regexp_replace(cpf, '\\D', '', 'g') = $1
+            AND status = 'ativo'
+          LIMIT 1`,
+        [cpfNorm],
+      );
+      if (colabAtivo.rows[0]) {
+        return conflictWithCode(
+          `CPF ${cpfNorm} já é colaborador ativo (id ${colabAtivo.rows[0].id}, ${colabAtivo.rows[0].nome}). Não é possível abrir processo seletivo.`,
+          'colaborador_ativo',
+        );
+      }
+
+      // 2b) Veta processo já vivo no People.
       const existente = await query<{ id: string; status: string }>(
         `SELECT id::text, status
            FROM people.processo_seletivo
