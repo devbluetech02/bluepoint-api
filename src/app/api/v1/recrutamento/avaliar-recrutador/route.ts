@@ -70,6 +70,25 @@ export async function POST(request: NextRequest) {
         return errorResponse('Parâmetro `recrutador` é obrigatório', 400);
       }
 
+      // ── 0) Verifica se o recrutador existe como colaborador ATIVO no
+      // People (match accent-insensitive pelo nome). Sem colaborador
+      // correspondente, não faz sentido gerar avaliação — popup nunca
+      // chegaria nele e gastaríamos token à toa.
+      const colabRes = await query<{ existe: number }>(
+        `SELECT 1 AS existe
+           FROM people.colaboradores
+          WHERE status = 'ativo'
+            AND ${SQL_NORMALIZE_NOME('nome')} = $1
+          LIMIT 1`,
+        [recrutador]
+      );
+      if (colabRes.rows.length === 0) {
+        return errorResponse(
+          `Sem colaborador ativo no People com nome "${recrutador}". Avaliação não gerada.`,
+          404
+        );
+      }
+
       // ── 1) Pega últimas N entrevistas com análise IA do recrutador ──
       // O nome do recrutador pode estar tanto em `entrevistas_agendadas.recrutador`
       // quanto em `candidatos.responsavel_entrevista` — match por OR.

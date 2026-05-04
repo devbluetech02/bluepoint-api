@@ -97,12 +97,12 @@ export async function POST(request: NextRequest) {
       [threshold]
     );
 
-    const recrutadores: RecrutadorContagem[] = contagemRes.rows.map((r) => ({
+    const recrutadoresBruto: RecrutadorContagem[] = contagemRes.rows.map((r) => ({
       recrutador: r.recrutador,
       total: parseInt(r.total, 10),
     }));
 
-    if (recrutadores.length === 0) {
+    if (recrutadoresBruto.length === 0) {
       return successResponse({
         executado: true,
         threshold,
@@ -113,9 +113,29 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // ── 2.1) Filtra: avalia só quem existe como colaborador ATIVO no
+    // People (match accent-insensitive pelo nome). Quem não tem usuário
+    // cadastrado é descartado (não vê popup mesmo, gastaria token à toa).
+    const colabsRes = await query<{ nome_norm: string }>(
+      `SELECT ${SQL_NORMALIZE_NOME('nome')} AS nome_norm
+         FROM people.colaboradores
+        WHERE status = 'ativo'`
+    );
+    const nomesPeople = new Set(colabsRes.rows.map((r) => r.nome_norm));
+
+    const ignoradosSemColab: string[] = [];
+    const recrutadores: RecrutadorContagem[] = [];
+    for (const r of recrutadoresBruto) {
+      if (nomesPeople.has(r.recrutador)) {
+        recrutadores.push(r);
+      } else {
+        ignoradosSemColab.push(r.recrutador);
+      }
+    }
+
     // ── 3) Pra cada recrutador, verifica última avaliação e dispara se necessário ──
     let avaliados = 0;
-    let ignorados = 0;
+    let ignorados = ignoradosSemColab.length;
     let falhas = 0;
     const detalhes: Array<{
       recrutador: string;
@@ -123,7 +143,11 @@ export async function POST(request: NextRequest) {
       motivo?: string;
       score?: number;
       veredito?: string;
-    }> = [];
+    }> = ignoradosSemColab.map((nome) => ({
+      recrutador: nome,
+      acao: 'ignorado',
+      motivo: 'sem colaborador ativo correspondente no People',
+    }));
 
     for (const { recrutador, total } of recrutadores) {
       // Última avaliação desse recrutador — checa quantas entrevistas
