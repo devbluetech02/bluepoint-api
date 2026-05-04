@@ -161,6 +161,37 @@ function timeToMin(t: string): number {
   return (h ?? 0) * 60 + (m ?? 0);
 }
 
+// Reduz marcações em excesso para alvoCount, favorecendo o colaborador:
+// entrada = mais cedo, saida = mais tarde, intervalo de almoço = menor gap interior.
+// Retipa os 4 selecionados para entrada/almoco/retorno/saida.
+function filtrarMarcacoesParaDia<T extends { data_hora: string; tipo: string }>(
+  marcacoes: T[],
+  alvoCount: number = 4
+): T[] {
+  if (marcacoes.length <= alvoCount) return marcacoes;
+  if (alvoCount !== 4) return marcacoes;
+
+  const sorted = [...marcacoes].sort(
+    (a, b) => timeToMin(formatHoraMinuto(a.data_hora)) - timeToMin(formatHoraMinuto(b.data_hora))
+  );
+  const N = sorted.length;
+
+  let bestI = 1;
+  let bestGap = Number.POSITIVE_INFINITY;
+  for (let i = 1; i <= N - 3; i++) {
+    const gap = timeToMin(formatHoraMinuto(sorted[i + 1].data_hora))
+              - timeToMin(formatHoraMinuto(sorted[i].data_hora));
+    if (gap < bestGap) { bestGap = gap; bestI = i; }
+  }
+
+  return [
+    { ...sorted[0],         tipo: 'entrada' },
+    { ...sorted[bestI],     tipo: 'almoco'  },
+    { ...sorted[bestI + 1], tipo: 'retorno' },
+    { ...sorted[N - 1],     tipo: 'saida'   },
+  ];
+}
+
 function construirRealizadoString(
   marcacoes: Array<{ data_hora: string; tipo: string }>,
   folga: boolean,
@@ -674,7 +705,9 @@ export async function GET(request: NextRequest) {
         const temEscala = !!horarioDia && !isFolga;
 
         // Marcações do dia
-        const marcacoesDia = marcacoesPorDia.get(diaStr) || [];
+        const marcacoesDiaRaw = marcacoesPorDia.get(diaStr) || [];
+        const alvoCount = horarioDia?.periodos ? horarioDia.periodos.length * 2 : 4;
+        const marcacoesDia = filtrarMarcacoesParaDia(marcacoesDiaRaw, alvoCount);
         totalRegistros += marcacoesDia.length;
 
         // Dia em férias aprovadas: não gera falta
