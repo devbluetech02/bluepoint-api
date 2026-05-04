@@ -240,10 +240,18 @@ async function avaliarRecrutador(
     return { ok: false, motivo: 'sem entrevistas com análise' };
   }
 
+  // O driver pg da base de Recrutamento entrega timestamp como string;
+  // converte uma vez aqui pra evitar `.toISOString is not a function`.
+  const toDate = (v: Date | string | null | undefined): Date | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+
   const resumos = entrevistas.map((e, i) => {
-    const data = e.data_entrevista
-      ? e.data_entrevista.toISOString().slice(0, 10)
-      : '?';
+    const d = toDate(e.data_entrevista);
+    const data = d ? d.toISOString().slice(0, 10) : '?';
     return [
       `[Entrevista ${i + 1}] data=${data} candidato="${e.nome_candidato ?? '?'}" vaga="${e.vaga ?? '?'}"`,
       `  cobertura_percent=${e.cobertura ?? '?'}`,
@@ -253,13 +261,13 @@ async function avaliarRecrutador(
     ].join('\n');
   });
 
-  const periodoDe = entrevistas[entrevistas.length - 1].data_entrevista
-    ? entrevistas[entrevistas.length - 1].data_entrevista!
-        .toISOString()
-        .slice(0, 10)
+  const dDe = toDate(entrevistas[entrevistas.length - 1].data_entrevista);
+  const dAte = toDate(entrevistas[0].data_entrevista);
+  const periodoDe = dDe
+    ? dDe.toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
-  const periodoAte = entrevistas[0].data_entrevista
-    ? entrevistas[0].data_entrevista!.toISOString().slice(0, 10)
+  const periodoAte = dAte
+    ? dAte.toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
 
   const systemPrompt = `Você é um avaliador sênior de recrutadores corporativos. Analise as últimas entrevistas conduzidas e gere diagnóstico curto e acionável.
