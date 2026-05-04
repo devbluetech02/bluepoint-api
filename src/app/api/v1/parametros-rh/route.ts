@@ -26,6 +26,9 @@ const DEFAULTS = {
   entrevistasParaAvaliarIa: 5,
   coberturaMinimaEntrevista: 50,
   avaliacaoIaAtiva: true,
+  // Migration 053 — Frequência do popup de feedback IA
+  popupModo: 'por_avaliacao' as 'por_avaliacao' | 'por_dias',
+  popupIntervalo: 1,
 };
 
 const RETURNING_COLS = `id, telefone_rh, email_rh,
@@ -35,7 +38,8 @@ const RETURNING_COLS = `id, telefone_rh, email_rh,
   dias_ferias_padrao, abono_pecuniario_padrao, adiantamento_13_padrao,
   dias_teste_padrao, carga_horaria_teste_padrao,
   valor_diaria_teste_padrao, percentual_minimo_decisao,
-  entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa`;
+  entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
+  popup_modo, popup_intervalo`;
 
 type Row = {
   id: number;
@@ -56,6 +60,8 @@ type Row = {
   entrevistas_para_avaliar_ia: number | string | null;
   cobertura_minima_entrevista: number | string | null;
   avaliacao_ia_ativa: boolean | null;
+  popup_modo: string | null;
+  popup_intervalo: number | string | null;
 };
 
 function mapRow(row: Row) {
@@ -77,6 +83,10 @@ function mapRow(row: Row) {
     entrevistasParaAvaliarIa: Number(row.entrevistas_para_avaliar_ia ?? 5),
     coberturaMinimaEntrevista: Number(row.cobertura_minima_entrevista ?? 50),
     avaliacaoIaAtiva: Boolean(row.avaliacao_ia_ativa ?? true),
+    popupModo: (row.popup_modo === 'por_dias' ? 'por_dias' : 'por_avaliacao') as
+      | 'por_avaliacao'
+      | 'por_dias',
+    popupIntervalo: Number(row.popup_intervalo ?? 1),
   };
 }
 
@@ -153,9 +163,11 @@ export async function PUT(request: NextRequest) {
                entrevistas_para_avaliar_ia = COALESCE($15, entrevistas_para_avaliar_ia),
                cobertura_minima_entrevista = COALESCE($16, cobertura_minima_entrevista),
                avaliacao_ia_ativa = COALESCE($17, avaliacao_ia_ativa),
+               popup_modo = COALESCE($18, popup_modo),
+               popup_intervalo = COALESCE($19, popup_intervalo),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $18
-           WHERE id = $19
+               atualizado_por = $20
+           WHERE id = $21
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
@@ -175,6 +187,8 @@ export async function PUT(request: NextRequest) {
             data.entrevistasParaAvaliarIa ?? null,
             data.coberturaMinimaEntrevista ?? null,
             data.avaliacaoIaAtiva ?? null,
+            data.popupModo ?? null,
+            data.popupIntervalo ?? null,
             user.userId,
             parametroId,
           ]
@@ -190,8 +204,9 @@ export async function PUT(request: NextRequest) {
              dias_teste_padrao, carga_horaria_teste_padrao,
              valor_diaria_teste_padrao, percentual_minimo_decisao,
              entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
+             popup_modo, popup_intervalo,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
@@ -211,6 +226,8 @@ export async function PUT(request: NextRequest) {
             data.entrevistasParaAvaliarIa ?? 5,
             data.coberturaMinimaEntrevista ?? 50,
             data.avaliacaoIaAtiva ?? true,
+            data.popupModo ?? 'por_avaliacao',
+            data.popupIntervalo ?? 1,
             user.userId,
           ]
         );
