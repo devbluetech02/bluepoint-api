@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
       const [colaboradoresResult, pontosMap, params] = await Promise.all([
         query(
-          `SELECT c.id, c.nome, c.data_admissao, c.bloqueado_assiduidade,
+          `SELECT c.id, c.nome, c.cpf, c.data_admissao, c.bloqueado_assiduidade,
                   cg.nome AS cargo_nome, d.nome AS departamento_nome
            FROM people.colaboradores c
            LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
@@ -81,12 +81,14 @@ export async function GET(request: NextRequest) {
         registros.push({
           colaborador_id: col.id,
           colaborador_nome: col.nome,
+          cpf: col.cpf,
           cargo_nome: col.cargo_nome,
           departamento_nome: col.departamento_nome,
           total_pontos: pontos.total_pontos,
           ocorrencias_periodo: pontos.ocorrencias_periodo,
           dias_trabalhados: diasTrabalhados,
           valor_total: valor,
+          valor_mes_anterior: valorMesAnterior,
           observacoes: motivo,
         });
       }

@@ -41,18 +41,28 @@ export async function GET(request: NextRequest) {
         return errorResponse('Nao e permitido consulta para mes futuro', 400);
       }
 
+      // mes/ano anterior pra trazer valor_total do mes anterior via JOIN.
+      const mesAnt = mes === 1 ? 12 : mes - 1;
+      const anoAnt = mes === 1 ? ano - 1 : ano;
+
       const [registrosResult, pendentesResult] = await Promise.all([
         query(
-          `SELECT id, colaborador_id, mes, ano, total_pontos, valor_ponto,
-                  valor_base, valor_bonus, valor_total, dias_trabalhados,
-                  ocorrencias_periodo, pontuacao_ocorrencias,
-                  colaborador_nome, colaborador_cargo,
-                  colaborador_departamento, observacoes,
-                  status, calculado_em, atualizado_em
-           FROM people.historico_assiduidade
-           WHERE mes = $1 AND ano = $2
-           ORDER BY colaborador_nome`,
-          [mes, ano],
+          `SELECT h.id, h.colaborador_id, h.mes, h.ano, h.total_pontos, h.valor_ponto,
+                  h.valor_base, h.valor_bonus, h.valor_total, h.dias_trabalhados,
+                  h.ocorrencias_periodo, h.pontuacao_ocorrencias,
+                  h.colaborador_nome, h.colaborador_cargo,
+                  h.colaborador_departamento, h.observacoes,
+                  h.status, h.calculado_em, h.atualizado_em,
+                  c.cpf,
+                  ant.valor_total AS valor_mes_anterior
+           FROM people.historico_assiduidade h
+           LEFT JOIN people.colaboradores c ON c.id = h.colaborador_id
+           LEFT JOIN people.historico_assiduidade ant
+             ON ant.colaborador_id = h.colaborador_id
+            AND ant.mes = $3 AND ant.ano = $4
+           WHERE h.mes = $1 AND h.ano = $2
+           ORDER BY h.colaborador_nome`,
+          [mes, ano, mesAnt, anoAnt],
         ),
         query(
           `SELECT COUNT(*)::int AS total
