@@ -90,20 +90,40 @@ export async function POST(request: NextRequest, { params }: Params) {
         });
       }
 
-      // Tenta cancelar o contrato na SignProof. Best-effort: falha aqui não
-      // reverte o cancelamento local. Warning é devolvido na response.
-      let signProofWarning: string | null = null;
-      if (sol.documento_assinatura_id) {
-        const resultado = await cancelarDocumentoSignProof(sol.documento_assinatura_id);
+      // Tenta cancelar TODOS os contratos vinculados na SignProof (cascade).
+      // Coleta IDs de duas fontes:
+      //   - solicitacoes_admissao_documentos (status='enviado') — caminho novo
+      //     com 1:N para multi-doc.
+      //   - solicitacoes_admissao.documento_assinatura_id — fallback legado
+      //     (pode coincidir com um dos IDs acima; deduplicado via Set).
+      // Best-effort: falha em qualquer cancel não reverte o cancelamento local.
+      const docIdsParaCancelar = new Set<string>();
+      const docsResult = await query<{ signproof_doc_id: string }>(
+        `SELECT signproof_doc_id
+           FROM people.solicitacoes_admissao_documentos
+          WHERE solicitacao_id = $1
+            AND status = 'enviado'`,
+        [id],
+      );
+      for (const row of docsResult.rows) docIdsParaCancelar.add(row.signproof_doc_id);
+      if (sol.documento_assinatura_id) docIdsParaCancelar.add(sol.documento_assinatura_id);
+
+      const signProofWarnings: string[] = [];
+      for (const docId of docIdsParaCancelar) {
+        const resultado = await cancelarDocumentoSignProof(docId);
         if (!resultado.ok) {
-          signProofWarning = resultado.reason;
+          signProofWarnings.push(`${docId}:${resultado.reason}`);
           console.warn('[admissao.cancelar] SignProof cancel falhou', {
             solicitacaoId: id,
-            documentoId:   sol.documento_assinatura_id,
+            documentoId:   docId,
             reason:        resultado.reason,
           });
         }
       }
+      // Marcador legado mantido pra não quebrar campos do response/auditoria.
+      const signProofWarning: string | null = signProofWarnings.length > 0
+        ? signProofWarnings[0]
+        : null;
 
       // userId negativo = API Key (ver middleware.apiKeyToJwtPayload) —
       // não gravamos isso em cancelado_por porque aponta pra tabela de usuários.
@@ -131,6 +151,19 @@ export async function POST(request: NextRequest, { params }: Params) {
           409,
         );
       }
+
+      // Cascade: marca todos os documentos pendentes como 'cancelado' em
+      // solicitacoes_admissao_documentos, espelhando o estado do envelope no
+      // SignProof. Idempotente — só toca docs ainda em 'enviado'.
+      await query(
+        `UPDATE people.solicitacoes_admissao_documentos
+            SET status = 'cancelado',
+                cancelado_em = NOW(),
+                atualizado_em = NOW()
+          WHERE solicitacao_id = $1
+            AND status = 'enviado'`,
+        [id],
+      );
 
       // Costura com Recrutamento: quando essa solicitação foi aberta a partir
       // de um processo_seletivo (caminho A ou B), também cancelamos o registro
@@ -161,7 +194,9 @@ export async function POST(request: NextRequest, { params }: Params) {
           etapaAnterior:          sol.status,
           motivo,
           documentoAssinaturaId:  sol.documento_assinatura_id,
-          signProofCancelado:     sol.documento_assinatura_id ? signProofWarning === null : null,
+          documentosCancelados:   Array.from(docIdsParaCancelar),
+          signProofCancelado:     docIdsParaCancelar.size > 0 ? signProofWarnings.length === 0 : null,
+          signProofWarnings,
           signProofWarning,
         },
       }).catch(console.error);
@@ -171,7 +206,9 @@ export async function POST(request: NextRequest, { params }: Params) {
         status:           'cancelado',
         canceladoEmEtapa: sol.status,
         motivo,
-        ...(signProofWarning ? { warnings: [`signproof:${signProofWarning}`] } : {}),
+        ...(signProofWarnings.length > 0
+          ? { warnings: signProofWarnings.map(w => `signproof:${w}`) }
+          : {}),
       });
     } catch (error) {
       console.error('Erro ao cancelar pré-admissão:', error);

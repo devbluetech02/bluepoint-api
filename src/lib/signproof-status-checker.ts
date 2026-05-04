@@ -17,9 +17,10 @@ interface SignProofDocument {
   status: SignProofDocumentStatus;
 }
 
-interface SolicitacaoPendente {
-  id: string;
-  documento_assinatura_id: string;
+interface DocPendente {
+  solicitacao_id: string;
+  doc_table_id: string | null;     // id da linha em solicitacoes_admissao_documentos (null = legado)
+  signproof_doc_id: string;
 }
 
 export interface ResultadoCiclo {
@@ -34,12 +35,20 @@ export interface ResultadoCiclo {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Verifica no SignProof o status dos contratos em `assinatura_solicitada`
- * e atualiza a solicitação correspondente quando o documento for finalizado
- * (completed) ou rejeitado pelo signatário (rejected).
+ * Verifica no SignProof o status dos documentos pendentes (status='enviado'
+ * em solicitacoes_admissao_documentos) e atualiza:
+ *   - cada documento individual com o novo status;
+ *   - a solicitação como um todo, em regra de agregação:
+ *       * algum rejeitado → solicitação vira 'rejeitado';
+ *       * todos assinados → solicitação vira 'contrato_assinado';
+ *       * caso contrário → mantém 'assinatura_solicitada'.
  *
- * Idempotente: o UPDATE usa WHERE status = 'assinatura_solicitada' como guarda
- * contra race conditions.
+ * Suporte legado: solicitações que ainda não têm linha em
+ * solicitacoes_admissao_documentos (anteriores à migration 056) caem no
+ * caminho clássico via documento_assinatura_id, com o primeiro doc ditando
+ * o status — comportamento equivalente ao checker antigo.
+ *
+ * Idempotente: UPDATEs guardam WHERE status='enviado' / 'assinatura_solicitada'.
  */
 export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
   const resultado: ResultadoCiclo = {
@@ -59,36 +68,46 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
     return resultado;
   }
 
-  // 1. Busca solicitações com contrato pendente de assinatura e documento vinculado
-  const pendentesResult = await query<SolicitacaoPendente>(
-    `SELECT id, documento_assinatura_id
-       FROM people.solicitacoes_admissao
-      WHERE status = 'assinatura_solicitada'
-        AND documento_assinatura_id IS NOT NULL`
+  // 1. Busca docs pendentes via tabela 1:N + fallback legado.
+  // O LEFT JOIN garante que solicitações sem linha em
+  // solicitacoes_admissao_documentos (cenário legado puro) ainda apareçam,
+  // usando documento_assinatura_id como signproof_doc_id e doc_table_id=NULL.
+  const pendentesResult = await query<DocPendente>(
+    `SELECT s.id AS solicitacao_id,
+            d.id AS doc_table_id,
+            COALESCE(d.signproof_doc_id, s.documento_assinatura_id) AS signproof_doc_id
+       FROM people.solicitacoes_admissao s
+  LEFT JOIN people.solicitacoes_admissao_documentos d
+         ON d.solicitacao_id = s.id AND d.status = 'enviado'
+      WHERE s.status = 'assinatura_solicitada'
+        AND (d.signproof_doc_id IS NOT NULL OR s.documento_assinatura_id IS NOT NULL)`
   );
   const pendentes = pendentesResult.rows;
 
   if (pendentes.length === 0) {
-    console.log('[SignProof Checker] Nenhuma solicitação em assinatura_solicitada — ciclo encerrado.');
+    console.log('[SignProof Checker] Nenhum documento pendente — ciclo encerrado.');
     return resultado;
   }
 
-  console.log(`[SignProof Checker] ${pendentes.length} solicitação(ões) para verificar.`);
+  console.log(`[SignProof Checker] ${pendentes.length} documento(s) para verificar.`);
 
-  // Mapa: documento_assinatura_id → solicitacao.id
-  const docToSolicitacao = new Map<string, string>();
-  for (const p of pendentes) docToSolicitacao.set(p.documento_assinatura_id, p.id);
+  // Mapa: signproof_doc_id → array de pendentes (deduplica IDs entre legado e nova tabela).
+  const docToPendentes = new Map<string, DocPendente[]>();
+  for (const p of pendentes) {
+    const arr = docToPendentes.get(p.signproof_doc_id) ?? [];
+    arr.push(p);
+    docToPendentes.set(p.signproof_doc_id, arr);
+  }
 
-  // 2. Chunks de até 100 IDs
-  const allDocIds = Array.from(docToSolicitacao.keys());
+  // 2. Chunks de até 100 IDs únicos
+  const allDocIds = Array.from(docToPendentes.keys());
   const chunks: string[][] = [];
   for (let i = 0; i < allDocIds.length; i += BATCH_SIZE) {
     chunks.push(allDocIds.slice(i, i + BATCH_SIZE));
   }
 
-  // 3. Consulta o SignProof chunk a chunk
+  // 3. Consulta o SignProof
   const allDocs: SignProofDocument[] = [];
-
   for (const chunk of chunks) {
     try {
       const response = await fetch(`${SIGNPROOF_API_URL}/api/v1/integration/documents/batch-status`, {
@@ -122,69 +141,139 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
       resultado.erros.push(msg);
     }
   }
-
   resultado.documentos_verificados = allDocs.length;
 
-  // 4. Para cada documento retornado, atualiza a solicitação correspondente
-  for (const doc of allDocs) {
-    const solicitacaoId = docToSolicitacao.get(doc.id);
-    if (!solicitacaoId) {
-      console.warn(`[SignProof Checker] Documento ${doc.id} retornado mas sem solicitação mapeada (pulando).`);
-      continue;
-    }
+  // 4. Atualiza cada doc individual + acumula solicitações afetadas.
+  const solicitacoesAfetadas = new Set<string>();
+  const solicitacoesLegadasFallback = new Map<string, SignProofDocumentStatus>();
 
-    try {
-      if (doc.status === 'completed') {
-        // UPDATE com guarda em status — garante idempotência
-        const upd = await query<{ id: string }>(
-          `UPDATE people.solicitacoes_admissao
-              SET status = 'contrato_assinado',
-                  contrato_assinado_em = NOW(),
-                  atualizado_em = NOW()
-            WHERE id = $1
-              AND status = 'assinatura_solicitada'
-          RETURNING id`,
-          [solicitacaoId]
-        );
-        if (upd.rowCount && upd.rowCount > 0) {
-          resultado.documentos_atualizados++;
-          resultado.atualizacoes.push({ solicitacaoId, novoStatus: 'contrato_assinado' });
-          console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → contrato_assinado (doc ${doc.id}).`);
+  for (const doc of allDocs) {
+    const peers = docToPendentes.get(doc.id);
+    if (!peers || peers.length === 0) continue;
+
+    for (const p of peers) {
+      solicitacoesAfetadas.add(p.solicitacao_id);
+
+      try {
+        if (p.doc_table_id) {
+          // Caminho novo: atualiza linha em solicitacoes_admissao_documentos.
+          if (doc.status === 'completed') {
+            await query(
+              `UPDATE people.solicitacoes_admissao_documentos
+                  SET status = 'assinado', assinado_em = NOW(), atualizado_em = NOW()
+                WHERE id = $1 AND status = 'enviado'`,
+              [p.doc_table_id],
+            );
+          } else if (doc.status === 'rejected') {
+            await query(
+              `UPDATE people.solicitacoes_admissao_documentos
+                  SET status          = 'rejeitado',
+                      rejeitado_em    = NOW(),
+                      motivo_rejeicao = COALESCE(motivo_rejeicao, 'Candidato rejeitou a assinatura'),
+                      atualizado_em   = NOW()
+                WHERE id = $1 AND status = 'enviado'`,
+              [p.doc_table_id],
+            );
+          } else if (doc.status === 'cancelled') {
+            await query(
+              `UPDATE people.solicitacoes_admissao_documentos
+                  SET status = 'cancelado', cancelado_em = NOW(), atualizado_em = NOW()
+                WHERE id = $1 AND status = 'enviado'`,
+              [p.doc_table_id],
+            );
+          }
+        } else {
+          // Caminho legado puro (sem linha em solicitacoes_admissao_documentos):
+          // guarda o status pra resolver na fase de agregação.
+          solicitacoesLegadasFallback.set(p.solicitacao_id, doc.status);
         }
-      } else if (doc.status === 'rejected') {
-        // Candidato clicou "Rejeitar" na tela de assinatura da SignProof —
-        // é uma recusa deliberada, não uma correção de formulário. Vai
-        // direto pra 'rejeitado' (terminal) com motivo padrão; DP decide
-        // se quer reabrir manualmente.
-        const upd = await query<{ id: string }>(
-          `UPDATE people.solicitacoes_admissao
-              SET status = 'rejeitado',
-                  motivo_rejeicao = COALESCE(motivo_rejeicao, 'Candidato rejeitou a assinatura do contrato'),
-                  atualizado_em = NOW()
-            WHERE id = $1
-              AND status = 'assinatura_solicitada'
-          RETURNING id`,
-          [solicitacaoId]
-        );
-        if (upd.rowCount && upd.rowCount > 0) {
-          resultado.documentos_atualizados++;
-          resultado.atualizacoes.push({ solicitacaoId, novoStatus: 'rejeitado' });
-          console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → rejeitado (signer recusou doc ${doc.id}).`);
-        }
-      } else if (doc.status === 'cancelled') {
-        // Política: mantém status atual; apenas loga o evento
-        console.log(`[SignProof Checker] Documento ${doc.id} (solicitação ${solicitacaoId}) cancelled — status da solicitação mantido.`);
+      } catch (err) {
+        const msg = `Falha ao atualizar doc ${doc.id}: ${err instanceof Error ? err.message : String(err)}`;
+        console.error(`[SignProof Checker] ${msg}`);
+        resultado.erros.push(msg);
       }
-      // Demais status (pending, sent, etc.) — nada a fazer
+    }
+  }
+
+  // 5. Agrega status de cada solicitação afetada.
+  for (const solicitacaoId of solicitacoesAfetadas) {
+    try {
+      const aggResult = await query<{
+        total: number;
+        assinados: number;
+        rejeitados: number;
+        enviados: number;
+      }>(
+        `SELECT
+           COUNT(*)::int                                              AS total,
+           SUM(CASE WHEN status = 'assinado'  THEN 1 ELSE 0 END)::int AS assinados,
+           SUM(CASE WHEN status = 'rejeitado' THEN 1 ELSE 0 END)::int AS rejeitados,
+           SUM(CASE WHEN status = 'enviado'   THEN 1 ELSE 0 END)::int AS enviados
+         FROM people.solicitacoes_admissao_documentos
+         WHERE solicitacao_id = $1`,
+        [solicitacaoId],
+      );
+      const agg = aggResult.rows[0];
+
+      let novoStatus: 'contrato_assinado' | 'rejeitado' | null = null;
+
+      if (!agg || agg.total === 0) {
+        // Caminho legado puro: olha o status do único doc do SignProof.
+        const sp = solicitacoesLegadasFallback.get(solicitacaoId);
+        if (sp === 'completed') novoStatus = 'contrato_assinado';
+        else if (sp === 'rejected') novoStatus = 'rejeitado';
+      } else {
+        if (agg.rejeitados > 0) {
+          novoStatus = 'rejeitado';
+        } else if (agg.assinados === agg.total) {
+          novoStatus = 'contrato_assinado';
+        }
+      }
+      if (!novoStatus) continue;
+
+      const upd = novoStatus === 'contrato_assinado'
+        ? await query<{ id: string }>(
+            `UPDATE people.solicitacoes_admissao
+                SET status               = 'contrato_assinado',
+                    contrato_assinado_em = NOW(),
+                    atualizado_em        = NOW()
+              WHERE id = $1
+                AND status = 'assinatura_solicitada'
+            RETURNING id`,
+            [solicitacaoId],
+          )
+        : await query<{ id: string }>(
+            `UPDATE people.solicitacoes_admissao
+                SET status          = 'rejeitado',
+                    motivo_rejeicao = COALESCE(motivo_rejeicao, 'Candidato rejeitou a assinatura do contrato'),
+                    atualizado_em   = NOW()
+              WHERE id = $1
+                AND status = 'assinatura_solicitada'
+            RETURNING id`,
+            [solicitacaoId],
+          );
+
+      if (upd.rowCount && upd.rowCount > 0) {
+        resultado.documentos_atualizados++;
+        resultado.atualizacoes.push({ solicitacaoId, novoStatus });
+        if (agg && agg.total > 0) {
+          console.log(
+            `[SignProof Checker] Solicitação ${solicitacaoId} → ${novoStatus} ` +
+            `(${agg.assinados}/${agg.total} assinados, ${agg.rejeitados} rejeitados, ${agg.enviados} pendentes).`,
+          );
+        } else {
+          console.log(`[SignProof Checker] Solicitação ${solicitacaoId} → ${novoStatus} (legado).`);
+        }
+      }
     } catch (err) {
-      const msg = `Falha ao atualizar solicitação ${solicitacaoId}: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = `Falha ao avaliar agregado da solicitação ${solicitacaoId}: ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[SignProof Checker] ${msg}`);
       resultado.erros.push(msg);
     }
   }
 
   console.log(
-    `[SignProof Checker] Ciclo concluído: ${resultado.documentos_verificados} verificado(s), ${resultado.documentos_atualizados} atualizado(s), ${resultado.erros.length} erro(s).`
+    `[SignProof Checker] Ciclo concluído: ${resultado.documentos_verificados} verificado(s), ${resultado.documentos_atualizados} solicitação(ões) atualizada(s), ${resultado.erros.length} erro(s).`
   );
 
   return resultado;

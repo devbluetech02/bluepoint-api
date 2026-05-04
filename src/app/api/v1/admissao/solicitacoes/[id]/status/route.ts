@@ -224,6 +224,51 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         values
       );
 
+      // ── Documentos múltiplos (multi-doc support) ──────────────────────────
+      // Front pode enviar `documentos: [{signproofDocId, templateId, titulo,
+      // ordem, externalRef}]` — registra cada um em
+      // solicitacoes_admissao_documentos. Quando vazio + status =
+      // 'assinatura_solicitada', cai no caminho legado (1 doc apenas via
+      // documento_assinatura_id) pra back-compat.
+      const docsArray = Array.isArray(body.documentos) ? body.documentos : null;
+      if (docsArray && docsArray.length > 0) {
+        for (const rawDoc of docsArray) {
+          if (!rawDoc || typeof rawDoc !== 'object') continue;
+          const doc = rawDoc as Record<string, unknown>;
+          const docId = typeof doc.signproofDocId === 'string' ? doc.signproofDocId.trim() : '';
+          if (!docId) continue;
+          const templateId  = typeof doc.templateId  === 'string' ? doc.templateId.trim()  : null;
+          const titulo      = typeof doc.titulo      === 'string' ? doc.titulo.trim()      : null;
+          const externalRef = typeof doc.externalRef === 'string' ? doc.externalRef.trim() : null;
+          const ordem       = typeof doc.ordem       === 'number' ? doc.ordem              : 0;
+          await query(
+            `INSERT INTO people.solicitacoes_admissao_documentos
+               (solicitacao_id, signproof_doc_id, template_id, titulo, ordem, external_ref, status)
+             VALUES ($1, $2, $3, $4, $5, $6, 'enviado')
+             ON CONFLICT (signproof_doc_id) DO UPDATE
+             SET solicitacao_id = EXCLUDED.solicitacao_id,
+                 template_id    = EXCLUDED.template_id,
+                 titulo         = EXCLUDED.titulo,
+                 ordem          = EXCLUDED.ordem,
+                 external_ref   = EXCLUDED.external_ref,
+                 atualizado_em  = NOW()`,
+            [id, docId, templateId, titulo, ordem, externalRef],
+          );
+        }
+      } else if (
+        body.status === 'assinatura_solicitada' &&
+        typeof body.documentoAssinaturaId === 'string' &&
+        body.documentoAssinaturaId.trim()
+      ) {
+        await query(
+          `INSERT INTO people.solicitacoes_admissao_documentos
+             (solicitacao_id, signproof_doc_id, ordem, status)
+           VALUES ($1, $2, 0, 'enviado')
+           ON CONFLICT (signproof_doc_id) DO NOTHING`,
+          [id, body.documentoAssinaturaId.trim()],
+        );
+      }
+
       // ── Pós-admissão: readmissão de ex-colaborador + biometria ────────────
       // Quando transita para 'admitido', detecta se o CPF bate com um colaborador
       // INATIVO — nesse caso reativa, substitui documentos e registra ocorrência
