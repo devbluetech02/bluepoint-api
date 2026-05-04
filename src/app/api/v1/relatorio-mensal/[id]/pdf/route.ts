@@ -206,9 +206,9 @@ function getValorColuna(colId: string, dia: DiaPDF): { texto: string; cor?: stri
     case 'interjornada': return { texto: dia.interjornada || '' };
     case 'realizado':
       if (dia.isAtestado) return { texto: 'Atestado', negrito: true, cor: '#0066cc' };
-      if (dia.isFeriado && !dia.realizado) return { texto: 'Feriado', negrito: true, cor: '#CC8800' };
+      if (dia.isFeriado) return { texto: dia.realizado || 'Feriado', negrito: true, cor: '#CC8800' };
       if (dia.isFuturo && !dia.realizado) return { texto: '' };
-      if (dia.isFolga && !dia.isFeriado) return { texto: dia.realizado || 'Folga', negrito: true };
+      if (dia.isFolga) return { texto: dia.realizado || 'Folga', negrito: true };
       if (dia.isFalta) return { texto: 'Falta', cor: '#cc0000', negrito: true };
       return { texto: dia.realizado };
     case 'intrajornada': return { texto: dia.intraJornada || '' };
@@ -435,9 +435,9 @@ function gerarPDFPadrao(dados: {
         doc.font(fontNormal).text(dia.previsto, cols.previsto.x + 2, y, { width: cols.previsto.w });
         doc.font(fontBold).fillColor('#0066cc').text('Atestado', cols.realizado.x + 2, y, { width: cols.realizado.w });
         doc.fillColor('#000000');
-      } else if (dia.isFeriado && !dia.realizado) {
+      } else if (dia.isFeriado) {
         doc.font(fontBold).fillColor('#CC8800').text('Feriado', cols.previsto.x + 2, y, { width: cols.previsto.w });
-        doc.text('Feriado', cols.realizado.x + 2, y, { width: cols.realizado.w });
+        doc.text(dia.realizado || 'Feriado', cols.realizado.x + 2, y, { width: cols.realizado.w });
         doc.fillColor('#000000');
       } else if (dia.isFuturo && !dia.realizado) {
         doc.font(fontNormal).text(dia.previsto, cols.previsto.x + 2, y, { width: cols.previsto.w });
@@ -748,9 +748,9 @@ function _gerarPDFDetalhado(dados: DadosRelatorio, footerMode: 'completo' | 'fai
         doc.font(fN).text(dia.previsto, co.previsto.x + 2, y, { width: co.previsto.w });
         doc.font(fB).fillColor('#0066cc').text('Atestado', co.realizado.x + 2, y, { width: co.realizado.w });
         doc.fillColor('#000000');
-      } else if (dia.isFeriado && !dia.realizado) {
+      } else if (dia.isFeriado) {
         doc.font(fB).fillColor('#CC8800').text('Feriado', co.previsto.x + 2, y, { width: co.previsto.w });
-        doc.text('Feriado', co.realizado.x + 2, y, { width: co.realizado.w });
+        doc.text(dia.realizado || 'Feriado', co.realizado.x + 2, y, { width: co.realizado.w });
         doc.fillColor('#000000');
       } else if (dia.isFuturo && !dia.realizado) {
         doc.font(fN).text(dia.previsto, co.previsto.x + 2, y, { width: co.previsto.w });
@@ -1274,22 +1274,26 @@ export async function gerarBufferRelatorioMensal(opts: {
 
   const colab = colabResult.rows[0];
 
-  let jornadaHorarios: JornadaHorario[] = [];
-  if (colab.jornada_id) {
-    const jornadaResult = await query(
+  // Fallback: jornada padrão COMERCIAL CD (id=13) cobre dias sem cobertura
+  // pela jornada do colaborador (ou todos os dias quando não tem jornada).
+  const JORNADA_PADRAO_ID = 13;
+  async function carregarHorarios(jornadaId: number): Promise<JornadaHorario[]> {
+    const r = await query(
       `SELECT dia_semana, dias_semana, folga, periodos
        FROM people.jornada_horarios
        WHERE jornada_id = $1
        ORDER BY COALESCE(dia_semana, sequencia, id)`,
-      [colab.jornada_id]
+      [jornadaId]
     );
-    jornadaHorarios = jornadaResult.rows.map(r => ({
-      dia_semana: r.dia_semana ?? null,
-      dias_semana: r.dias_semana ? (typeof r.dias_semana === 'string' ? JSON.parse(r.dias_semana) : r.dias_semana) : null,
-      folga: r.folga,
-      periodos: typeof r.periodos === 'string' ? JSON.parse(r.periodos) : r.periodos,
+    return r.rows.map(row => ({
+      dia_semana: row.dia_semana ?? null,
+      dias_semana: row.dias_semana ? (typeof row.dias_semana === 'string' ? JSON.parse(row.dias_semana) : row.dias_semana) : null,
+      folga: row.folga,
+      periodos: typeof row.periodos === 'string' ? JSON.parse(row.periodos) : row.periodos,
     }));
   }
+  let jornadaHorarios: JornadaHorario[] = colab.jornada_id ? await carregarHorarios(colab.jornada_id) : [];
+  const jornadaPadraoHorarios: JornadaHorario[] = await carregarHorarios(JORNADA_PADRAO_ID);
 
   const mesStr = String(mes).padStart(2, '0');
   const dataInicio = `${ano}-${mesStr}-01`;
@@ -1361,11 +1365,10 @@ export async function gerarBufferRelatorioMensal(opts: {
   let totalFolgas = 0;
   let ultimaSaidaDiaAnterior: Date | null = null;
 
-  const semJornadaDefinida = !colab.jornada_id || jornadaHorarios.length === 0;
-
   for (const diaStr of diasDoMes) {
     const diaSemana = getDiaSemanaFromDate(diaStr);
-    const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana);
+    const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana)
+      ?? encontrarHorarioDia(jornadaPadraoHorarios, diaSemana);
     const isFolga = horarioDia ? horarioDia.folga : false;
     const temEscala = !!horarioDia && !isFolga;
     const marcacoesDia = marcacoesPorDia.get(diaStr) || [];
@@ -1466,12 +1469,10 @@ export async function gerarBufferRelatorioMensal(opts: {
     }
 
     let previstoStr: string;
-    if (isFeriado && marcacoesDia.length === 0) {
+    if (isFeriado) {
       previstoStr = 'Feriado';
     } else if (isFuturo && marcacoesDia.length === 0) {
       previstoStr = '';
-    } else if (semJornadaDefinida) {
-      previstoStr = 'Sem jornada definida';
     } else {
       previstoStr = construirPrevistoString(horarioDia?.periodos || null, isFolga);
     }

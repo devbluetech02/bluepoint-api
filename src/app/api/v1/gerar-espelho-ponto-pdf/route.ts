@@ -573,24 +573,28 @@ export async function GET(request: NextRequest) {
 
       // ─── Buscar horários da jornada ─────────────────
 
-      let jornadaHorarios: JornadaHorario[] = [];
-      if (colab.jornada_id) {
-        const jornadaResult = await query(
+      // Fallback: jornada padrão COMERCIAL CD (id=13) cobre dias sem cobertura
+      // pela jornada do colaborador (ou todos os dias quando não tem jornada).
+      const JORNADA_PADRAO_ID = 13;
+      const carregarHorarios = async (jornadaId: number): Promise<JornadaHorario[]> => {
+        const r = await query(
           `SELECT dia_semana, dias_semana, folga, periodos
            FROM people.jornada_horarios
            WHERE jornada_id = $1
            ORDER BY COALESCE(dia_semana, sequencia, id)`,
-          [colab.jornada_id]
+          [jornadaId]
         );
-        jornadaHorarios = jornadaResult.rows.map(r => ({
-          dia_semana: r.dia_semana ?? null,
-          dias_semana: r.dias_semana
-            ? (typeof r.dias_semana === 'string' ? JSON.parse(r.dias_semana) : r.dias_semana)
+        return r.rows.map(row => ({
+          dia_semana: row.dia_semana ?? null,
+          dias_semana: row.dias_semana
+            ? (typeof row.dias_semana === 'string' ? JSON.parse(row.dias_semana) : row.dias_semana)
             : null,
-          folga: r.folga,
-          periodos: typeof r.periodos === 'string' ? JSON.parse(r.periodos) : r.periodos,
+          folga: row.folga,
+          periodos: typeof row.periodos === 'string' ? JSON.parse(row.periodos) : row.periodos,
         }));
-      }
+      };
+      let jornadaHorarios: JornadaHorario[] = colab.jornada_id ? await carregarHorarios(colab.jornada_id) : [];
+      const jornadaPadraoHorarios: JornadaHorario[] = await carregarHorarios(JORNADA_PADRAO_ID);
 
       // ─── Buscar marcações do período ────────────────
 
@@ -625,14 +629,13 @@ export async function GET(request: NextRequest) {
       const diasRelatorio: DiaRelatorio[] = [];
       let totalRegistros = 0;
 
-      const semJornadaDefinida = !colab.jornada_id || jornadaHorarios.length === 0;
-
       for (const diaStr of diasPeriodo) {
         const diaSemana = getDiaSemanaFromDate(diaStr);
         const diaSemanaAbrev = DIAS_SEMANA_ABREV[diaSemana];
 
-        // Buscar horário previsto para esse dia da semana (suporta simples e circular)
-        const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana);
+        // Buscar horário previsto: jornada do colaborador, fallback pra padrão
+        const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana)
+          ?? encontrarHorarioDia(jornadaPadraoHorarios, diaSemana);
 
         // Folga é APENAS quando encontrou o horário e ele está explicitamente marcado como folga
         const isFolga = horarioDia ? horarioDia.folga : false;
@@ -667,9 +670,7 @@ export async function GET(request: NextRequest) {
           realizado = construirRealizadoString(marcacoesDia, false);
         }
 
-        const previsto = semJornadaDefinida
-          ? 'Sem jornada definida'
-          : construirPrevistoString(periodos, isFolga);
+        const previsto = construirPrevistoString(periodos, isFolga);
 
         diasRelatorio.push({
           data: diaStr,
