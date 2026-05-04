@@ -336,16 +336,24 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
     ? parsed.pontos_fracos.slice(0, 8)
     : [];
 
-  // Notifica gestor se anterior também foi 'ruim'
+  // Notifica gestor se anterior também foi 'ruim' E ainda não havia
+  // notificado (cooldown — evita spam em sequência longa de 'ruim').
   let notificarGestor: Date | null = null;
   if (veredito === 'ruim') {
-    const anteriorRes = await query<{ veredito: string }>(
-      `SELECT veredito FROM people.recrutador_avaliacao_ia
+    const anteriorRes = await query<{
+      veredito: string;
+      notificou_gestor_em: Date | null;
+    }>(
+      `SELECT veredito, notificou_gestor_em FROM people.recrutador_avaliacao_ia
         WHERE recrutador_nome = $1
         ORDER BY criado_em DESC LIMIT 1`,
       [recrutador]
     );
-    if (anteriorRes.rows[0]?.veredito === 'ruim') {
+    const anterior = anteriorRes.rows[0];
+    if (
+      anterior?.veredito === 'ruim' &&
+      anterior.notificou_gestor_em == null
+    ) {
       notificarGestor = new Date();
     }
   }

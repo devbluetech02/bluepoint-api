@@ -215,16 +215,26 @@ Thresholds:
       }
 
       // ── 5) Verifica se a anterior também foi 'ruim' ──
+      // Cooldown: só notifica se a anterior foi 'ruim' E ainda não havia
+      // notificado (evita spam quando o recrutador segue 'ruim' por vários
+      // ciclos seguidos — só dispara push uma vez até a sequência quebrar).
       let notificarGestor: Date | null = null;
       if (veredito === 'ruim') {
-        const anteriorRes = await query<{ veredito: string }>(
-          `SELECT veredito FROM people.recrutador_avaliacao_ia
+        const anteriorRes = await query<{
+          veredito: string;
+          notificou_gestor_em: Date | null;
+        }>(
+          `SELECT veredito, notificou_gestor_em FROM people.recrutador_avaliacao_ia
             WHERE recrutador_nome = $1
             ORDER BY criado_em DESC
             LIMIT 1`,
           [recrutador]
         );
-        if (anteriorRes.rows[0]?.veredito === 'ruim') {
+        const anterior = anteriorRes.rows[0];
+        if (
+          anterior?.veredito === 'ruim' &&
+          anterior.notificou_gestor_em == null
+        ) {
           notificarGestor = new Date();
         }
       }
