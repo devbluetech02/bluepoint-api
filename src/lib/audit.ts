@@ -76,7 +76,8 @@ export type AuditModule =
   | 'clinicas'
   | 'admissao'
   | 'recrutamento_processo_seletivo'
-  | 'recrutamento_dia_teste';
+  | 'recrutamento_dia_teste'
+  | 'recrutamento_pagamento_pix';
 
 export interface AuditLogParams {
   usuarioId?: number | null;
