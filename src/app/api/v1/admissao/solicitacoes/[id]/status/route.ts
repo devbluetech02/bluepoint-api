@@ -326,9 +326,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         // ainda não tem Universal/App Links configurados, então o candidato
         // navega pelo app manualmente.
         if (body.status === 'aso_solicitado') {
+          // Telefone do candidato vem do form de admissao (dados_extraidos
+          // JSONB em solicitacoes_admissao) — usuarios_provisorios nao tem
+          // coluna telefone. Nome vem de usuarios_provisorios.
           const candWpp = await query<{ telefone: string | null; nome: string }>(
-            `SELECT telefone, nome FROM people.usuarios_provisorios WHERE id = $1`,
-            [sol.usuario_provisorio_id],
+            `SELECT (s.dados_extraidos->>'telefone') AS telefone,
+                    up.nome AS nome
+               FROM people.solicitacoes_admissao s
+               JOIN people.usuarios_provisorios up
+                 ON up.id = s.usuario_provisorio_id
+              WHERE s.id = $1`,
+            [id],
           );
           const c = candWpp.rows[0];
           const telCand = (c?.telefone ?? '').replace(/\D/g, '');
