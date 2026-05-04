@@ -1,10 +1,20 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { withAuth } from '@/lib/middleware';
+import { normalizarNomeRecrutador } from '@/lib/normalizar-nome';
 import {
   successResponse,
   serverErrorResponse,
 } from '@/lib/api-response';
+
+/** True se o nome do cargo identifica um recrutador (cobre variações:
+ * "Recrutador", "Recrutadora", "Analista de Recrutamento", "Recrutador(a)").
+ * Match accent-insensitive em UPPER. */
+function ehCargoRecrutador(cargoNome: string | null | undefined): boolean {
+  if (!cargoNome) return false;
+  const norm = normalizarNomeRecrutador(cargoNome);
+  return norm.includes('RECRUTADOR') || norm.includes('RECRUTAMENTO');
+}
 
 // GET /api/v1/recrutamento/feedback-pendente
 //
@@ -39,8 +49,23 @@ interface PendenteRow {
 export async function GET(request: NextRequest) {
   return withAuth(request, async (_req, user) => {
     try {
-      const nome = (user.nome ?? '').trim().toUpperCase();
+      const nome = normalizarNomeRecrutador(user.nome);
       if (!nome) {
+        return successResponse(null);
+      }
+
+      // Gate por cargo: popup só aparece se o cargo do usuário for
+      // recrutador (cobre "Recrutador", "Recrutadora", cargos com
+      // "Recrutamento" no nome). Match accent-insensitive.
+      const cargoRes = await query<{ cargo_nome: string | null }>(
+        `SELECT cg.nome AS cargo_nome
+           FROM people.colaboradores c
+           LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
+          WHERE c.id = $1
+          LIMIT 1`,
+        [user.userId]
+      );
+      if (!ehCargoRecrutador(cargoRes.rows[0]?.cargo_nome)) {
         return successResponse(null);
       }
 

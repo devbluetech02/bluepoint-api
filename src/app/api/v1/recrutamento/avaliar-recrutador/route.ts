@@ -8,6 +8,10 @@ import {
 } from '@/lib/api-response';
 import { openRouterChat, extractJson } from '@/lib/openrouter';
 import { notificarGestoresRecrutamento } from '@/lib/notificar-gestor-recrutamento';
+import {
+  normalizarNomeRecrutador,
+  SQL_NORMALIZE_NOME,
+} from '@/lib/normalizar-nome';
 
 // POST /api/v1/recrutamento/avaliar-recrutador
 //
@@ -55,15 +59,11 @@ interface RespostaIA {
   pontos_fracos?: string[];
 }
 
-function normalizar(s: string): string {
-  return s.trim().toUpperCase();
-}
-
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req) => {
     try {
       const body = (await req.json().catch(() => ({}))) as PayloadIn;
-      const recrutador = normalizar(body.recrutador ?? '');
+      const recrutador = normalizarNomeRecrutador(body.recrutador ?? '');
       const ultimas = Math.min(Math.max(body.ultimas ?? 5, 1), 20);
 
       if (!recrutador) {
@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
          WHERE ea.analise IS NOT NULL
            AND TRIM(ea.analise) <> ''
            AND (
-             UPPER(TRIM(ea.recrutador)) = $1
-             OR UPPER(TRIM(c.responsavel_entrevista)) = $1
+             ${SQL_NORMALIZE_NOME('ea.recrutador')} = $1
+             OR ${SQL_NORMALIZE_NOME('c.responsavel_entrevista')} = $1
            )
          ORDER BY ea.data_entrevista DESC NULLS LAST, ea.id DESC
          LIMIT $2`,

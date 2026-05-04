@@ -3,6 +3,10 @@ import { query, queryRecrutamento } from '@/lib/db';
 import { openRouterChat, extractJson } from '@/lib/openrouter';
 import { notificarGestoresRecrutamento } from '@/lib/notificar-gestor-recrutamento';
 import {
+  normalizarNomeRecrutador,
+  SQL_NORMALIZE_NOME,
+} from '@/lib/normalizar-nome';
+import {
   successResponse,
   serverErrorResponse,
   errorResponse,
@@ -74,11 +78,13 @@ export async function POST(request: NextRequest) {
     }
 
     // ── 2) Conta entrevistas IA por recrutador (banco recrutamento) ──
+    // Aplica normalização (UPPER + accent-strip + trim + collapse-spaces)
+    // no banco pra que "JOÃO" e "JOAO" agrupem na mesma linha.
     const contagemRes = await queryRecrutamento<{
       recrutador: string;
       total: string;
     }>(
-      `SELECT UPPER(TRIM(COALESCE(ea.recrutador, c.responsavel_entrevista))) AS recrutador,
+      `SELECT ${SQL_NORMALIZE_NOME('COALESCE(ea.recrutador, c.responsavel_entrevista)')} AS recrutador,
               COUNT(*)::text AS total
          FROM public.entrevistas_agendadas ea
          LEFT JOIN public.candidatos c ON c.id = ea.id_candidatura
@@ -143,7 +149,7 @@ export async function POST(request: NextRequest) {
              LEFT JOIN public.candidatos c ON c.id = ea.id_candidatura
             WHERE ea.analise IS NOT NULL
               AND TRIM(ea.analise) <> ''
-              AND UPPER(TRIM(COALESCE(ea.recrutador, c.responsavel_entrevista))) = $1
+              AND ${SQL_NORMALIZE_NOME('COALESCE(ea.recrutador, c.responsavel_entrevista)')} = $1
               AND ea.data_entrevista > $2::timestamp`,
           [recrutador, ultimaData]
         );
@@ -229,7 +235,7 @@ async function avaliarRecrutador(
      LEFT JOIN public.candidatos c ON c.id = ea.id_candidatura
      WHERE ea.analise IS NOT NULL
        AND TRIM(ea.analise) <> ''
-       AND UPPER(TRIM(COALESCE(ea.recrutador, c.responsavel_entrevista))) = $1
+       AND ${SQL_NORMALIZE_NOME('COALESCE(ea.recrutador, c.responsavel_entrevista)')} = $1
      ORDER BY ea.data_entrevista DESC NULLS LAST, ea.id DESC
      LIMIT $2`,
     [recrutador, ultimas]

@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { withAuth } from '@/lib/middleware';
+import { normalizarNomeRecrutador } from '@/lib/normalizar-nome';
 import {
   successResponse,
   forbiddenResponse,
@@ -19,7 +20,7 @@ import {
 export async function POST(request: NextRequest) {
   return withAuth(request, async (_req, user) => {
     try {
-      const nome = (user.nome ?? '').trim().toUpperCase();
+      const nome = normalizarNomeRecrutador(user.nome);
       if (!nome) return forbiddenResponse('Sem nome no token');
 
       const r = await query<{ id: string }>(
