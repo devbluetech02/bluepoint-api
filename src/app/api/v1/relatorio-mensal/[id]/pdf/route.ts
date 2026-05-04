@@ -130,29 +130,74 @@ function construirPrevistoString(periodos: Periodo[] | null, folga: boolean): st
   return periodos.map(p => `${p.entrada} ${p.saida}`).join(' | ');
 }
 
-function construirRealizadoString(marcacoes: Array<{ data_hora: string; tipo: string }>): string {
-  if (marcacoes.length === 0) return '';
-  const pares: Array<{ entrada?: string; saida?: string }> = [];
-  let atual: { entrada?: string; saida?: string } = {};
+function timeToMin(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
 
-  for (const m of marcacoes) {
-    if (m.tipo === 'entrada' || m.tipo === 'retorno') {
-      if (atual.entrada) { pares.push(atual); atual = {}; }
-      atual.entrada = formatHoraMinuto(m.data_hora);
-    } else if (m.tipo === 'saida' || m.tipo === 'almoco') {
-      atual.saida = formatHoraMinuto(m.data_hora);
-      pares.push(atual);
-      atual = {};
+// Completa marcações faltantes usando os horários previstos como referência.
+// Cada marcação real é casada com a vaga (entrada/almoco/retorno/saida) prevista
+// mais próxima; vagas sem casamento recebem o horário previsto marcado com (P).
+function construirRealizadoString(
+  marcacoes: Array<{ data_hora: string; tipo: string }>,
+  periodos?: Periodo[] | null
+): string {
+  if (marcacoes.length === 0) return '';
+
+  const renderPares = (pares: Array<{ entrada?: string; saida?: string }>) =>
+    pares.map(p => [p.entrada, p.saida].filter(Boolean).join(' ')).join(' | ');
+
+  const realizadoTimes = marcacoes
+    .map(m => formatHoraMinuto(m.data_hora))
+    .sort((a, b) => timeToMin(a) - timeToMin(b));
+
+  // Flatten previsto: [entrada1, saida1, entrada2, saida2, ...]
+  const previstoFlat: string[] = [];
+  if (periodos && periodos.length > 0) {
+    for (const p of periodos) {
+      previstoFlat.push(p.entrada);
+      previstoFlat.push(p.saida);
     }
   }
-  if (atual.entrada || atual.saida) pares.push(atual);
 
-  return pares.map(p => {
-    const parts = [];
-    if (p.entrada) parts.push(p.entrada);
-    if (p.saida) parts.push(p.saida);
-    return parts.join(' ');
-  }).join(' | ');
+  if (previstoFlat.length === 0 || realizadoTimes.length >= previstoFlat.length) {
+    // Sem previsto ou já completo: respeita tipos das marcações
+    const pares: Array<{ entrada?: string; saida?: string }> = [];
+    let atual: { entrada?: string; saida?: string } = {};
+    for (const m of marcacoes) {
+      if (m.tipo === 'entrada' || m.tipo === 'retorno') {
+        if (atual.entrada) { pares.push(atual); atual = {}; }
+        atual.entrada = formatHoraMinuto(m.data_hora);
+      } else if (m.tipo === 'saida' || m.tipo === 'almoco') {
+        atual.saida = formatHoraMinuto(m.data_hora);
+        pares.push(atual);
+        atual = {};
+      }
+    }
+    if (atual.entrada || atual.saida) pares.push(atual);
+    return renderPares(pares);
+  }
+
+  // Casa cada realizado à vaga prevista mais próxima (greedy).
+  const slot: (string | null)[] = new Array(previstoFlat.length).fill(null);
+  const slotsUsados = new Set<number>();
+  for (const r of realizadoTimes) {
+    let bestIdx = -1;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < previstoFlat.length; i++) {
+      if (slotsUsados.has(i)) continue;
+      const diff = Math.abs(timeToMin(r) - timeToMin(previstoFlat[i]));
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+    }
+    if (bestIdx >= 0) { slot[bestIdx] = r; slotsUsados.add(bestIdx); }
+  }
+
+  const filled = previstoFlat.map((p, i) => slot[i] ?? `${p}(P)`);
+  const out: string[] = [];
+  for (let i = 0; i < filled.length; i += 2) {
+    out.push([filled[i], filled[i + 1]].filter(Boolean).join(' '));
+  }
+  return out.join(' | ');
 }
 
 type ModeloPDF = 'padrao' | 'completo' | 'faixas_he' | 'personalizado';
@@ -1465,7 +1510,7 @@ export async function gerarBufferRelatorioMensal(opts: {
     } else if (isFalta) {
       realizadoStr = 'Falta';
     } else {
-      realizadoStr = construirRealizadoString(marcacoesDia);
+      realizadoStr = construirRealizadoString(marcacoesDia, isFolga ? null : horarioDia?.periodos);
     }
 
     let previstoStr: string;

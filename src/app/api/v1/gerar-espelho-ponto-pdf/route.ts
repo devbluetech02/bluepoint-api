@@ -156,44 +156,72 @@ function construirPrevistoString(periodos: Periodo[] | null, folga: boolean): st
     .join(' | ');
 }
 
+function timeToMin(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
 function construirRealizadoString(
   marcacoes: Array<{ data_hora: string; tipo: string }>,
-  folga: boolean
+  folga: boolean,
+  periodos?: Periodo[] | null
 ): string {
   if (folga && marcacoes.length === 0) return 'Folga';
   if (marcacoes.length === 0) return '';
 
-  // Agrupar em pares entrada/saída (entrada/retorno inicia, saida/almoco finaliza)
-  const pares: Array<{ entrada?: string; saida?: string }> = [];
-  let parAtual: { entrada?: string; saida?: string } = {};
+  const realizadoTimes = marcacoes
+    .map(m => formatHoraMinuto(m.data_hora))
+    .sort((a, b) => timeToMin(a) - timeToMin(b));
 
-  for (const m of marcacoes) {
-    if (m.tipo === 'entrada' || m.tipo === 'retorno') {
-      if (parAtual.entrada) {
-        // Já tem entrada sem saída, salvar e criar novo par
+  const previstoFlat: string[] = [];
+  if (periodos && periodos.length > 0) {
+    for (const p of periodos) {
+      previstoFlat.push(p.entrada);
+      previstoFlat.push(p.saida);
+    }
+  }
+
+  // Caminho rápido: sem previsto OU já completo → comportamento original
+  if (previstoFlat.length === 0 || realizadoTimes.length >= previstoFlat.length) {
+    const pares: Array<{ entrada?: string; saida?: string }> = [];
+    let parAtual: { entrada?: string; saida?: string } = {};
+    for (const m of marcacoes) {
+      if (m.tipo === 'entrada' || m.tipo === 'retorno') {
+        if (parAtual.entrada) { pares.push(parAtual); parAtual = {}; }
+        parAtual.entrada = formatHoraMinuto(m.data_hora);
+      } else if (m.tipo === 'saida' || m.tipo === 'almoco') {
+        parAtual.saida = formatHoraMinuto(m.data_hora);
         pares.push(parAtual);
         parAtual = {};
       }
-      parAtual.entrada = formatHoraMinuto(m.data_hora);
-    } else if (m.tipo === 'saida' || m.tipo === 'almoco') {
-      parAtual.saida = formatHoraMinuto(m.data_hora);
-      pares.push(parAtual);
-      parAtual = {};
     }
-  }
-  if (parAtual.entrada || parAtual.saida) {
-    pares.push(parAtual);
+    if (parAtual.entrada || parAtual.saida) pares.push(parAtual);
+    return pares
+      .map(p => [p.entrada, p.saida].filter(Boolean).join(' ') + ' (M)')
+      .join(' | ');
   }
 
-  // Formatar como "07:50 12:34 (M)|13:04 17:38 (M)"
-  return pares
-    .map(p => {
-      const parts = [];
-      if (p.entrada) parts.push(p.entrada);
-      if (p.saida) parts.push(p.saida);
-      return parts.join(' ') + ' (M)';
-    })
-    .join(' | ');
+  // Casa cada realizado à vaga prevista mais próxima (greedy).
+  const slot: (string | null)[] = new Array(previstoFlat.length).fill(null);
+  const slotsUsados = new Set<number>();
+  for (const r of realizadoTimes) {
+    let bestIdx = -1;
+    let bestDiff = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < previstoFlat.length; i++) {
+      if (slotsUsados.has(i)) continue;
+      const diff = Math.abs(timeToMin(r) - timeToMin(previstoFlat[i]));
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+    }
+    if (bestIdx >= 0) { slot[bestIdx] = r; slotsUsados.add(bestIdx); }
+  }
+
+  // Vagas não cobertas → horário previsto com (P) (Previsto auto-completado)
+  const filled = previstoFlat.map((p, i) => slot[i] ? `${slot[i]} (M)` : `${p} (P)`);
+  const out: string[] = [];
+  for (let i = 0; i < filled.length; i += 2) {
+    out.push([filled[i], filled[i + 1]].filter(Boolean).join(' '));
+  }
+  return out.join(' | ');
 }
 
 function gerarDiasNoPeriodo(dataInicio: string, dataFim: string): string[] {
@@ -667,7 +695,7 @@ export async function GET(request: NextRequest) {
         } else if (isFalta) {
           realizado = 'Falta';
         } else {
-          realizado = construirRealizadoString(marcacoesDia, false);
+          realizado = construirRealizadoString(marcacoesDia, false, isFolga ? null : horarioDia?.periodos);
         }
 
         const previsto = construirPrevistoString(periodos, isFolga);
