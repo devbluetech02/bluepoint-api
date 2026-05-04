@@ -7,6 +7,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { openRouterChat, extractJson } from '@/lib/openrouter';
+import { notificarGestoresRecrutamento } from '@/lib/notificar-gestor-recrutamento';
 
 // POST /api/v1/recrutamento/avaliar-recrutador
 //
@@ -256,6 +257,16 @@ Thresholds:
       );
 
       const inserted = insertRes.rows[0];
+
+      // Dispara push pros gestores se notificarGestor foi acionado.
+      if (notificarGestor != null) {
+        await notificarGestoresRecrutamento({
+          recrutador,
+          score,
+          feedbackGestor,
+          avaliacaoId: inserted.id,
+        });
+      }
 
       return successResponse({
         id: inserted.id,

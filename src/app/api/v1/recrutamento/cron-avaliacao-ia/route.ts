@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
 import { openRouterChat, extractJson } from '@/lib/openrouter';
+import { notificarGestoresRecrutamento } from '@/lib/notificar-gestor-recrutamento';
 import {
   successResponse,
   serverErrorResponse,
@@ -349,7 +350,7 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
     }
   }
 
-  await query(
+  const insertRes = await query<{ id: string }>(
     `INSERT INTO people.recrutador_avaliacao_ia (
        recrutador_nome, periodo_de, periodo_ate, entrevistas_avaliadas,
        score, veredito, feedback_recrutador, feedback_gestor,
@@ -357,7 +358,8 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
      ) VALUES (
        $1, $2::date, $3::date, $4, $5, $6, $7, $8,
        $9::jsonb, $10::jsonb, $11, $12
-     )`,
+     )
+     RETURNING id::text`,
     [
       recrutador,
       periodoDe,
@@ -374,8 +376,16 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
     ]
   );
 
-  // Aviso `errorResponse` não usado aqui — é usado em outras rotas, mas
-  // mantemos a importação consistente caso adicionemos checks futuros.
+  if (notificarGestor != null) {
+    await notificarGestoresRecrutamento({
+      recrutador,
+      score,
+      feedbackGestor,
+      avaliacaoId: insertRes.rows[0].id,
+    });
+  }
+
+  // `errorResponse` é usado em outras rotas — mantemos a importação consistente.
   void errorResponse;
 
   return { ok: true, score, veredito };
