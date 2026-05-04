@@ -84,7 +84,9 @@ export async function POST(
         endToEndId: pag.end_to_end_id,
         valor: valorBR,
         descricao,
-        meioIniciacao: 'MAN',
+        // Sicoob aceita CHAVE (chave PIX) ou MANUAL (dados de conta).
+        // Nosso fluxo sempre usa chave -> CHAVE.
+        meioIniciacao: 'CHAVE',
         cnpjPagador: pag.cnpj_pagador ?? undefined,
         idempotencyKey: pag.idempotency_key,
       });

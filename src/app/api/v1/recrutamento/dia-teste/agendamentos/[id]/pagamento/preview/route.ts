@@ -9,7 +9,12 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { z } from 'zod';
-import { iniciarPagamentoPix, cadastrarBeneficiarioPix } from '@/lib/pix-pagamentos';
+import {
+  iniciarPagamentoPix,
+  cadastrarBeneficiarioPix,
+  normalizarChavePix,
+  tipoChaveSicoob,
+} from '@/lib/pix-pagamentos';
 
 // Body opcional — usado como fallback quando o candidato não tem chave
 // PIX cadastrada no banco de Recrutamento. Mobile recebe 422 com code
@@ -262,6 +267,7 @@ export async function POST(
         (ag.empresa_cnpj ?? '').replace(/\D/g, '') || undefined;
       const r = await iniciarPagamentoPix({
         chave: chavePix,
+        tipoChave: tipoChaveDet, // garante normalizacao (+55, lowercase, etc)
         cnpjPagador: cnpjPagadorDigits,
         idempotencyKey,
       });

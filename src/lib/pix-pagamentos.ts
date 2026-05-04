@@ -64,14 +64,21 @@ export type PixApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; status?: number; erro: string; raw?: unknown };
 
-function envOk(): { url: string; key: string } | null {
+function envOk(): { url: string; key: string; clientId: string } | null {
   const url = process.env.PIX_API_URL;
   const key = process.env.PIX_API_KEY;
+  // client_id eh obrigatorio em /pix-pagamentos/v2/* (camada do Sicoob).
+  // Pode vir do CNPJ pagador via SSM ou fixo no env.
+  const clientId = process.env.PIX_API_CLIENT_ID;
   if (!url || !key) {
     console.warn('[PIX] PIX_API_URL ou PIX_API_KEY nao configurados');
     return null;
   }
-  return { url: url.replace(/\/$/, ''), key };
+  return {
+    url: url.replace(/\/$/, ''),
+    key,
+    clientId: clientId ?? '',
+  };
 }
 
 async function postJson<T>(
@@ -88,6 +95,7 @@ async function postJson<T>(
         Authorization: env.key,
         'Idempotency-Key': idempotencyKey,
         'Content-Type': 'application/json',
+        ...(env.clientId ? { client_id: env.clientId } : {}),
       },
       body: JSON.stringify(body),
     });
@@ -126,19 +134,59 @@ export interface CadastrarBeneficiarioArgs {
  * 201 = criado. 409 = já existe (idempotente — caller trata como sucesso).
  * Outros = falha real.
  */
+/**
+ * Normaliza chave PIX pro formato exato que o DICT/Sicoob espera:
+ *   - telefone: E.164 com +55 (ex: +5562996183309)
+ *   - cpf/cnpj: só dígitos
+ *   - email: lowercase + trim
+ *   - aleatoria/EVP: UUID lowercase
+ */
+function normalizarChavePix(chave: string, tipo: string): string {
+  const t = tipo.trim().toUpperCase();
+  const c = chave.trim();
+  if (t === 'TELEFONE') {
+    let d = c.replace(/\D/g, '');
+    if (d.startsWith('55')) d = d.slice(2);
+    if (d.length === 10) d = d.slice(0, 2) + '9' + d.slice(2);
+    if (d.length !== 11) return c; // formato inesperado, devolve raw
+    return `+55${d}`;
+  }
+  if (t === 'CPF' || t === 'CNPJ') return c.replace(/\D/g, '');
+  if (t === 'EMAIL') return c.toLowerCase();
+  if (t === 'EVP' || t === 'ALEATORIA') return c.toLowerCase();
+  return c;
+}
+
+/**
+ * Mapeia tipos do nosso domínio (lowercase) pro enum exigido pelo Sicoob
+ * (uppercase + EVP em vez de aleatoria).
+ */
+function tipoChaveSicoob(tipo: string): string {
+  const t = tipo.trim().toUpperCase();
+  if (t === 'ALEATORIA') return 'EVP';
+  return t;
+}
+
 export async function cadastrarBeneficiarioPix(
   args: CadastrarBeneficiarioArgs,
 ): Promise<PixApiResult<{ id?: number } & Record<string, unknown>>> {
   const env = envOk();
   if (!env) return { ok: false, erro: 'pix_api_nao_configurada' };
   try {
+    const tipoNorm = tipoChaveSicoob(args.tipoChave);
+    const chaveNorm = normalizarChavePix(args.chavePix, tipoNorm);
     const resp = await fetch(`${env.url}/pix-pagamentos/v2/beneficiarios`, {
       method: 'POST',
       headers: {
         Authorization: env.key,
         'Content-Type': 'application/json',
+        ...(env.clientId ? { client_id: env.clientId } : {}),
       },
-      body: JSON.stringify(args),
+      body: JSON.stringify({
+        ...args,
+        tipoChave: tipoNorm,
+        chavePix: chaveNorm,
+      }),
     });
     const text = await resp.text();
     let parsed: unknown = null;
@@ -162,9 +210,13 @@ export async function cadastrarBeneficiarioPix(
 }
 
 export async function iniciarPagamentoPix(
-  args: IniciarPagamentoArgs,
+  args: IniciarPagamentoArgs & { tipoChave?: string },
 ): Promise<PixApiResult<PagamentoIniciado>> {
-  const body: Record<string, unknown> = { chave: args.chave };
+  const tipoNorm = args.tipoChave ? tipoChaveSicoob(args.tipoChave) : '';
+  const chave = tipoNorm
+    ? normalizarChavePix(args.chave, tipoNorm)
+    : args.chave;
+  const body: Record<string, unknown> = { chave };
   if (args.cnpjPagador) body.cnpjPagador = args.cnpjPagador;
   if (args.dataAgendamento) body.dataAgendamento = args.dataAgendamento;
   return postJson<PagamentoIniciado>(
@@ -173,6 +225,9 @@ export async function iniciarPagamentoPix(
     args.idempotencyKey,
   );
 }
+
+// Reexportados pro caller normalizar antes de gravar/exibir.
+export { normalizarChavePix, tipoChaveSicoob };
 
 export async function confirmarPagamentoPix(
   args: ConfirmarPagamentoArgs,
@@ -203,7 +258,10 @@ export async function consultarPagamentoPix(
       `${env.url}/pix-pagamentos/v2/${encodeURIComponent(endToEndId)}`,
       {
         method: 'GET',
-        headers: { Authorization: env.key },
+        headers: {
+          Authorization: env.key,
+          ...(env.clientId ? { client_id: env.clientId } : {}),
+        },
       },
     );
     const text = await resp.text();
