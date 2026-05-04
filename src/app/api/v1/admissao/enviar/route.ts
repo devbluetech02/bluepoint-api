@@ -2,13 +2,52 @@ import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { createdResponse, errorResponse, serverErrorResponse, successResponse, validationErrorResponse } from '@/lib/api-response';
 import { fetchFormularioAdmissaoPorToken, mapCamposParaApi } from '@/lib/formulario-admissao';
-import { extractTokenFromHeader, verifyToken } from '@/lib/auth';
+import { extractTokenFromHeader, verifyToken, hashPassword } from '@/lib/auth';
 import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 import { enviarPushParaCargoNome } from '@/lib/push-colaborador';
+import { extrairCredenciaisPreAdmissao } from '@/lib/admissao-dados-extractor';
 
 // Qualidade mínima exigida para biometria em campos face_capture obrigatórios
 const QUALIDADE_MINIMA_BIOMETRIA = 0.4;
+
+// Materializa email + bcrypt(senha) do form em colunas próprias para que o
+// /autenticar consiga identificar a pré-admissão pelo login do candidato e
+// redirecioná-lo para o ponto certo do fluxo (ex.: tela de ASO).
+//
+// Conflito de email (UNIQUE parcial): outra pré-admissão ATIVA já usa o
+// mesmo email — não bloqueia o submit (o form em si é válido), só não grava
+// as credenciais para evitar ambiguidade no fallback. RH resolve cancelando
+// a outra pré-admissão.
+async function persistirCredenciaisPreAdmissao(
+  solicitacaoId: string,
+  camposRaw: unknown,
+  dados: Record<string, unknown>
+): Promise<void> {
+  const campos = mapCamposParaApi(camposRaw, true);
+  const { email, senha } = extrairCredenciaisPreAdmissao(campos, dados);
+  if (!email || !senha) return;
+
+  const senhaHash = await hashPassword(senha);
+  try {
+    await query(
+      `UPDATE people.solicitacoes_admissao
+          SET pre_admissao_email      = $1,
+              pre_admissao_senha_hash = $2
+        WHERE id = $3`,
+      [email, senhaHash, solicitacaoId]
+    );
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === '23505') {
+      console.warn(
+        `[admissao/enviar] Conflito de email "${email}" — outra pré-admissão ativa já usa esse email. Credenciais não gravadas para solicitação ${solicitacaoId}.`
+      );
+      return;
+    }
+    throw err;
+  }
+}
 
 const enviarAdmissaoSchema = z.object({
   dados:               z.record(z.string(), z.unknown()),
@@ -106,6 +145,8 @@ export async function POST(request: NextRequest) {
 
       const row = updated.rows[0];
 
+      await persistirCredenciaisPreAdmissao(row.id, formulario.campos, dados);
+
       enviarPushParaCargoNome('Administrador', {
         titulo:     'Pré-admissão reenviada',
         mensagem:   'O candidato corrigiu e reenviou a solicitação de admissão.',
@@ -159,6 +200,8 @@ export async function POST(request: NextRequest) {
       );
       row = result.rows[0];
     }
+
+    await persistirCredenciaisPreAdmissao(row.id, formulario.campos, dados);
 
     enviarPushParaCargoNome('Administrador', {
       titulo:     'Nova pré-admissão recebida',

@@ -114,6 +114,30 @@ async function consultarViaCep(cep: string): Promise<ViaCepResponse | null> {
 }
 
 // =====================================================
+// Credenciais pré-admissão (lookup leve, sem ViaCEP)
+// =====================================================
+
+export interface CredenciaisPreAdmissao {
+  email: string | null;
+  senha: string | null;
+}
+
+/**
+ * Extrai apenas email e senha do `dados` JSONB. Versão sem efeitos colaterais
+ * (não consulta ViaCEP, não normaliza nada). Usada pelo /admissao/enviar
+ * para popular as colunas materializadas pre_admissao_email e
+ * pre_admissao_senha_hash em cada submit.
+ */
+export function extrairCredenciaisPreAdmissao(
+  campos: FormularioCampoApi[],
+  dados: Record<string, unknown>
+): CredenciaisPreAdmissao {
+  const email = extrairValorPorLabel(campos, dados, ['e-mail', 'email']);
+  const senha = extrairValorPorLabel(campos, dados, ['crie uma senha', 'senha']);
+  return { email, senha };
+}
+
+// =====================================================
 // Extração principal
 // =====================================================
 
