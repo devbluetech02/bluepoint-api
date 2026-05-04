@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
 import { query, queryRecrutamento } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
@@ -8,7 +8,17 @@ import {
   notFoundResponse,
   serverErrorResponse,
 } from '@/lib/api-response';
+import { z } from 'zod';
 import { iniciarPagamentoPix, cadastrarBeneficiarioPix } from '@/lib/pix-pagamentos';
+
+// Body opcional — usado como fallback quando o candidato não tem chave
+// PIX cadastrada no banco de Recrutamento. Mobile recebe 422 com code
+// 'chave_pix_obrigatoria' e re-chama com esses campos preenchidos.
+const bodySchema = z.object({
+  chavePix: z.string().trim().min(1).max(150).optional(),
+  tipoChave: z.string().trim().min(1).max(20).optional(),
+  nomeBeneficiario: z.string().trim().min(1).max(200).optional(),
+}).partial();
 
 // Heurística: detecta tipo de chave PIX por formato.
 // Sicoob aceita: cpf, cnpj, email, telefone, aleatoria.
@@ -47,6 +57,20 @@ export async function POST(
   return withGestor(request, async (req, user) => {
     try {
       const { id } = await params;
+
+      // Override opcional do gestor — usado quando candidato não tem
+      // chave PIX persistida (legado, antes do snapshot no processo).
+      const rawBody = await req.json().catch(() => ({}));
+      const overrideParsed = bodySchema.safeParse(rawBody);
+      const overrideChave = overrideParsed.success
+        ? overrideParsed.data.chavePix?.trim()
+        : undefined;
+      const overrideTipo = overrideParsed.success
+        ? overrideParsed.data.tipoChave?.trim().toLowerCase()
+        : undefined;
+      const overrideNome = overrideParsed.success
+        ? overrideParsed.data.nomeBeneficiario?.trim()
+        : undefined;
 
       // 1. Carrega agendamento + processo + empresa pra pegar CNPJ pagador.
       const agRes = await query<{
@@ -152,12 +176,21 @@ export async function POST(
         [candId],
       );
       const cand = candRes.rows[0];
-      const chavePix = (cand?.chave_pix ?? '').trim();
-      const tipoChave = (cand?.tipo_chave ?? '').trim() || null;
+      // Prioridade: override do gestor (mobile dialog) > banco recrutamento.
+      const chavePix = (overrideChave || cand?.chave_pix || '').trim();
+      const tipoChave =
+        overrideTipo || (cand?.tipo_chave ?? '').trim().toLowerCase() || null;
+      const nomeBenef = overrideNome || cand?.nome || 'Candidato';
       if (!chavePix) {
-        return errorResponse(
-          'Candidato sem chave PIX cadastrada no Recrutamento.',
-          422,
+        // Mobile usa este code pra abrir dialog "Informe a chave PIX"
+        // e re-chamar /preview com chavePix no body.
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Candidato sem chave PIX cadastrada. Informe a chave manualmente pra prosseguir.',
+            code: 'chave_pix_obrigatoria',
+          },
+          { status: 422 },
         );
       }
 
@@ -170,7 +203,7 @@ export async function POST(
       const cad = await cadastrarBeneficiarioPix({
         chavePix,
         tipoChave: tipoChaveDet,
-        nomeBeneficiario: cand?.nome ?? 'Candidato',
+        nomeBeneficiario: nomeBenef,
         documentoBeneficiario: ag.candidato_cpf_norm || undefined,
         cnpjPagador: cnpjPagadorDigitsBenef,
         valorMaximoCentavos: 0,
