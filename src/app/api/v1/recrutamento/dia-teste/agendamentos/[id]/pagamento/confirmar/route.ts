@@ -88,7 +88,8 @@ export async function POST(
         // Sicoob aceita CHAVE (chave PIX) ou MANUAL (dados de conta).
         // Nosso fluxo sempre usa chave -> CHAVE.
         meioIniciacao: 'CHAVE',
-        cnpj: pag.cnpj_pagador ?? PIX_CNPJ_DEFAULT,
+        // Sempre debita Ethos — fluxo de dia de teste paga só dessa conta.
+        cnpj: PIX_CNPJ_DEFAULT,
         idempotencyKey: pag.idempotency_key,
       });
 

@@ -221,8 +221,10 @@ export async function POST(
       // Sem isso, /iniciar retorna erro pra chaves nao-whitelisted.
       const tipoChaveDet = (tipoChave ?? '').toLowerCase() ||
           detectarTipoChave(chavePix);
-      const cnpjPagadorDigitsBenef =
-        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || PIX_CNPJ_DEFAULT;
+      // Sempre debita do CNPJ Ethos (61485183000177) — única conta
+      // habilitada pra pagar dia de teste, independente da empresa
+      // vinculada ao candidato.
+      const cnpjPagadorDigitsBenef = PIX_CNPJ_DEFAULT;
       const cad = await cadastrarBeneficiarioPix({
         chavePix,
         tipoChave: tipoChaveDet,
@@ -264,8 +266,7 @@ export async function POST(
       const pagamentoId = insRes.rows[0].id;
 
       // 5. Chama API Sicoob iniciar.
-      const cnpjPagadorDigits =
-        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || PIX_CNPJ_DEFAULT;
+      const cnpjPagadorDigits = PIX_CNPJ_DEFAULT;
       const r = await iniciarPagamentoPix({
         chave: chavePix,
         tipoChave: tipoChaveDet, // garante normalizacao (+55, lowercase, etc)
