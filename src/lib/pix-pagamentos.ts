@@ -16,7 +16,7 @@
 
 export interface IniciarPagamentoArgs {
   chave: string;
-  cnpjPagador?: string;
+  cnpj?: string;
   dataAgendamento?: string; // YYYY-MM-DD; vazio = imediato
   idempotencyKey: string;
 }
@@ -42,7 +42,7 @@ export interface ConfirmarPagamentoArgs {
   valor: string; // formato BR "1,99"
   descricao?: string;
   meioIniciacao: string; // ex: "MAN" (manual) ou "QRD" — Sicoob aceita "MAN"
-  cnpjPagador?: string;
+  cnpj?: string;
   dataAgendamento?: string;
   repeticao?: boolean;
   idempotencyKey: string;
@@ -63,6 +63,10 @@ export interface PagamentoSnapshot {
 export type PixApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; status?: number; erro: string; raw?: unknown };
+
+// CNPJ pagador default — Ethos Servicos. Usado quando agendamento nao
+// tem CNPJ (empresa sem cadastro completo).
+const PIX_CNPJ_DEFAULT = '61485183000177';
 
 function envOk(): { url: string; key: string; clientId: string } | null {
   const url = process.env.PIX_API_URL;
@@ -125,7 +129,7 @@ export interface CadastrarBeneficiarioArgs {
   tipoChave: string; // cpf|cnpj|email|telefone|aleatoria
   nomeBeneficiario: string;
   documentoBeneficiario?: string; // CPF/CNPJ do dono da chave
-  cnpjPagador?: string;
+  cnpj?: string;
   valorMaximoCentavos?: number; // 0 = sem limite
 }
 
@@ -217,7 +221,7 @@ export async function iniciarPagamentoPix(
     ? normalizarChavePix(args.chave, tipoNorm)
     : args.chave;
   const body: Record<string, unknown> = { chave };
-  if (args.cnpjPagador) body.cnpjPagador = args.cnpjPagador;
+  if (args.cnpj) body.cnpj = args.cnpj;
   if (args.dataAgendamento) body.dataAgendamento = args.dataAgendamento;
   return postJson<PagamentoIniciado>(
     '/pix-pagamentos/v2/iniciar',
@@ -227,7 +231,7 @@ export async function iniciarPagamentoPix(
 }
 
 // Reexportados pro caller normalizar antes de gravar/exibir.
-export { normalizarChavePix, tipoChaveSicoob };
+export { normalizarChavePix, tipoChaveSicoob, PIX_CNPJ_DEFAULT };
 
 export async function confirmarPagamentoPix(
   args: ConfirmarPagamentoArgs,
@@ -238,7 +242,7 @@ export async function confirmarPagamentoPix(
     meioIniciacao: args.meioIniciacao,
   };
   if (args.descricao) body.descricao = args.descricao;
-  if (args.cnpjPagador) body.cnpjPagador = args.cnpjPagador;
+  if (args.cnpj) body.cnpj = args.cnpj;
   if (args.dataAgendamento) body.dataAgendamento = args.dataAgendamento;
   if (typeof args.repeticao === 'boolean') body.repeticao = args.repeticao;
   return postJson<PagamentoSnapshot>(

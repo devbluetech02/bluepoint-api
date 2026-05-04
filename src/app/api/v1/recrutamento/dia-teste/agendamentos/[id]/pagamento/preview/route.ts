@@ -14,6 +14,7 @@ import {
   cadastrarBeneficiarioPix,
   normalizarChavePix,
   tipoChaveSicoob,
+  PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
 
 // Body opcional — usado como fallback quando o candidato não tem chave
@@ -221,13 +222,13 @@ export async function POST(
       const tipoChaveDet = (tipoChave ?? '').toLowerCase() ||
           detectarTipoChave(chavePix);
       const cnpjPagadorDigitsBenef =
-        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || undefined;
+        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || PIX_CNPJ_DEFAULT;
       const cad = await cadastrarBeneficiarioPix({
         chavePix,
         tipoChave: tipoChaveDet,
         nomeBeneficiario: nomeBenef,
         documentoBeneficiario: ag.candidato_cpf_norm || undefined,
-        cnpjPagador: cnpjPagadorDigitsBenef,
+        cnpj: cnpjPagadorDigitsBenef,
         valorMaximoCentavos: 0,
       });
       if (!cad.ok) {
@@ -264,11 +265,11 @@ export async function POST(
 
       // 5. Chama API Sicoob iniciar.
       const cnpjPagadorDigits =
-        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || undefined;
+        (ag.empresa_cnpj ?? '').replace(/\D/g, '') || PIX_CNPJ_DEFAULT;
       const r = await iniciarPagamentoPix({
         chave: chavePix,
         tipoChave: tipoChaveDet, // garante normalizacao (+55, lowercase, etc)
-        cnpjPagador: cnpjPagadorDigits,
+        cnpj: cnpjPagadorDigits,
         idempotencyKey,
       });
 

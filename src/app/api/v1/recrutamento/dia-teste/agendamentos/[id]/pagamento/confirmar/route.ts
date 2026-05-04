@@ -12,6 +12,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   confirmarPagamentoPix,
   formatarValorBR,
+  PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/pagamento/confirmar
@@ -87,7 +88,7 @@ export async function POST(
         // Sicoob aceita CHAVE (chave PIX) ou MANUAL (dados de conta).
         // Nosso fluxo sempre usa chave -> CHAVE.
         meioIniciacao: 'CHAVE',
-        cnpjPagador: pag.cnpj_pagador ?? undefined,
+        cnpj: pag.cnpj_pagador ?? PIX_CNPJ_DEFAULT,
         idempotencyKey: pag.idempotency_key,
       });
 
