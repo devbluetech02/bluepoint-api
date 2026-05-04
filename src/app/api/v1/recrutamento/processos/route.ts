@@ -64,6 +64,7 @@ const schemaDiaTeste = baseSchema.extend({
     rg: z.string().max(50).optional().nullable(),
     banco: z.string().max(100).optional().nullable(),
     chavePix: z.string().max(150).optional().nullable(),
+    tipoChave: z.enum(['cpf','cnpj','email','telefone','aleatoria']).optional().nullable(),
   }),
 });
 
@@ -178,9 +179,11 @@ async function abrirCaminhoA(args: {
       `INSERT INTO people.processo_seletivo
          (candidato_recrutamento_id, candidato_cpf_norm, vaga_snapshot,
           empresa_id, cargo_id, departamento_id, jornada_id,
-          status, caminho, criado_por)
+          status, caminho, criado_por,
+          pix_chave, pix_tipo_chave, pix_banco)
        VALUES ($1, $2, $3, $4, $5, $6, $7,
-               'dia_teste', 'dia_teste', $8)
+               'dia_teste', 'dia_teste', $8,
+               $9, $10, $11)
        RETURNING id::text`,
       [
         dados.candidatoRecrutamentoId,
@@ -191,6 +194,9 @@ async function abrirCaminhoA(args: {
         dados.departamentoId,
         dados.jornadaId,
         userId,
+        dt.chavePix?.trim() || null,
+        dt.tipoChave ?? null,
+        dt.banco?.trim() || null,
       ]
     );
     processoId = procIns.rows[0].id;

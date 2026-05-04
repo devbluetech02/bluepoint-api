@@ -82,6 +82,9 @@ export async function POST(
         empresa_id: number | null;
         empresa_cnpj: string | null;
         candidato_nome: string | null;
+        ps_pix_chave: string | null;
+        ps_pix_tipo: string | null;
+        ps_pix_banco: string | null;
       }>(
         `SELECT
            a.id::text                  AS id,
@@ -91,7 +94,10 @@ export async function POST(
            ps.candidato_cpf_norm,
            ps.empresa_id,
            e.cnpj                       AS empresa_cnpj,
-           col.nome                     AS candidato_nome
+           col.nome                     AS candidato_nome,
+           ps.pix_chave                 AS ps_pix_chave,
+           ps.pix_tipo_chave            AS ps_pix_tipo,
+           ps.pix_banco                 AS ps_pix_banco
           FROM people.dia_teste_agendamento a
           JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
           LEFT JOIN people.empresas e ON e.id = ps.empresa_id
@@ -176,10 +182,21 @@ export async function POST(
         [candId],
       );
       const cand = candRes.rows[0];
-      // Prioridade: override do gestor (mobile dialog) > banco recrutamento.
-      const chavePix = (overrideChave || cand?.chave_pix || '').trim();
+      // Prioridade:
+      //   1. override do gestor (mobile dialog deste preview)
+      //   2. snapshot persistido em processo_seletivo (modal Iniciar Processo)
+      //   3. banco de Recrutamento (legado/fallback)
+      const chavePix = (
+        overrideChave ||
+        ag.ps_pix_chave ||
+        cand?.chave_pix ||
+        ''
+      ).trim();
       const tipoChave =
-        overrideTipo || (cand?.tipo_chave ?? '').trim().toLowerCase() || null;
+        overrideTipo ||
+        (ag.ps_pix_tipo ?? '').trim().toLowerCase() ||
+        (cand?.tipo_chave ?? '').trim().toLowerCase() ||
+        null;
       const nomeBenef = overrideNome || cand?.nome || 'Candidato';
       if (!chavePix) {
         // Mobile usa este code pra abrir dialog "Informe a chave PIX"
