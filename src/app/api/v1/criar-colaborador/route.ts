@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
           tipoUsuario,
           data.empresaId || null,
           data.departamentoId || null,
-          data.jornadaId || null,
+          data.jornadaId || 13,
           data.dataAdmissao,
           data.dataNascimento || null,
           data.dataDesligamento || null,

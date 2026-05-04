@@ -893,7 +893,7 @@ async function criarColaboradorAPartirDeAdmissao(
       tipoUsuario,
       prov.empresa_id,
       prov.departamento_id,
-      prov.jornada_id,
+      prov.jornada_id ?? 13,
       dataAdmissao,
       ext.data_nascimento ?? null,
       ext.endereco_cep ?? null,
