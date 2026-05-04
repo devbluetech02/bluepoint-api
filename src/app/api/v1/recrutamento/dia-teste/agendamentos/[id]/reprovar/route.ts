@@ -13,6 +13,7 @@ import {
   loadAgendamento,
   avancarProcessoAposDecisao,
   calcularValorTotalProcesso,
+  calcularPodeDecidir,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/reprovar
@@ -53,6 +54,24 @@ export async function POST(
       if (ag.status !== 'compareceu') {
         return errorResponse(
           `Agendamento está em status "${ag.status}" — só pode reprovar candidatos que compareceram`,
+          409,
+        );
+      }
+
+      // Mesma trava de aprovar (FLUXO §3.6): reprovação só após 50% carga.
+      const decisao = calcularPodeDecidir(ag);
+      if (!decisao.podeDecidir) {
+        const apos = decisao.podeDecidirApos
+          ? decisao.podeDecidirApos.toLocaleTimeString('pt-BR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              timeZone: 'America/Sao_Paulo',
+            })
+          : null;
+        return errorResponse(
+          apos
+            ? `Reprovação só é permitida após o candidato cumprir 50% da carga horária (a partir das ${apos}).`
+            : 'Reprovação ainda não é permitida — candidato precisa cumprir pelo menos 50% da carga horária do dia.',
           409,
         );
       }
