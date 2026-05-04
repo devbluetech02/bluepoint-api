@@ -754,15 +754,19 @@ async function notificarPrazoContestacao(): Promise<void> {
       dias_pendente: number;
     }>(`
       SELECT
-        id                                              AS relatorio_id,
-        colaborador_id,
-        mes,
-        ano,
-        (EXTRACT(EPOCH FROM (NOW() - criado_em)) / 86400)::int AS dias_pendente
-      FROM people.relatorios_mensais
-      WHERE status = 'pendente'
-        AND criado_em < NOW() - INTERVAL '3 days'
-        AND criado_em > NOW() - INTERVAL '30 days'
+        rm.id                                                  AS relatorio_id,
+        rm.colaborador_id,
+        rm.mes,
+        rm.ano,
+        (EXTRACT(EPOCH FROM (NOW() - rm.criado_em)) / 86400)::int AS dias_pendente
+      FROM people.relatorios_mensais rm
+      LEFT JOIN people.colaboradores c ON c.id = rm.colaborador_id
+      LEFT JOIN people.cargos cg       ON cg.id = c.cargo_id
+      WHERE rm.status = 'pendente'
+        AND rm.criado_em < NOW() - INTERVAL '3 days'
+        AND rm.criado_em > NOW() - INTERVAL '30 days'
+        -- Cargos de confiança não recebem lembrete (não há contestação a fazer).
+        AND COALESCE(cg.cargo_confianca, FALSE) = FALSE
     `);
 
     if (result.rows.length === 0) return;
@@ -832,11 +836,15 @@ async function gerarRelatoriosMensaisDia1(): Promise<void> {
     const ultimoDiaMesRef = new Date(anoRef, mesRef, 0).getDate();
     const ultimoDiaMesRefStr = `${anoRef}-${String(mesRef).padStart(2, '0')}-${String(ultimoDiaMesRef).padStart(2, '0')}`;
 
+    // Exclui colaboradores em cargos de confiança — não batem ponto, não
+    // têm relatório mensal pra assinar, não recebem o push.
     const colabResult = await query<{ id: number }>(
-      `SELECT id
-       FROM people.colaboradores
-       WHERE status = 'ativo'
-         AND data_admissao <= $1::date`,
+      `SELECT c.id
+       FROM people.colaboradores c
+       LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
+       WHERE c.status = 'ativo'
+         AND c.data_admissao <= $1::date
+         AND COALESCE(cg.cargo_confianca, FALSE) = FALSE`,
       [ultimoDiaMesRefStr]
     );
 

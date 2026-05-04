@@ -13,7 +13,9 @@ export async function GET(request: NextRequest) {
       const cacheKey = buildListCacheKey(CACHE_KEYS.STATUS_TEMPO_REAL, { departamentoId });
 
       const dados = await cacheAside(cacheKey, async () => {
-      let whereClause = "WHERE c.status = 'ativo'";
+      // Status tempo real ignora cargos de confiança — quem não bate ponto
+      // não tem "trabalhando/almoço/ausente" para reportar.
+      let whereClause = "WHERE c.status = 'ativo' AND COALESCE(cg.cargo_confianca, FALSE) = FALSE";
       const params: unknown[] = [];
 
       if (departamentoId) {
@@ -22,22 +24,23 @@ export async function GET(request: NextRequest) {
       }
 
       const result = await query(
-        `SELECT 
+        `SELECT
           c.id,
           c.nome,
           d.nome as departamento,
           (
-            SELECT tipo FROM people.marcacoes 
+            SELECT tipo FROM people.marcacoes
             WHERE colaborador_id = c.id AND DATE(data_hora) = CURRENT_DATE
             ORDER BY data_hora DESC LIMIT 1
           ) as ultima_marcacao_tipo,
           (
-            SELECT data_hora FROM people.marcacoes 
+            SELECT data_hora FROM people.marcacoes
             WHERE colaborador_id = c.id AND DATE(data_hora) = CURRENT_DATE
             ORDER BY data_hora DESC LIMIT 1
           ) as ultima_marcacao_hora
         FROM people.colaboradores c
         LEFT JOIN departamentos d ON c.departamento_id = d.id
+        LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
         ${whereClause}
         ORDER BY c.nome`,
         params

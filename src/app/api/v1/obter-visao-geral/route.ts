@@ -8,36 +8,47 @@ export async function GET(request: NextRequest) {
   return withAuth(request, async () => {
     try {
       const visaoGeral = await cacheAside(`${CACHE_KEYS.VISAO_GERAL}dashboard`, async () => {
-        // Total de colaboradores
+        // Indicadores de horário ignoram cargos de confiança — quem não bate
+        // ponto não conta como "ausente" nem entra nas estatísticas de presença.
+        // Total de colaboradores (ativos para fins de indicador descontam confiança).
         const colaboradoresResult = await query(
-          `SELECT 
+          `SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN status = 'ativo' THEN 1 ELSE 0 END) as ativos
-          FROM people.colaboradores`
+            SUM(CASE
+                  WHEN c.status = 'ativo'
+                   AND COALESCE(cg.cargo_confianca, FALSE) = FALSE
+                  THEN 1 ELSE 0 END) as ativos
+          FROM people.colaboradores c
+          LEFT JOIN people.cargos cg ON cg.id = c.cargo_id`
         );
 
-        // Marcações de hoje
+        // Marcações de hoje (apenas de colaboradores que batem ponto)
         const marcacoesHojeResult = await query(
-          `SELECT 
-            COUNT(DISTINCT colaborador_id) as presentes,
-            SUM(CASE WHEN tipo = 'entrada' THEN 1 ELSE 0 END) as entradas,
-            SUM(CASE WHEN tipo = 'saida' THEN 1 ELSE 0 END) as saidas,
-            SUM(CASE WHEN tipo = 'almoco' THEN 1 ELSE 0 END) as almocos,
-            SUM(CASE WHEN tipo = 'retorno' THEN 1 ELSE 0 END) as retornos
-          FROM people.marcacoes
-          WHERE DATE(data_hora) = CURRENT_DATE`
+          `SELECT
+            COUNT(DISTINCT m.colaborador_id) as presentes,
+            SUM(CASE WHEN m.tipo = 'entrada' THEN 1 ELSE 0 END) as entradas,
+            SUM(CASE WHEN m.tipo = 'saida' THEN 1 ELSE 0 END) as saidas,
+            SUM(CASE WHEN m.tipo = 'almoco' THEN 1 ELSE 0 END) as almocos,
+            SUM(CASE WHEN m.tipo = 'retorno' THEN 1 ELSE 0 END) as retornos
+          FROM people.marcacoes m
+          LEFT JOIN people.colaboradores c ON c.id = m.colaborador_id
+          LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
+          WHERE DATE(m.data_hora) = CURRENT_DATE
+            AND COALESCE(cg.cargo_confianca, FALSE) = FALSE`
         );
 
-        // Colaboradores ativos que não registraram entrada hoje
+        // Colaboradores ativos que não registraram entrada hoje (excl. confiança)
         const ausentesResult = await query(
           `SELECT COUNT(*) as ausentes
           FROM people.colaboradores c
+          LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
           WHERE c.status = 'ativo'
-          AND c.id NOT IN (
-            SELECT DISTINCT colaborador_id 
-            FROM people.marcacoes 
-            WHERE DATE(data_hora) = CURRENT_DATE
-          )`
+            AND COALESCE(cg.cargo_confianca, FALSE) = FALSE
+            AND c.id NOT IN (
+              SELECT DISTINCT colaborador_id
+              FROM people.marcacoes
+              WHERE DATE(data_hora) = CURRENT_DATE
+            )`
         );
 
         // Horas extras do mês

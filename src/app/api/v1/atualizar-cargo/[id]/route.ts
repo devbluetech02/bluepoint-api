@@ -20,6 +20,8 @@ const atualizarCargoSchema = z.object({
   // ID do nível de acesso (1, 2 ou 3). Determina permissões herdadas do
   // cargo. undefined = não mexe.
   nivelAcessoId: z.number().int().min(1).max(3).optional(),
+  // Cargo de confiança (não bate ponto, fora dos indicadores). undefined = não mexe.
+  cargoConfianca: z.boolean().optional(),
   // diasTeste foi movido para usuarios_provisorios. Zod descarta silenciosamente.
 });
 
@@ -52,7 +54,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
       // Verificar se existe
       const existeResult = await query(
-        `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao, template_dia_teste, nivel_acesso_id
+        `SELECT id, nome, cbo, descricao, salario_padrao, templates_contrato_admissao, template_dia_teste, nivel_acesso_id, cargo_confianca
            FROM people.cargos WHERE id = $1`,
         [cargoId]
       );
@@ -62,7 +64,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const cargoAntigo = existeResult.rows[0];
-      const { nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId } = validation.data;
+      const { nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId, cargoConfianca } = validation.data;
 
       // Construir query de atualização
       const updates: string[] = ['updated_at = NOW()'];
@@ -104,6 +106,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
         values.push(nivelAcessoId);
         paramIndex++;
       }
+      if (cargoConfianca !== undefined) {
+        updates.push(`cargo_confianca = $${paramIndex}`);
+        values.push(cargoConfianca);
+        paramIndex++;
+      }
 
       values.push(cargoId);
 
@@ -124,7 +131,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
         dadosAnteriores: cargoAntigo,
-        dadosNovos: { nome, cbo, descricao, salarioPadrao, nivelAcessoId },
+        dadosNovos: { nome, cbo, descricao, salarioPadrao, nivelAcessoId, cargoConfianca },
       });
 
       return successResponse({
@@ -136,6 +143,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
         templateDiaTeste: cargo.template_dia_teste ?? null,
         nivelAcessoId: cargo.nivel_acesso_id,
+        cargoConfianca: cargo.cargo_confianca === true,
         mensagem: 'Cargo atualizado com sucesso',
       });
     } catch (error) {

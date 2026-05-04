@@ -22,6 +22,10 @@ const criarCargoSchema = z.object({
   // ID do nível de acesso (people.niveis_acesso). Default = Nível 1 (mais
   // restritivo); o usuário reclassifica conforme necessário.
   nivelAcessoId: z.number().int().min(1).max(3).optional(),
+  // Cargo de confiança: colaboradores deste cargo não batem ponto, não
+  // recebem push de relatório mensal e ficam fora dos indicadores de
+  // horário (visão geral, status tempo real, painel de presença).
+  cargoConfianca: z.boolean().optional(),
   // diasTeste foi movido para usuarios_provisorios (task de 2026-04). Zod descarta
   // a chave silenciosamente se o cliente antigo ainda enviar — back-compat.
 });
@@ -42,12 +46,12 @@ export async function POST(request: NextRequest) {
         return validationErrorResponse(errors);
       }
 
-      const { nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId } = validation.data;
+      const { nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId, cargoConfianca } = validation.data;
 
       const result = await query(
-        `INSERT INTO people.cargos (nome, cbo, descricao, salario_padrao, templates_contrato_admissao, template_dia_teste, nivel_acesso_id)
-         VALUES ($1, $2, $3, $4, COALESCE($5::text[], ARRAY[]::text[]), $6, COALESCE($7, 1))
-         RETURNING id, nome, nivel_acesso_id`,
+        `INSERT INTO people.cargos (nome, cbo, descricao, salario_padrao, templates_contrato_admissao, template_dia_teste, nivel_acesso_id, cargo_confianca)
+         VALUES ($1, $2, $3, $4, COALESCE($5::text[], ARRAY[]::text[]), $6, COALESCE($7, 1), COALESCE($8, FALSE))
+         RETURNING id, nome, nivel_acesso_id, cargo_confianca`,
         [
           nome,
           cbo || null,
@@ -56,6 +60,7 @@ export async function POST(request: NextRequest) {
           templatesContratoAdmissao ?? null,
           templateDiaTeste ?? null,
           nivelAcessoId ?? null,
+          cargoConfianca ?? null,
         ],
       );
 
@@ -71,13 +76,14 @@ export async function POST(request: NextRequest) {
         descricao: `Cargo criado: ${cargo.nome}`,
         ip: getClientIp(request),
         userAgent: getUserAgent(request),
-        dadosNovos: { id: cargo.id, nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId: cargo.nivel_acesso_id },
+        dadosNovos: { id: cargo.id, nome, cbo, descricao, salarioPadrao, templatesContratoAdmissao, templateDiaTeste, nivelAcessoId: cargo.nivel_acesso_id, cargoConfianca: cargo.cargo_confianca },
       });
 
       return createdResponse({
         id: cargo.id,
         nome: cargo.nome,
         nivelAcessoId: cargo.nivel_acesso_id,
+        cargoConfianca: cargo.cargo_confianca,
         mensagem: 'Cargo criado com sucesso',
       });
     } catch (error) {

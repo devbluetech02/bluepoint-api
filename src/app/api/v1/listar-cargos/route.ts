@@ -51,7 +51,8 @@ export async function GET(request: NextRequest) {
           const dataResult = await query(
             `SELECT c.id, c.nome, c.cbo, c.descricao, c.salario_padrao,
                     c.jornada_id_padrao, c.templates_contrato_admissao,
-                    c.template_dia_teste, c.nivel_acesso_id, c.created_at, c.updated_at,
+                    c.template_dia_teste, c.nivel_acesso_id, c.cargo_confianca,
+                    c.created_at, c.updated_at,
                     COALESCE(cu.salario,    c.salario_padrao)    AS salario_efetivo,
                     COALESCE(cu.jornada_id, c.jornada_id_padrao) AS jornada_id_efetiva
              FROM people.cargos c
@@ -95,6 +96,7 @@ export async function GET(request: NextRequest) {
             templatesContratoAdmissao: cargo.templates_contrato_admissao ?? [],
             templateDiaTeste: cargo.template_dia_teste ?? null,
             nivelAcessoId: cargo.nivel_acesso_id ?? null,
+            cargoConfianca: cargo.cargo_confianca === true,
             exames: examesPorCargo.get(cargo.id) ?? [],
             criadoEm: cargo.created_at,
             atualizadoEm: cargo.updated_at,

@@ -123,7 +123,11 @@ export async function GET(request: NextRequest) {
         const horaAtual = nowResult.rows[0].hora_atual;
 
         // ---------- Filtros de colaboradores ----------
-        const conditions: string[] = ["c.status = 'ativo'"];
+        // Painel de presença ignora cargos de confiança (não batem ponto).
+        const conditions: string[] = [
+          "c.status = 'ativo'",
+          "COALESCE(cg.cargo_confianca, FALSE) = FALSE",
+        ];
         const params: unknown[] = [];
         let pi = 1;
 
