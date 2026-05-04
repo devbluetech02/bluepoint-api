@@ -625,6 +625,8 @@ export async function GET(request: NextRequest) {
       const diasRelatorio: DiaRelatorio[] = [];
       let totalRegistros = 0;
 
+      const semJornadaDefinida = !colab.jornada_id || jornadaHorarios.length === 0;
+
       for (const diaStr of diasPeriodo) {
         const diaSemana = getDiaSemanaFromDate(diaStr);
         const diaSemanaAbrev = DIAS_SEMANA_ABREV[diaSemana];
@@ -665,11 +667,15 @@ export async function GET(request: NextRequest) {
           realizado = construirRealizadoString(marcacoesDia, false);
         }
 
+        const previsto = semJornadaDefinida
+          ? 'Sem jornada definida'
+          : construirPrevistoString(periodos, isFolga);
+
         diasRelatorio.push({
           data: diaStr,
           diaSemana: DIAS_SEMANA_ABREV[diaSemana],
           diaSemanaAbrev,
-          previsto: construirPrevistoString(periodos, isFolga),
+          previsto,
           realizado,
           horasTrab,
           isFolga,

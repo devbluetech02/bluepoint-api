@@ -34,6 +34,7 @@ interface DiaPDF {
   isFalta: boolean;
   isFeriado?: boolean;
   nomeFeriado?: string;
+  isAtestado?: boolean;
   isFuturo?: boolean;
   interjornada?: string;
   intraJornada?: string;
@@ -204,6 +205,7 @@ function getValorColuna(colId: string, dia: DiaPDF): { texto: string; cor?: stri
       return { texto: dia.previsto };
     case 'interjornada': return { texto: dia.interjornada || '' };
     case 'realizado':
+      if (dia.isAtestado) return { texto: 'Atestado', negrito: true, cor: '#0066cc' };
       if (dia.isFeriado && !dia.realizado) return { texto: 'Feriado', negrito: true, cor: '#CC8800' };
       if (dia.isFuturo && !dia.realizado) return { texto: '' };
       if (dia.isFolga && !dia.isFeriado) return { texto: dia.realizado || 'Folga', negrito: true };
@@ -429,7 +431,11 @@ function gerarPDFPadrao(dados: {
       doc.font(fontNormal).fontSize(fontSize).fillColor('#000000');
       doc.text(dataFormatada, cols.data.x + 2, y, { width: cols.data.w });
 
-      if (dia.isFeriado && !dia.realizado) {
+      if (dia.isAtestado) {
+        doc.font(fontNormal).text(dia.previsto, cols.previsto.x + 2, y, { width: cols.previsto.w });
+        doc.font(fontBold).fillColor('#0066cc').text('Atestado', cols.realizado.x + 2, y, { width: cols.realizado.w });
+        doc.fillColor('#000000');
+      } else if (dia.isFeriado && !dia.realizado) {
         doc.font(fontBold).fillColor('#CC8800').text('Feriado', cols.previsto.x + 2, y, { width: cols.previsto.w });
         doc.text('Feriado', cols.realizado.x + 2, y, { width: cols.realizado.w });
         doc.fillColor('#000000');
@@ -738,7 +744,11 @@ function _gerarPDFDetalhado(dados: DadosRelatorio, footerMode: 'completo' | 'fai
       doc.font(fN).fontSize(5.5).fillColor('#000000');
       doc.text(dFmt, co.data.x + 2, y, { width: co.data.w });
 
-      if (dia.isFeriado && !dia.realizado) {
+      if (dia.isAtestado) {
+        doc.font(fN).text(dia.previsto, co.previsto.x + 2, y, { width: co.previsto.w });
+        doc.font(fB).fillColor('#0066cc').text('Atestado', co.realizado.x + 2, y, { width: co.realizado.w });
+        doc.fillColor('#000000');
+      } else if (dia.isFeriado && !dia.realizado) {
         doc.font(fB).fillColor('#CC8800').text('Feriado', co.previsto.x + 2, y, { width: co.previsto.w });
         doc.text('Feriado', co.realizado.x + 2, y, { width: co.realizado.w });
         doc.fillColor('#000000');
@@ -1316,6 +1326,26 @@ export async function gerarBufferRelatorioMensal(opts: {
 
   const feriasPorDia = await getDiasEmFeriasNoPeriodo(colaboradorId, dataInicio, dataFim);
 
+  // Atestados aprovados que cobrem dias do período
+  const atestadosResult = await query(
+    `SELECT data_evento, COALESCE(data_evento_fim, data_evento) AS data_fim
+     FROM people.solicitacoes
+     WHERE colaborador_id = $1
+       AND tipo = 'atestado'
+       AND status = 'aprovada'
+       AND data_evento <= $3::date
+       AND COALESCE(data_evento_fim, data_evento) >= $2::date`,
+    [colaboradorId, dataInicio, dataFim]
+  );
+  const atestadosPorDia = new Set<string>();
+  for (const a of atestadosResult.rows) {
+    const start = new Date(a.data_evento);
+    const end = new Date(a.data_fim);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      atestadosPorDia.add(d.toISOString().slice(0, 10));
+    }
+  }
+
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   const hojeStr = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
@@ -1331,6 +1361,8 @@ export async function gerarBufferRelatorioMensal(opts: {
   let totalFolgas = 0;
   let ultimaSaidaDiaAnterior: Date | null = null;
 
+  const semJornadaDefinida = !colab.jornada_id || jornadaHorarios.length === 0;
+
   for (const diaStr of diasDoMes) {
     const diaSemana = getDiaSemanaFromDate(diaStr);
     const horarioDia = encontrarHorarioDia(jornadaHorarios, diaSemana);
@@ -1341,6 +1373,7 @@ export async function gerarBufferRelatorioMensal(opts: {
     const nomeFeriado = feriadosPorDia.get(diaStr) || '';
     const isFuturo = diaStr > hojeStr;
     const isFerias = feriasPorDia.has(diaStr);
+    const isAtestado = atestadosPorDia.has(diaStr);
 
     const minTrab = calcularMinutosTrabalhados(marcacoesDia);
     const cargaPrevista = temEscala ? calcularCargaPrevista(horarioDia!.periodos) : 0;
@@ -1357,12 +1390,12 @@ export async function gerarBufferRelatorioMensal(opts: {
       } else {
         extrasMin = minTrab; totalMinExtras += extrasMin; saldoMin = minTrab;
       }
-    } else if (temEscala && !isFeriado && !isFuturo && !isFerias) {
+    } else if (temEscala && !isFeriado && !isFuturo && !isFerias && !isAtestado) {
       totalFaltas++;
       saldoMin = -cargaPrevista;
     }
 
-    const isFalta = temEscala && marcacoesDia.length === 0 && !isFeriado && !isFuturo && !isFerias;
+    const isFalta = temEscala && marcacoesDia.length === 0 && !isFeriado && !isFuturo && !isFerias && !isAtestado;
     let atrasoMinDia = 0;
     if (temEscala && marcacoesDia.length > 0) {
       const pe = marcacoesDia.find(m => m.tipo === 'entrada');
@@ -1416,7 +1449,9 @@ export async function gerarBufferRelatorioMensal(opts: {
     }
 
     let realizadoStr: string;
-    if (isFeriado && marcacoesDia.length === 0) {
+    if (isAtestado) {
+      realizadoStr = 'Atestado';
+    } else if (isFeriado && marcacoesDia.length === 0) {
       realizadoStr = 'Feriado';
     } else if (isFuturo && marcacoesDia.length === 0) {
       realizadoStr = '';
@@ -1430,14 +1465,21 @@ export async function gerarBufferRelatorioMensal(opts: {
       realizadoStr = construirRealizadoString(marcacoesDia);
     }
 
+    let previstoStr: string;
+    if (isFeriado && marcacoesDia.length === 0) {
+      previstoStr = 'Feriado';
+    } else if (isFuturo && marcacoesDia.length === 0) {
+      previstoStr = '';
+    } else if (semJornadaDefinida) {
+      previstoStr = 'Sem jornada definida';
+    } else {
+      previstoStr = construirPrevistoString(horarioDia?.periodos || null, isFolga);
+    }
+
     diasPDF.push({
       data: diaStr,
       diaSemana: DIAS_SEMANA_ABREV[diaSemana],
-      previsto: isFeriado && marcacoesDia.length === 0
-        ? 'Feriado'
-        : isFuturo && marcacoesDia.length === 0
-          ? ''
-          : construirPrevistoString(horarioDia?.periodos || null, isFolga),
+      previsto: previstoStr,
       realizado: realizadoStr,
       horasTrab: minutosParaHHMM(minTrab),
       horasExtras: minutosParaHHMM(extrasMin),
@@ -1446,6 +1488,7 @@ export async function gerarBufferRelatorioMensal(opts: {
       isFalta,
       isFeriado,
       nomeFeriado,
+      isAtestado,
       isFuturo,
       interjornada: interjornada || '',
       intraJornada,
