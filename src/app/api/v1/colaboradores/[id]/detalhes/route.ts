@@ -84,9 +84,11 @@ export async function GET(
       if (!colab) return notFoundResponse('Colaborador não encontrado');
 
       // 2. Marcações dos últimos `dias`
+      // `data_hora` é TIMESTAMP sem TZ no schema → node-postgres devolve
+      // string ("YYYY-MM-DD HH:MM:SS"). Normaliza pra Date antes de usar.
       const margResult = await query<{
         id: number;
-        data_hora: Date;
+        data_hora: Date | string;
         tipo: string;
         metodo: string | null;
       }>(
@@ -98,6 +100,13 @@ export async function GET(
         [colaboradorId, dias],
       );
 
+      const margNorm = margResult.rows.map((m) => ({
+        id: m.id,
+        dataHora: m.data_hora instanceof Date ? m.data_hora : new Date(String(m.data_hora).replace(' ', 'T') + 'Z'),
+        tipo: m.tipo,
+        metodo: m.metodo,
+      }));
+
       // Agrupa marcações por dia (YYYY-MM-DD) pra render simples no app.
       const grupoPorDia = new Map<
         string,
@@ -108,15 +117,10 @@ export async function GET(
           metodo: string | null;
         }>
       >();
-      for (const m of margResult.rows) {
-        const dia = m.data_hora.toISOString().slice(0, 10);
+      for (const m of margNorm) {
+        const dia = m.dataHora.toISOString().slice(0, 10);
         const lista = grupoPorDia.get(dia) ?? [];
-        lista.push({
-          id: m.id,
-          dataHora: m.data_hora,
-          tipo: m.tipo,
-          metodo: m.metodo,
-        });
+        lista.push(m);
         grupoPorDia.set(dia, lista);
       }
       const marcacoesPorDia = Array.from(grupoPorDia.entries())
@@ -180,9 +184,9 @@ export async function GET(
       }));
 
       // Resumo derivado pra exibir cards no topo da tela do app
-      const totalMarcacoes = margResult.rows.length;
+      const totalMarcacoes = margNorm.length;
       const solicitacoesPendentes = solicitacoes.filter((s) => s.status === 'pendente').length;
-      const ultimaMarcacao = margResult.rows[0]?.data_hora ?? null;
+      const ultimaMarcacao = margNorm[0]?.dataHora ?? null;
 
       return successResponse({
         colaborador: {

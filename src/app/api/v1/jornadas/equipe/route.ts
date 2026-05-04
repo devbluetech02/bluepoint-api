@@ -99,10 +99,13 @@ export async function GET(request: NextRequest) {
         }>
       >();
 
+      // `data_hora` é TIMESTAMP sem TZ → node-postgres devolve string;
+      // normaliza pra Date pra serializar como ISO com TZ no JSON
+      // (front em Dart usa DateTime.parse + .toLocal()).
       const margResult = await query<{
         id: number;
         colaborador_id: number;
-        data_hora: Date;
+        data_hora: Date | string;
         tipo: string;
         metodo: string | null;
       }>(
@@ -117,9 +120,12 @@ export async function GET(request: NextRequest) {
 
       for (const m of margResult.rows) {
         const lista = marcacoesPorColab.get(m.colaborador_id) ?? [];
+        const dh = m.data_hora instanceof Date
+          ? m.data_hora
+          : new Date(String(m.data_hora).replace(' ', 'T') + 'Z');
         lista.push({
           id: m.id,
-          dataHora: m.data_hora,
+          dataHora: dh,
           tipo: m.tipo,
           metodo: m.metodo,
         });
