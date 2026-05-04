@@ -276,19 +276,53 @@ async function avaliarRecrutador(
     ? dAte.toISOString().slice(0, 10)
     : new Date().toISOString().slice(0, 10);
 
-  const systemPrompt = `Você é um avaliador sênior de recrutadores corporativos. Analise as últimas entrevistas conduzidas e gere diagnóstico curto e acionável.
+  // Última avaliação anterior do mesmo recrutador — usada como contexto
+  // pro modelo (continuidade) E pra checar cooldown da notificação ao gestor.
+  const anteriorRes = await query<{
+    score: number;
+    veredito: string;
+    feedback_recrutador: string;
+    pontos_fortes: unknown;
+    pontos_fracos: unknown;
+    criado_em: Date;
+    notificou_gestor_em: Date | null;
+  }>(
+    `SELECT score, veredito, feedback_recrutador, pontos_fortes, pontos_fracos,
+            criado_em, notificou_gestor_em
+       FROM people.recrutador_avaliacao_ia
+      WHERE recrutador_nome = $1
+      ORDER BY criado_em DESC LIMIT 1`,
+    [recrutador]
+  );
+  const anterior = anteriorRes.rows[0] ?? null;
+
+  const blocoAnterior = anterior
+    ? [
+        '',
+        '── Avaliação ANTERIOR (use como contexto pra medir evolução) ──',
+        `data=${new Date(anterior.criado_em).toISOString().slice(0, 10)}`,
+        `score=${anterior.score}/100  veredito=${anterior.veredito}`,
+        `feedback_dado=${anterior.feedback_recrutador}`,
+        `pontos_fortes=${JSON.stringify(Array.isArray(anterior.pontos_fortes) ? anterior.pontos_fortes : [])}`,
+        `pontos_fracos=${JSON.stringify(Array.isArray(anterior.pontos_fracos) ? anterior.pontos_fracos : [])}`,
+        'Compare com as entrevistas atuais. Mencione no feedback se o recrutador melhorou ou piorou nos pontos_fracos anteriores.',
+      ].join('\n')
+    : '';
+
+  const systemPrompt = `Você é um avaliador sênior de recrutadores corporativos. Analise as últimas entrevistas conduzidas e gere diagnóstico curto e acionável. Quando houver "Avaliação ANTERIOR" no contexto, faça uma comparação explícita — o recrutador já recebeu aquele feedback antes.
 
 Critérios:
 - Profundidade das perguntas (foi além do roteiro? sondou inconsistências?)
 - Cobertura (cobertura_percent e nao_evidenciados são bons indicadores)
 - Qualidade da condução (SWOT entrevistador)
 - Consistência entre entrevistas
+- Evolução em relação ao feedback anterior (se houver)
 
 Responda APENAS com JSON válido:
 {
   "score": <int 0-100>,
   "veredito": "bom" | "regular" | "ruim",
-  "feedback_recrutador": "<2-4 frases. bom: elogie pontos concretos e diga que o gestor será informado. regular: aponte 1-2 ajustes. ruim: aponte inconsistências e avise que se não melhorar o gestor será contatado.>",
+  "feedback_recrutador": "<2-4 frases. bom: elogie pontos concretos e diga que o gestor será informado. regular: aponte 1-2 ajustes. ruim: aponte inconsistências e avise que se não melhorar o gestor será contatado. Se houve avaliação anterior, faça referência explícita à evolução.>",
   "feedback_gestor": "<resumo executivo 2-3 frases. NULL se bom.>",
   "pontos_fortes": ["...", "..."],
   "pontos_fracos": ["...", "..."]
@@ -303,6 +337,7 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
     '',
     'Resumo de cada entrevista:',
     ...resumos,
+    blocoAnterior,
   ].join('\n');
 
   const r = await openRouterChat(
@@ -352,24 +387,14 @@ Thresholds: score >= 80: bom. 60 <= score < 80: regular. score < 60: ruim`;
 
   // Notifica gestor se anterior também foi 'ruim' E ainda não havia
   // notificado (cooldown — evita spam em sequência longa de 'ruim').
+  // Reutiliza `anterior` resolvido lá em cima, evita 2º round-trip.
   let notificarGestor: Date | null = null;
-  if (veredito === 'ruim') {
-    const anteriorRes = await query<{
-      veredito: string;
-      notificou_gestor_em: Date | null;
-    }>(
-      `SELECT veredito, notificou_gestor_em FROM people.recrutador_avaliacao_ia
-        WHERE recrutador_nome = $1
-        ORDER BY criado_em DESC LIMIT 1`,
-      [recrutador]
-    );
-    const anterior = anteriorRes.rows[0];
-    if (
-      anterior?.veredito === 'ruim' &&
-      anterior.notificou_gestor_em == null
-    ) {
-      notificarGestor = new Date();
-    }
+  if (
+    veredito === 'ruim' &&
+    anterior?.veredito === 'ruim' &&
+    anterior.notificou_gestor_em == null
+  ) {
+    notificarGestor = new Date();
   }
 
   const insertRes = await query<{ id: string }>(

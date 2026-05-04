@@ -139,20 +139,54 @@ export async function POST(request: NextRequest) {
         ? dAte.toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10);
 
+      // Última avaliação anterior — usada como contexto pra IA medir
+      // evolução E pra gating do cooldown da notificação ao gestor.
+      const anteriorRes = await query<{
+        score: number;
+        veredito: string;
+        feedback_recrutador: string;
+        pontos_fortes: unknown;
+        pontos_fracos: unknown;
+        criado_em: Date;
+        notificou_gestor_em: Date | null;
+      }>(
+        `SELECT score, veredito, feedback_recrutador, pontos_fortes, pontos_fracos,
+                criado_em, notificou_gestor_em
+           FROM people.recrutador_avaliacao_ia
+          WHERE recrutador_nome = $1
+          ORDER BY criado_em DESC LIMIT 1`,
+        [recrutador]
+      );
+      const anterior = anteriorRes.rows[0] ?? null;
+
+      const blocoAnterior = anterior
+        ? [
+            '',
+            '── Avaliação ANTERIOR (use como contexto pra medir evolução) ──',
+            `data=${new Date(anterior.criado_em).toISOString().slice(0, 10)}`,
+            `score=${anterior.score}/100  veredito=${anterior.veredito}`,
+            `feedback_dado=${anterior.feedback_recrutador}`,
+            `pontos_fortes=${JSON.stringify(Array.isArray(anterior.pontos_fortes) ? anterior.pontos_fortes : [])}`,
+            `pontos_fracos=${JSON.stringify(Array.isArray(anterior.pontos_fracos) ? anterior.pontos_fracos : [])}`,
+            'Compare com as entrevistas atuais. Mencione no feedback se o recrutador melhorou ou piorou nos pontos_fracos anteriores.',
+          ].join('\n')
+        : '';
+
       // ── 3) Prompt pra IA ──
-      const systemPrompt = `Você é um avaliador sênior de recrutadores corporativos. Sua tarefa é, com base em análises agregadas das últimas entrevistas conduzidas por um recrutador, gerar um diagnóstico curto e acionável.
+      const systemPrompt = `Você é um avaliador sênior de recrutadores corporativos. Sua tarefa é, com base em análises agregadas das últimas entrevistas conduzidas por um recrutador, gerar um diagnóstico curto e acionável. Quando houver "Avaliação ANTERIOR" no contexto, faça comparação explícita — o recrutador já recebeu aquele feedback antes.
 
 Critérios de avaliação:
 - Profundidade das perguntas (foi além do roteiro? sondou inconsistências?)
 - Cobertura dos aspectos do CV (cobertura_percent e nao_evidenciados são bons indicadores)
 - Qualidade da condução (SWOT entrevistador)
 - Consistência entre entrevistas
+- Evolução em relação ao feedback anterior (se houver)
 
 Responda APENAS com JSON válido neste formato exato:
 {
   "score": <int 0-100>,
   "veredito": "bom" | "regular" | "ruim",
-  "feedback_recrutador": "<2-4 frases curtas, tom direto, sem floreio. Se 'bom': elogie pontos concretos e diga que o gestor será informado. Se 'regular': aponte 1-2 ajustes específicos. Se 'ruim': diga que detectou inconsistências, liste o que precisa melhorar e avise que se não melhorar o gestor será contatado.>",
+  "feedback_recrutador": "<2-4 frases curtas, tom direto, sem floreio. Se 'bom': elogie pontos concretos e diga que o gestor será informado. Se 'regular': aponte 1-2 ajustes específicos. Se 'ruim': diga que detectou inconsistências, liste o que precisa melhorar e avise que se não melhorar o gestor será contatado. Se houve avaliação anterior, faça referência explícita à evolução.>",
   "feedback_gestor": "<resumo executivo 2-3 frases. NULL se veredito='bom'.>",
   "pontos_fortes": ["...", "..."],
   "pontos_fracos": ["...", "..."]
@@ -170,6 +204,7 @@ Thresholds:
         '',
         'Resumo de cada entrevista:',
         ...resumos,
+        blocoAnterior,
       ].join('\n');
 
       // ── 4) Chamada OpenRouter ──
@@ -222,29 +257,17 @@ Thresholds:
         return errorResponse('IA não devolveu feedback ao recrutador', 502);
       }
 
-      // ── 5) Verifica se a anterior também foi 'ruim' ──
-      // Cooldown: só notifica se a anterior foi 'ruim' E ainda não havia
-      // notificado (evita spam quando o recrutador segue 'ruim' por vários
-      // ciclos seguidos — só dispara push uma vez até a sequência quebrar).
+      // ── 5) Cooldown da notificação ao gestor ──
+      // Reutiliza `anterior` resolvido no contexto histórico. Só notifica
+      // se a anterior foi 'ruim' E ainda não havia notificado — evita spam
+      // em sequência longa de 'ruim'.
       let notificarGestor: Date | null = null;
-      if (veredito === 'ruim') {
-        const anteriorRes = await query<{
-          veredito: string;
-          notificou_gestor_em: Date | null;
-        }>(
-          `SELECT veredito, notificou_gestor_em FROM people.recrutador_avaliacao_ia
-            WHERE recrutador_nome = $1
-            ORDER BY criado_em DESC
-            LIMIT 1`,
-          [recrutador]
-        );
-        const anterior = anteriorRes.rows[0];
-        if (
-          anterior?.veredito === 'ruim' &&
-          anterior.notificou_gestor_em == null
-        ) {
-          notificarGestor = new Date();
-        }
+      if (
+        veredito === 'ruim' &&
+        anterior?.veredito === 'ruim' &&
+        anterior.notificou_gestor_em == null
+      ) {
+        notificarGestor = new Date();
       }
 
       // ── 6) Persistir ──
