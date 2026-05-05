@@ -62,9 +62,13 @@ function toDate(v: Date | string | null | undefined): Date | null {
  * Regras:
  *   - Sem `comparecimento_em` (não compareceu): 0 períodos.
  *   - Tempo decorrido < 50% da carga: 0 períodos (manhã incompleta).
- *   - 50% ≤ decorrido < 100%: 1 período (só manhã).
- *   - decorrido ≥ 100%: 2 períodos (dia inteiro).
+ *   - 50% ≤ decorrido < (carga - 1h): 1 período (só manhã).
+ *   - decorrido ≥ (carga - 1h): 2 períodos (dia inteiro). Tolerância
+ *     de 1h antes do fim — gestor não precisa esperar o último minuto
+ *     pra aprovar e ter direito ao dia completo.
  */
+export const TOLERANCIA_FIM_DIA_MS = 60 * 60 * 1000; // 1h antes do fim
+
 export function calcularPeriodosCumpridos(
   row: AgendamentoRow,
   agora: Date = new Date(),
@@ -76,7 +80,10 @@ export function calcularPeriodosCumpridos(
   if (cargaMs <= 0 || decorridoMs < cargaMs * 0.5) {
     return { periodos: 0, percentual: 0 };
   }
-  if (decorridoMs < cargaMs) {
+  // Tolerância: aprovar/reprovar até 1h antes do fim do expediente já
+  // conta como dia inteiro (2 períodos / 100%).
+  const limite2Periodos = Math.max(cargaMs * 0.5, cargaMs - TOLERANCIA_FIM_DIA_MS);
+  if (decorridoMs < limite2Periodos) {
     return { periodos: 1, percentual: 50 };
   }
   return { periodos: 2, percentual: 100 };
