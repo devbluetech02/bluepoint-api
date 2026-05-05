@@ -89,7 +89,17 @@ export async function GET(request: NextRequest) {
         }
 
         if (estado) {
-          conditions.push(`UPPER(c.endereco_estado) = $${paramIndex}`);
+          // Match em endereco do colaborador OU UF da empresa vinculada.
+          // EXISTS evita exigir JOIN com people.empresas no count (que nao
+          // tem o JOIN da query principal).
+          conditions.push(
+            `(UPPER(c.endereco_estado) = $${paramIndex}
+              OR EXISTS (
+                SELECT 1 FROM people.empresas emp_uf
+                 WHERE emp_uf.id = c.empresa_id
+                   AND UPPER(emp_uf.estado) = $${paramIndex}
+              ))`,
+          );
           params.push(estado.toUpperCase());
           paramIndex++;
         }
