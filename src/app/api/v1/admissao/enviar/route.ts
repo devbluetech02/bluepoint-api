@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 import { enviarPushParaCargoNome } from '@/lib/push-colaborador';
 import { extrairCredenciaisPreAdmissao } from '@/lib/admissao-dados-extractor';
+import { normalizarDadosFormulario } from '@/lib/normalizar-texto';
 
 // Qualidade mínima exigida para biometria em campos face_capture obrigatórios
 const QUALIDADE_MINIMA_BIOMETRIA = 0.4;
@@ -89,7 +90,16 @@ export async function POST(request: NextRequest) {
       return validationErrorResponse(validation.errors);
     }
 
-    const { dados, solicitacaoId, onesignalSubscriptionId } = validation.data;
+    const { dados: dadosBrutos, solicitacaoId, onesignalSubscriptionId } = validation.data;
+
+    // Normaliza os dados conforme o tipo de cada campo do formulário —
+    // política do sistema: tudo MAIÚSCULO, sem acentos, sem espaços
+    // duplicados/extras. Email vai pra lowercase. CPF/telefone/CEP só
+    // dígitos. Photo/file/password preservados. Aplicado AQUI pra que
+    // todos os consumidores subsequentes (extractor, criar-colaborador,
+    // exibição no painel) recebam dados já canônicos.
+    const camposParaNormalizar = mapCamposParaApi(formulario.campos, true);
+    const dados = normalizarDadosFormulario(camposParaNormalizar, dadosBrutos);
 
     // Extrai usuário provisório do JWT, se presente
     let usuarioProvisorioId: number | null = null;

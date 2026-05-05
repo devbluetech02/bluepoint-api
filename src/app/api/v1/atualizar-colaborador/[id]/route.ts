@@ -8,6 +8,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache, cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
+import { normalizarTextoPessoal, normalizarEmail, soDigitos } from '@/lib/normalizar-texto';
 
 interface Params {
   params: Promise<{ id: string }>;
@@ -32,6 +33,75 @@ export async function PUT(request: NextRequest, { params }: Params) {
       }
 
       const data = validation.data;
+
+      // Normalização canônica por campo. Aplicada IN-PLACE no objeto
+      // `data` antes de qualquer SET — política do sistema (mesma regra
+      // aplicada em /admissao/enviar e /criar-colaborador): textos
+      // pessoais em MAIÚSCULO sem acentos/caracteres especiais, email
+      // em lowercase, documentos só dígitos, sem espaços extras.
+      const camposTexto: Array<keyof typeof data> = [
+        'nome', 'rg', 'rgOrgaoEmissor', 'rgUf',
+        'estadoCivil', 'formacao', 'corRaca', 'uniformeTamanho',
+      ];
+      for (const campo of camposTexto) {
+        const v = data[campo];
+        if (typeof v === 'string') {
+          (data as Record<string, unknown>)[campo as string] = normalizarTextoPessoal(v);
+        }
+      }
+      if (typeof data.email === 'string') {
+        data.email = normalizarEmail(data.email) ?? data.email;
+      }
+      if (typeof data.telefone === 'string') {
+        data.telefone = soDigitos(data.telefone) ?? '';
+      }
+      if (typeof data.pis === 'string') {
+        data.pis = soDigitos(data.pis) ?? '';
+      }
+      if (data.endereco) {
+        type End = NonNullable<typeof data.endereco>;
+        const camposEnderecoTexto: Array<keyof End> = [
+          'logradouro', 'complemento', 'bairro', 'cidade', 'estado',
+        ];
+        for (const campo of camposEnderecoTexto) {
+          const v = data.endereco[campo];
+          if (typeof v === 'string') {
+            (data.endereco as Record<string, unknown>)[campo as string] = normalizarTextoPessoal(v);
+          }
+        }
+        if (typeof data.endereco.cep === 'string') {
+          data.endereco.cep = soDigitos(data.endereco.cep) ?? '';
+        }
+        if (typeof data.endereco.numero === 'string') {
+          data.endereco.numero = data.endereco.numero
+            .trim().toUpperCase().replace(/[^A-Z0-9\-]/g, '');
+        }
+      }
+      if (data.dadosBancarios) {
+        type Banc = NonNullable<typeof data.dadosBancarios>;
+        const camposBancTexto: Array<keyof Banc> = ['banco', 'tipoConta', 'pixTipo'];
+        for (const campo of camposBancTexto) {
+          const v = data.dadosBancarios[campo];
+          if (typeof v === 'string') {
+            (data.dadosBancarios as Record<string, unknown>)[campo as string] = normalizarTextoPessoal(v);
+          }
+        }
+        if (typeof data.dadosBancarios.agencia === 'string') {
+          data.dadosBancarios.agencia = soDigitos(data.dadosBancarios.agencia) ?? '';
+        }
+        if (typeof data.dadosBancarios.conta === 'string') {
+          data.dadosBancarios.conta = data.dadosBancarios.conta.trim().toUpperCase();
+        }
+        // pixChave NÃO é normalizado: depende do tipo (email/cpf/uuid).
+      }
+      if (data.contatoEmergencia) {
+        if (typeof data.contatoEmergencia.nome === 'string') {
+          data.contatoEmergencia.nome = normalizarTextoPessoal(data.contatoEmergencia.nome);
+        }
+        if (typeof data.contatoEmergencia.telefone === 'string') {
+          data.contatoEmergencia.telefone = soDigitos(data.contatoEmergencia.telefone) ?? '';
+        }
+      }
 
       // Buscar colaborador atual
       const atualResult = await query(

@@ -9,6 +9,7 @@ import { cleanCPF, isValidCPF } from '@/lib/utils';
 import { invalidateColaboradorCache } from '@/lib/cache';
 import { detectarTipoPorCargo } from '@/lib/cargo-tipo';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
+import { normalizarTextoPessoal, normalizarEmail, soDigitos } from '@/lib/normalizar-texto';
 
 export async function POST(request: NextRequest) {
   return withGestor(request, async (req, user) => {
@@ -29,10 +30,45 @@ export async function POST(request: NextRequest) {
 
       const cpfLimpo = cleanCPF(data.cpf);
 
+      // Normalização canônica — política do sistema: textos pessoais em
+      // MAIÚSCULO sem acentos/caracteres especiais, email em lowercase,
+      // documentos só dígitos. Evita inconsistência entre cadastros vindos
+      // de canais diferentes (form admissão, criação manual, readmissão).
+      const emailNorm = normalizarEmail(data.email) ?? data.email;
+      const nomeNorm = normalizarTextoPessoal(data.nome) ?? data.nome;
+      const rgNorm = normalizarTextoPessoal(data.rg);
+      const rgOrgaoNorm = normalizarTextoPessoal(data.rgOrgaoEmissor);
+      const rgUfNorm = normalizarTextoPessoal(data.rgUf);
+      const telNorm = soDigitos(data.telefone);
+      const pisNorm = soDigitos(data.pis);
+      const observacaoNorm = data.observacao ?? null; // observação é texto livre — preserva
+      const cepNorm = soDigitos(data.endereco?.cep);
+      const logradouroNorm = normalizarTextoPessoal(data.endereco?.logradouro);
+      const numeroNorm = data.endereco?.numero
+        ? data.endereco.numero.trim().toUpperCase().replace(/[^A-Z0-9\-]/g, '')
+        : null;
+      const complementoNorm = normalizarTextoPessoal(data.endereco?.complemento);
+      const bairroNorm = normalizarTextoPessoal(data.endereco?.bairro);
+      const cidadeNorm = normalizarTextoPessoal(data.endereco?.cidade);
+      const estadoNorm = normalizarTextoPessoal(data.endereco?.estado);
+      const estadoCivilNorm = normalizarTextoPessoal(data.estadoCivil);
+      const formacaoNorm = normalizarTextoPessoal(data.formacao);
+      const corRacaNorm = normalizarTextoPessoal(data.corRaca);
+      const bancoNomeNorm = normalizarTextoPessoal(data.dadosBancarios?.banco);
+      const bancoTipoContaNorm = normalizarTextoPessoal(data.dadosBancarios?.tipoConta);
+      const bancoAgenciaNorm = soDigitos(data.dadosBancarios?.agencia);
+      const bancoContaNorm = data.dadosBancarios?.conta?.toString().trim().toUpperCase() ?? null;
+      const pixTipoNorm = normalizarTextoPessoal(data.dadosBancarios?.pixTipo);
+      // pixChave varia por tipo (email/cpf/telefone/uuid) — preserva
+      const pixChaveOrig = data.dadosBancarios?.pixChave ?? null;
+      const contatoEmergNomeNorm = normalizarTextoPessoal(data.contatoEmergencia?.nome);
+      const contatoEmergTelNorm = soDigitos(data.contatoEmergencia?.telefone);
+      const uniformeTamanhoNorm = normalizarTextoPessoal(data.uniformeTamanho);
+
       // Verificar se email ou CPF já existe
       const existeResult = await query(
         `SELECT id FROM people.colaboradores WHERE email = $1 OR cpf = $2`,
-        [data.email, cpfLimpo]
+        [emailNorm, cpfLimpo]
       );
 
       if (existeResult.rows.length > 0) {
@@ -84,17 +120,17 @@ export async function POST(request: NextRequest) {
         )
         RETURNING id, nome, email, tipo`,
         [
-          data.nome,
-          data.email,
+          nomeNorm,
+          emailNorm,
           senhaHash,
           cpfLimpo,
-          data.rg || null,
-          data.rgOrgaoEmissor || null,
-          data.rgUf || null,
-          data.telefone || null,
-          data.pis || null,
+          rgNorm,
+          rgOrgaoNorm,
+          rgUfNorm,
+          telNorm,
+          pisNorm,
           categoria,
-          data.observacao || null,
+          observacaoNorm,
           data.cargoId || null,
           tipoUsuario,
           data.empresaId || null,
@@ -103,25 +139,25 @@ export async function POST(request: NextRequest) {
           data.dataAdmissao,
           data.dataNascimento || null,
           data.dataDesligamento || null,
-          data.endereco?.cep || null,
-          data.endereco?.logradouro || null,
-          data.endereco?.numero || null,
-          data.endereco?.complemento || null,
-          data.endereco?.bairro || null,
-          data.endereco?.cidade || null,
-          data.endereco?.estado || null,
-          data.estadoCivil || null,
-          data.formacao || null,
-          data.corRaca || null,
-          data.dadosBancarios?.banco || null,
-          data.dadosBancarios?.tipoConta || null,
-          data.dadosBancarios?.agencia || null,
-          data.dadosBancarios?.conta || null,
-          data.dadosBancarios?.pixTipo || null,
-          data.dadosBancarios?.pixChave || null,
-          data.contatoEmergencia?.nome || null,
-          data.contatoEmergencia?.telefone || null,
-          data.uniformeTamanho || null,
+          cepNorm,
+          logradouroNorm,
+          numeroNorm,
+          complementoNorm,
+          bairroNorm,
+          cidadeNorm,
+          estadoNorm,
+          estadoCivilNorm,
+          formacaoNorm,
+          corRacaNorm,
+          bancoNomeNorm,
+          bancoTipoContaNorm,
+          bancoAgenciaNorm,
+          bancoContaNorm,
+          pixTipoNorm,
+          pixChaveOrig,
+          contatoEmergNomeNorm,
+          contatoEmergTelNorm,
+          uniformeTamanhoNorm,
           data.alturaMetros ?? null,
           data.pesoKg ?? null,
           data.permitePontoMobile ?? false,

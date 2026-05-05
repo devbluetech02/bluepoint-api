@@ -45,3 +45,86 @@ export function soDigitos(input: string | null | undefined): string | null {
   const t = String(input).replace(/\D/g, '');
   return t || null;
 }
+
+/**
+ * Normaliza um valor de campo conforme o tipo declarado no formulário.
+ * Aplicado no momento em que o candidato envia o formulário de
+ * pré-admissão e em qualquer endpoint que receba campos do colaborador
+ * (criar-colaborador, atualizar-colaborador). Garante que o banco
+ * persiste sempre o formato canônico — sem espaços extras, sem acentos,
+ * em MAIÚSCULAS pra textos pessoais.
+ *
+ * Tipos especiais que NÃO são tocados (retorna o valor original):
+ *   - photo, face_capture, signature, file (URLs/base64)
+ *   - password (segredo)
+ *   - exam_schedule (objeto estruturado)
+ */
+export function normalizarValorPorTipo(
+  tipo: string,
+  valor: unknown,
+): unknown {
+  if (valor == null) return valor;
+  // Não-strings (objetos de exam_schedule, arrays, números, booleans) passam
+  if (typeof valor !== 'string') return valor;
+
+  const t = (tipo ?? '').toLowerCase();
+  switch (t) {
+    case 'photo':
+    case 'face_capture':
+    case 'signature':
+    case 'file':
+    case 'password':
+    case 'senha':
+    case 'exam_schedule':
+      return valor;
+    case 'email':
+      return normalizarEmail(valor) ?? '';
+    case 'cpf':
+    case 'cnpj':
+    case 'telefone':
+    case 'phone':
+    case 'cep':
+      return soDigitos(valor) ?? '';
+    case 'date':
+    case 'datetime':
+    case 'datetime-local':
+      return valor.trim();
+    case 'number':
+    case 'numero': {
+      // "Número" do endereço pode vir "123" ou "123-A". Mantém alfanumérico
+      // + hífen, UPPER. Se for puramente numérico, fica igual.
+      return valor
+        .trim()
+        .toUpperCase()
+        .replace(/[^A-Z0-9\-]/g, '');
+    }
+    default:
+      // text, textarea, select, radio, qualquer outro → texto pessoal
+      return normalizarTextoPessoal(valor) ?? '';
+  }
+}
+
+/**
+ * Normaliza todo o JSONB `dados` do formulário, usando o array `campos`
+ * (vindo de `formularios_admissao.campos`) pra decidir tipo de cada
+ * valor. Campos sem entrada correspondente em `campos` recebem
+ * `normalizarTextoPessoal` por garantia (texto livre).
+ */
+export function normalizarDadosFormulario(
+  campos: Array<{ id?: string | null; label: string; tipo: string }>,
+  dados: Record<string, unknown>,
+): Record<string, unknown> {
+  const tipoPorChave = new Map<string, string>();
+  for (const c of campos) {
+    const tipo = c.tipo ?? 'text';
+    if (c.id) tipoPorChave.set(c.id, tipo);
+    if (c.label) tipoPorChave.set(c.label, tipo);
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(dados)) {
+    const tipo = tipoPorChave.get(chave) ?? 'text';
+    out[chave] = normalizarValorPorTipo(tipo, valor);
+  }
+  return out;
+}
