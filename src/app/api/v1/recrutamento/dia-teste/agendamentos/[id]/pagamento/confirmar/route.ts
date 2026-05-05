@@ -122,29 +122,32 @@ export async function POST(
       // REJEITADO/NAO_REALIZADO/FALHA          = falha (terminal negativo)
       // AGENDADO/EM_PROCESSAMENTO              = enviado (intermediario)
       // Demais                                 = enviado (default, GET sincroniza)
+      const estadoUpper = (r.data.estado ?? '').toUpperCase();
+      const estadoFalha = ['REJEITADO', 'NAO_REALIZADO', 'FALHA', 'FAILED'].includes(estadoUpper);
+      const estadoSucesso = ['REALIZADO', 'LIQUIDADO', 'SUCESSO', 'SUCCESS', 'EFETIVADO'].includes(estadoUpper);
+      const statusInterno = estadoSucesso ? 'sucesso' : estadoFalha ? 'falha' : 'enviado';
+
       await query(
         `UPDATE people.pagamento_pix
-            SET status = CASE
-                  WHEN $1 IN ('REALIZADO','LIQUIDADO','SUCESSO','SUCCESS','EFETIVADO') THEN 'sucesso'
-                  WHEN $1 IN ('REJEITADO','NAO_REALIZADO','FALHA','FAILED') THEN 'falha'
-                  ELSE 'enviado'
-                END,
+            SET status = $1,
                 resposta_confirmar = $2::jsonb,
                 confirmado_por = $3,
                 confirmado_em = NOW(),
                 tentativas = tentativas + 1,
-                ultimo_erro = NULL,
+                ultimo_erro = $4,
                 atualizado_em = NOW()
-          WHERE id = $4::bigint`,
+          WHERE id = $5::bigint`,
         [
-          (r.data.estado ?? '').toUpperCase(),
+          statusInterno,
           JSON.stringify(r.data),
           user.userId,
+          estadoFalha ? (r.data.detalheRejeicao ?? estadoUpper).toString().slice(0, 1000) : null,
           pag.id,
         ],
       );
 
-      // Liga o pagamento ao agendamento (campo legado pagamento_pix_id).
+      // Liga o pagamento ao agendamento mesmo em caso de falha — mantém
+      // rastreabilidade da tentativa e permite UI exibir motivo da rejeição.
       await query(
         `UPDATE people.dia_teste_agendamento
             SET pagamento_pix_id = $1::bigint, atualizado_em = NOW()
@@ -156,21 +159,37 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_pagamento_pix',
-          descricao: `Pagamento PIX confirmado #${pag.id} (agendamento #${id}, R$ ${valor.toFixed(2)} → ${pag.destino_nome ?? 'beneficiário'}, e2e=${pag.end_to_end_id})`,
+          descricao: estadoFalha
+            ? `Pagamento PIX REJEITADO pelo Sicoob #${pag.id} (agendamento #${id}, estado=${estadoUpper}, motivo=${r.data.detalheRejeicao ?? 'n/d'})`
+            : `Pagamento PIX confirmado #${pag.id} (agendamento #${id}, R$ ${valor.toFixed(2)} → ${pag.destino_nome ?? 'beneficiário'}, e2e=${pag.end_to_end_id}, estado=${estadoUpper})`,
           dadosNovos: {
             pagamentoId: pag.id,
             agendamentoId: id,
             valor,
             endToEndId: pag.end_to_end_id,
             estado: r.data.estado,
+            statusInterno,
           },
         }),
       );
+
+      console.log(
+        `[pagamento/confirmar] pagamento=${pag.id} agendamento=${id} estado=${estadoUpper} status_interno=${statusInterno}` +
+        (estadoFalha ? ` motivo=${r.data.detalheRejeicao ?? 'n/d'}` : '')
+      );
+
+      if (estadoFalha) {
+        return errorResponse(
+          `PIX rejeitado pelo Sicoob: ${r.data.detalheRejeicao ?? estadoUpper}`,
+          422,
+        );
+      }
 
       return successResponse({
         pagamentoId: pag.id,
         endToEndId: pag.end_to_end_id,
         status: r.data.estado ?? 'enviado',
+        statusInterno,
         valor,
         confirmadoEm: new Date().toISOString(),
         detalheRejeicao: r.data.detalheRejeicao ?? null,
