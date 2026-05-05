@@ -16,6 +16,7 @@ import {
   tipoChaveSicoob,
   PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
+import { isValidCPF } from '@/lib/utils';
 
 // Body opcional — usado como fallback quando o candidato não tem chave
 // PIX cadastrada no banco de Recrutamento. Mobile recebe 422 com code
@@ -28,14 +29,21 @@ const bodySchema = z.object({
 
 // Heurística: detecta tipo de chave PIX por formato.
 // Sicoob aceita: cpf, cnpj, email, telefone, aleatoria.
+//
+// Cuidado: celular BR tem 11 dígitos (DDD + número), igual ao CPF.
+// Antes classificávamos todo 11 dígitos como CPF → DICT devolvia 404
+// ("chave não encontrada") quando a chave era telefone.
 function detectarTipoChave(chave: string): string {
   const t = chave.trim();
   if (/^\S+@\S+\.\S+$/.test(t)) return 'email';
   const digits = t.replace(/\D/g, '');
-  if (digits.length === 11 && !t.startsWith('+')) return 'cpf';
   if (digits.length === 14) return 'cnpj';
   if (digits.length === 13 && t.startsWith('+55')) return 'telefone';
   if (digits.length === 11 && t.startsWith('+')) return 'telefone';
+  if (digits.length === 11 && !t.startsWith('+')) {
+    if (isValidCPF(digits)) return 'cpf';
+    return 'telefone';
+  }
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t)) {
     return 'aleatoria';
   }
@@ -219,8 +227,16 @@ export async function POST(
 
       // 4. Auto-cadastra beneficiario na allowlist (idempotente — 409 ok).
       // Sem isso, /iniciar retorna erro pra chaves nao-whitelisted.
-      const tipoChaveDet = (tipoChave ?? '').toLowerCase() ||
-          detectarTipoChave(chavePix);
+      let tipoChaveDet =
+        (tipoChave ?? '').toLowerCase() || detectarTipoChave(chavePix);
+      const soDigitosChave = chavePix.replace(/\D/g, '');
+      if (
+        tipoChaveDet === 'cpf' &&
+        soDigitosChave.length === 11 &&
+        !isValidCPF(soDigitosChave)
+      ) {
+        tipoChaveDet = detectarTipoChave(chavePix);
+      }
       // Sempre debita do CNPJ Ethos (61485183000177) — única conta
       // habilitada pra pagar dia de teste, independente da empresa
       // vinculada ao candidato.
@@ -233,6 +249,12 @@ export async function POST(
         cnpj: cnpjPagadorDigitsBenef,
         valorMaximoCentavos: 0,
       });
+      console.log(
+        `[pagamento/preview] cadastro beneficiario agendamento=${id} chave=${chavePix} tipo=${tipoChaveDet} nome="${nomeBenef}" cpf=${ag.candidato_cpf_norm ?? 'n/d'} ok=${cad.ok}` +
+        (cad.ok
+          ? ` data=${JSON.stringify(cad.data)}`
+          : ` erro=${cad.erro} status=${cad.status ?? 'n/d'}`)
+      );
       if (!cad.ok) {
         // Beneficiário falhar não bloqueia (pode já existir global ou
         // a API ter outra regra). Se o iniciar mais abaixo falhar,
@@ -256,7 +278,7 @@ export async function POST(
           id,
           valor,
           chavePix,
-          tipoChave,
+          tipoChaveDet,
           (ag.empresa_cnpj ?? '').replace(/\D/g, '') || null,
           idempotencyKey,
           user.userId,
@@ -273,6 +295,12 @@ export async function POST(
         cnpj: cnpjPagadorDigits,
         idempotencyKey,
       });
+      console.log(
+        `[pagamento/preview] iniciar agendamento=${id} pagamento=${pagamentoId} chave=${chavePix} tipo=${tipoChaveDet} ok=${r.ok}` +
+        (r.ok
+          ? ` e2e=${r.data.endToEndId} destino=${JSON.stringify(r.data.proprietario)}`
+          : ` erro=${r.erro} status=${r.status ?? 'n/d'}`)
+      );
 
       if (!r.ok) {
         await query(
