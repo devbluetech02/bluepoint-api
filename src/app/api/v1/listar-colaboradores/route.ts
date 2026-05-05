@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
       const busca = searchParams.get('busca');
       const departamentoId = searchParams.get('filtro[departamentoId]');
       const status = searchParams.get('filtro[status]');
+      const estado = searchParams.get('filtro[estado]'); // UF (SP, GO, etc.)
       const mesReferencia = searchParams.get('filtro[mesReferencia]'); // "YYYY-MM" opcional
 
       // Resolver escopo do solicitante:
@@ -58,6 +59,7 @@ export async function GET(request: NextRequest) {
       // Cache por usuário quando há filtro de escopo (evita poluição cross-user).
       const cacheKey = buildListCacheKey(CACHE_KEYS.COLABORADORES, {
         pagina, limite, orderBy, orderDir, busca, departamentoId, status,
+        estado: estado ?? '',
         mesReferencia: mesReferencia ?? '',
         escopo: escopoGlobal ? 'global' : `u${user.userId}`,
       });
@@ -83,6 +85,12 @@ export async function GET(request: NextRequest) {
         if (status) {
           conditions.push(`c.status = $${paramIndex}`);
           params.push(status);
+          paramIndex++;
+        }
+
+        if (estado) {
+          conditions.push(`UPPER(c.endereco_estado) = $${paramIndex}`);
+          params.push(estado.toUpperCase());
           paramIndex++;
         }
 
