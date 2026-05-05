@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { query } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
@@ -101,6 +102,13 @@ export async function POST(
         `[pagamento/confirmar] repeticao=${repeticao} chave=${pag.chave_pix} valor=${pag.valor} pagamento=${pag.id}`
       );
 
+      // Idempotency-Key DIFERENTE da usada no /iniciar (conforme exemplo do
+      // dev BlueTech). Reuso da mesma key entre iniciar e confirmar resultava
+      // em REJEITADO/NAO_REALIZADO mesmo com /iniciar+confirmar 200.
+      // Guard contra retry humano: status='iniciado' check no inicio da rota
+      // evita débito duplicado se gestor clicar 2x.
+      const confirmIdempotencyKey = randomUUID();
+
       const r = await confirmarPagamentoPix({
         endToEndId: pag.end_to_end_id,
         valor: valorBR,
@@ -110,7 +118,7 @@ export async function POST(
         meioIniciacao: 'CHAVE',
         // Sempre debita Ethos — fluxo de dia de teste paga só dessa conta.
         cnpj: PIX_CNPJ_DEFAULT,
-        idempotencyKey: pag.idempotency_key,
+        idempotencyKey: confirmIdempotencyKey,
         repeticao,
       });
 
