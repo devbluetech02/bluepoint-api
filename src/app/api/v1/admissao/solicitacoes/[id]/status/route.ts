@@ -156,9 +156,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const sol = solResult.rows[0];
 
       // ── Pré-check defensivo para admitido ─────────────────────────────────
-      // Se já existe colaborador ATIVO com o mesmo CPF, recusamos a transição:
-      // quem deveria bloquear isso é POST /usuarios-provisorios, mas protegemos
-      // contra contratos corrompidos (ex.: solicitações antigas pré-regra nova).
+      // Recusa a transição se já existir colaborador ativo com o mesmo CPF
+      // — EXCETO quando o caller informou `colaboradorId` apontando pra esse
+      // mesmo colaborador (caso normal do fluxo: o front criou via
+      // /criar-colaborador e agora vincula via PATCH status). Sem essa
+      // exceção, a admissão fica presa em 'contrato_assinado' e o front
+      // continua mostrando "Admitir" pra clicar de novo, batendo em
+      // "CPF já cadastrado" no POST.
       if (body.status === 'admitido' && sol.usuario_provisorio_id) {
         const conflict = await query<{ id: number; status: string }>(
           `SELECT c.id, c.status
@@ -170,10 +174,19 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           [sol.usuario_provisorio_id]
         );
         if (conflict.rows.length > 0) {
-          return NextResponse.json(
-            { success: false, error: 'Já existe um colaborador ativo com este CPF', code: 'colaborador_ativo' },
-            { status: 409 }
-          );
+          const colaboradorIdInformado =
+            typeof body.colaboradorId === 'string'
+              ? parseInt(body.colaboradorId, 10)
+              : (typeof body.colaboradorId === 'number' ? body.colaboradorId : null);
+          const ehOMesmo =
+            colaboradorIdInformado !== null &&
+            colaboradorIdInformado === conflict.rows[0].id;
+          if (!ehOMesmo) {
+            return NextResponse.json(
+              { success: false, error: 'Já existe um colaborador ativo com este CPF', code: 'colaborador_ativo' },
+              { status: 409 }
+            );
+          }
         }
       }
 
