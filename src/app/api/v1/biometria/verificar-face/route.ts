@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { 
-  extractFaceEncoding, 
-  bufferToEncoding, 
+import {
+  extractFaceEncoding,
+  bufferToEncoding,
   encodingToBuffer,
-  findBestMatchGeneric, 
+  findTopMatchesByPerson,
   calcularThresholdDinamico,
   verificarDiversidade,
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
+import { verificarFacesComLLM } from '@/lib/face-llm-verify';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
 import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 import { cacheGet, cacheSet, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
@@ -519,13 +520,37 @@ export async function POST(request: NextRequest) {
     
     console.log(`[Verificar Face] Total encodings para comparação: ${encodingsFloat.length} (de ${encodings.length} registros, ${totalAprendidosUsados} aprendidos)`);
 
-    // Encontrar melhor match usando threshold dinâmico
+    // Encontrar melhor match agrupando por pessoa — assim conseguimos
+    // ver não só o melhor match mas também o SEGUNDO mais próximo (de
+    // outra pessoa) e detectar matches ambíguos (gap pequeno = duas
+    // pessoas com distâncias parecidas → rejeita por segurança).
+    const personKey = (item: typeof encodingsFloat[number]) =>
+      item.colaboradorId !== null
+        ? `c:${item.colaboradorId}`
+        : `e:${JSON.stringify(item.externalIds)}`;
     const matchStart = Date.now();
-    const matchResult = await findBestMatchGeneric(encoding, encodingsFloat, thresholdEfetivo);
-    
+    const topMatches = await findTopMatchesByPerson(
+      encoding,
+      encodingsFloat,
+      personKey,
+      3,
+    );
     console.log(`[Verificar Face] Comparação: ${Date.now() - matchStart}ms`);
 
-    if (!matchResult) {
+    const best = topMatches[0] ?? null;
+    const second = topMatches[1] ?? null;
+
+    if (best) {
+      console.log(
+        `[Verificar Face] Top1: ${best.key} dist=${best.distance.toFixed(4)}` +
+          (second
+            ? ` | Top2: ${second.key} dist=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)})`
+            : ''),
+      );
+    }
+
+    // (1) Sem candidato dentro do threshold = NOT_IDENTIFIED clássico.
+    if (!best || best.distance >= thresholdEfetivo) {
       return jsonResponse({
         success: true,
         data: {
@@ -542,7 +567,8 @@ export async function POST(request: NextRequest) {
           code: 'NOT_IDENTIFIED',
           qualidadeCaptura: qualidade,
           thresholdUtilizado: thresholdEfetivo,
-          dica: qualidade < 0.5 
+          menorDistancia: best ? Math.round(best.distance * 1e4) / 1e4 : null,
+          dica: qualidade < 0.5
             ? 'A qualidade da imagem está muito baixa. Melhore a iluminação e centralize o rosto.'
             : 'Certifique-se de que o rosto está bem visível e centralizado.',
           processedIn: Date.now() - startTime,
@@ -550,9 +576,134 @@ export async function POST(request: NextRequest) {
       }, 200, rateLimitHeaders);
     }
 
-    const matchedRecord = matchResult.match;
+    // (2) Ambíguo: duas pessoas com distâncias muito próximas. Mesmo
+    // dentro do threshold, isso é o caso clássico de falso positivo
+    // (rosto cruzando com colaborador parecido). Rejeita e pede outra
+    // tentativa — o cliente segue escaneando.
+    const AMBIGUITY_GAP = 0.05;
+    if (second && second.distance - best.distance < AMBIGUITY_GAP) {
+      console.warn(
+        `[Verificar Face] AMBIGUOUS_MATCH: ${best.key}=${best.distance.toFixed(4)} vs ` +
+          `${second.key}=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)} < ${AMBIGUITY_GAP}) — rejeitado`,
+      );
+      return jsonResponse({
+        success: true,
+        data: {
+          identificado: false,
+          tipo: null,
+          colaboradorId: null,
+          externalId: null,
+          colaborador: null,
+          confianca: 0,
+          token: null,
+          refreshToken: null,
+          pontoRegistrado: null,
+          mensagem:
+            'Não foi possível confirmar sua identidade com segurança (mais de uma pessoa parecida). Tente novamente.',
+          code: 'AMBIGUOUS_MATCH',
+          qualidadeCaptura: qualidade,
+          thresholdUtilizado: thresholdEfetivo,
+          processedIn: Date.now() - startTime,
+        },
+      }, 200, rateLimitHeaders);
+    }
+
+    const matchedRecord = best.match;
     // Calcular confiança baseada no threshold utilizado
-    const confianca = Math.round((1 - matchResult.distance / thresholdEfetivo) * 100) / 100;
+    const confianca = Math.round((1 - best.distance / thresholdEfetivo) * 100) / 100;
+
+    // (3) Borderline: distância acima de LLM_VERIFY_THRESHOLD entra na
+    // segunda camada — modelo de visão confirma se as fotos são da
+    // mesma pessoa. Matches "fáceis" (dist < 0.30) pulam a chamada
+    // pra economizar latência. Se a LLM rejeitar, reportamos como
+    // NOT_IDENTIFIED com motivo `LLM_REJECTED`.
+    const LLM_VERIFY_THRESHOLD = 0.30;
+    if (best.distance > LLM_VERIFY_THRESHOLD) {
+      try {
+        // Buscar foto_referencia_url + nome do candidato para alimentar a LLM
+        let refUrl: string | null = null;
+        let candidatoNome = 'Colaborador';
+        if (matchedRecord.colaboradorId) {
+          const r = await query<{
+            foto_referencia_url: string | null;
+            nome: string;
+          }>(
+            `SELECT bf.foto_referencia_url, c.nome
+             FROM people.biometria_facial bf
+             JOIN people.colaboradores c ON c.id = bf.colaborador_id
+             WHERE bf.colaborador_id = $1
+             LIMIT 1`,
+            [matchedRecord.colaboradorId],
+          );
+          if (r.rows[0]) {
+            refUrl = r.rows[0].foto_referencia_url;
+            candidatoNome = r.rows[0].nome;
+          }
+        } else if (Object.keys(matchedRecord.externalIds || {}).length > 0) {
+          const primeiroPrefixo = Object.keys(matchedRecord.externalIds)[0];
+          const r = await query<{ foto_referencia_url: string | null }>(
+            `SELECT foto_referencia_url FROM people.biometria_facial
+             WHERE external_id ? $1 LIMIT 1`,
+            [primeiroPrefixo],
+          );
+          if (r.rows[0]) refUrl = r.rows[0].foto_referencia_url;
+        }
+
+        const llm = await verificarFacesComLLM({
+          capturedDataUri: imagem,
+          referenceUrl: refUrl,
+          candidatoNome,
+        });
+
+        if (llm && !llm.confirmed) {
+          console.warn(
+            `[Verificar Face] LLM_REJECTED: ${candidatoNome} — dist=${best.distance.toFixed(4)} ` +
+              `conf=${llm.confidence} reason="${llm.reason}"`,
+          );
+          await registrarAuditoria({
+            usuarioId: null,
+            acao: 'criar',
+            modulo: 'registro_ponto',
+            descricao: `Verificação por face: LLM rejeitou match para ${candidatoNome} (dist=${best.distance.toFixed(4)}, conf LLM=${llm.confidence}). Razão: ${llm.reason}`,
+            ip: getClientIp(request),
+            userAgent: getUserAgent(request),
+            colaboradorId: matchedRecord.colaboradorId ?? undefined,
+            colaboradorNome: candidatoNome,
+            entidadeTipo: 'biometria',
+            metadados: {
+              distance: best.distance,
+              llmModel: llm.model,
+              llmConfidence: llm.confidence,
+              llmReason: llm.reason,
+              reject: 'LLM',
+            },
+          });
+          return jsonResponse({
+            success: true,
+            data: {
+              identificado: false,
+              tipo: null,
+              colaboradorId: null,
+              externalId: null,
+              colaborador: null,
+              confianca: 0,
+              token: null,
+              refreshToken: null,
+              pontoRegistrado: null,
+              mensagem:
+                'Não foi possível confirmar sua identidade. Tente novamente com melhor iluminação.',
+              code: 'LLM_REJECTED',
+              qualidadeCaptura: qualidade,
+              thresholdUtilizado: thresholdEfetivo,
+              processedIn: Date.now() - startTime,
+            },
+          }, 200, rateLimitHeaders);
+        }
+        // LLM confirmou OU LLM offline/sem ref — segue com match do ArcFace.
+      } catch (llmErr) {
+        console.error('[Verificar Face] Erro ao consultar LLM (não bloqueante):', llmErr);
+      }
+    }
 
     // ===============================================================
     // AUTO-APRENDIZADO: Salvar encoding do reconhecimento bem-sucedido
@@ -575,7 +726,7 @@ export async function POST(request: NextRequest) {
 
         // Verificar condições para auto-aprendizado
         const condicoes = verificarCondicoesAutoAprendizado(
-          matchResult.distance,
+          best.distance,
           qualidade,
           registroOriginal.totalAprendidos
         );
@@ -654,7 +805,7 @@ export async function POST(request: NextRequest) {
         // em uso no próximo refresh natural do cache (TTL LONG).
 
         console.log(`[Auto-Aprendizado] ✓ Encoding salvo! Pessoa: colab=${matchedRecord.colaboradorId || 'N/A'}, ` +
-          `distância: ${matchResult.distance.toFixed(4)}, qualidade: ${qualidade.toFixed(2)}, ` +
+          `distância: ${best.distance.toFixed(4)}, qualidade: ${qualidade.toFixed(2)}, ` +
           `diversidade: ${diversidade.menorDistancia.toFixed(4)}, total: ${registroOriginal.totalAprendidos + 1}`);
       } catch (autoLearnError) {
         // Erro no auto-aprendizado não deve afetar a resposta

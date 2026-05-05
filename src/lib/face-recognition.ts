@@ -268,6 +268,47 @@ export async function findBestMatchGeneric<T extends { encoding: Float32Array }>
 }
 
 /**
+ * Procura as N pessoas mais próximas, agrupando encodings por pessoa.
+ *
+ * Quando temos múltiplos encodings por pessoa (principal + extras +
+ * aprendidos), `findBestMatchGeneric` retorna apenas o melhor encoding
+ * — sem nos dizer qual a SEGUNDA pessoa mais próxima. Isso é crítico
+ * para detectar matches ambíguos (duas pessoas com distâncias
+ * praticamente iguais).
+ *
+ * Aqui agrupamos por chave de pessoa (`personKey(item)`) e retornamos
+ * top-N pessoas, cada uma com sua MENOR distância (best encoding).
+ */
+export interface PersonMatch<T> {
+  key: string;
+  match: T;
+  distance: number;
+}
+
+export async function findTopMatchesByPerson<T extends { encoding: Float32Array }>(
+  targetEncoding: Float32Array,
+  encodings: T[],
+  personKey: (item: T) => string,
+  topN: number = 3,
+): Promise<PersonMatch<T>[]> {
+  const bestPerKey = new Map<string, PersonMatch<T>>();
+
+  for (const item of encodings) {
+    const distance = await compareFaces(targetEncoding, item.encoding);
+    const key = personKey(item);
+    const current = bestPerKey.get(key);
+    if (!current || distance < current.distance) {
+      bestPerKey.set(key, { key, match: item, distance });
+    }
+  }
+
+  const sorted = Array.from(bestPerKey.values()).sort(
+    (a, b) => a.distance - b.distance,
+  );
+  return sorted.slice(0, topN);
+}
+
+/**
  * Converte Float32Array para Buffer (para salvar no banco)
  */
 export function encodingToBuffer(encoding: Float32Array): Buffer {
