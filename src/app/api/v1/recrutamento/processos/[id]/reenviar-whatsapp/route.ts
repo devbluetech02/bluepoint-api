@@ -8,7 +8,10 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
+import {
+  enviarMensagemWhatsApp,
+  getRecrutamentoEvolutionConfig,
+} from '@/lib/evolution-api';
 import { enviarDocumentoDiaTeste } from '@/lib/recrutamento-dia-teste';
 
 // POST /api/v1/recrutamento/processos/:id/reenviar-whatsapp
@@ -115,7 +118,13 @@ export async function POST(
           '',
           'Qualquer dúvida, estamos à disposição!',
         ].join('\n');
-        const result = await enviarMensagemWhatsApp(numero, msg);
+        // Reenvio do dia de teste usa a mesma instância de recrutamento
+        // (RH_ROBSON) — bate com o envio inicial em /processos.
+        const result = await enviarMensagemWhatsApp(
+          numero,
+          msg,
+          getRecrutamentoEvolutionConfig(),
+        );
         whatsappOk = result.ok;
         whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
       } else if (proc.caminho === 'pre_admissao') {

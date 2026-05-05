@@ -1,23 +1,58 @@
 /**
  * Evolution API — envio de mensagens WhatsApp
- * Variáveis de ambiente necessárias:
- *   EVOLUTION_API_URL       ex: https://evolution.example.com
+ *
+ * Variáveis de ambiente padrão (instância principal):
+ *   EVOLUTION_API_URL       ex: https://wa-api.bluetechfilms.com.br
  *   EVOLUTION_API_KEY       chave de autenticação
- *   EVOLUTION_INSTANCE      nome da instância
+ *   EVOLUTION_INSTANCE      nome da instância (ex.: PEOPLE)
+ *
+ * Instância de recrutamento (Dia de Teste — separada do canal People
+ * pra não misturar tráfego comercial/RH):
+ *   EVOLUTION_INSTANCE_RECRUTAMENTO   ex.: RH_ROBSON
+ *   EVOLUTION_API_KEY_RECRUTAMENTO    apikey específica daquela instância
+ *   EVOLUTION_API_URL_RECRUTAMENTO    opcional — fallback p/ EVOLUTION_API_URL
+ *
+ * Pré-admissão e demais fluxos seguem usando a instância padrão.
  */
+
+export interface EvolutionConfig {
+  url?: string;
+  apiKey?: string;
+  instance?: string;
+}
 
 export interface EvolutionResult {
   ok: boolean;
   erro?: string;
 }
 
+function resolveConfig(override?: EvolutionConfig) {
+  return {
+    url: override?.url ?? process.env.EVOLUTION_API_URL,
+    apiKey: override?.apiKey ?? process.env.EVOLUTION_API_KEY,
+    instance: override?.instance ?? process.env.EVOLUTION_INSTANCE,
+  };
+}
+
+/**
+ * Config da instância dedicada ao recrutamento (mensagens de Dia de Teste).
+ * Sempre cai pra instância padrão se as envs específicas não estiverem
+ * configuradas — comportamento defensivo pra não bloquear envio.
+ */
+export function getRecrutamentoEvolutionConfig(): EvolutionConfig {
+  return {
+    url: process.env.EVOLUTION_API_URL_RECRUTAMENTO ?? process.env.EVOLUTION_API_URL,
+    apiKey: process.env.EVOLUTION_API_KEY_RECRUTAMENTO ?? process.env.EVOLUTION_API_KEY,
+    instance: process.env.EVOLUTION_INSTANCE_RECRUTAMENTO ?? process.env.EVOLUTION_INSTANCE,
+  };
+}
+
 export async function enviarMensagemWhatsApp(
   numero: string,
   texto: string,
+  config?: EvolutionConfig,
 ): Promise<EvolutionResult> {
-  const url      = process.env.EVOLUTION_API_URL;
-  const apiKey   = process.env.EVOLUTION_API_KEY;
-  const instance = process.env.EVOLUTION_INSTANCE;
+  const { url, apiKey, instance } = resolveConfig(config);
 
   if (!url || !apiKey || !instance) {
     console.warn('[Evolution API] Variáveis EVOLUTION_API_URL / EVOLUTION_API_KEY / EVOLUTION_INSTANCE não configuradas');
@@ -43,11 +78,11 @@ export async function enviarMensagemWhatsApp(
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      console.error(`[Evolution API] Erro ${response.status}: ${body}`);
+      console.error(`[Evolution API] Erro ${response.status} (instance=${instance}): ${body}`);
       return { ok: false, erro: `http_${response.status}` };
     }
 
-    console.log(`[Evolution API] Mensagem enviada para ${numero}`);
+    console.log(`[Evolution API] Mensagem enviada para ${numero} via ${instance}`);
     return { ok: true };
   } catch (error) {
     console.error('[Evolution API] Falha ao enviar mensagem:', error);
@@ -72,10 +107,9 @@ export async function enviarMidiaWhatsApp(
     fileName?: string;
     mimetype?: string;
   } = {},
+  config?: EvolutionConfig,
 ): Promise<EvolutionResult> {
-  const url      = process.env.EVOLUTION_API_URL;
-  const apiKey   = process.env.EVOLUTION_API_KEY;
-  const instance = process.env.EVOLUTION_INSTANCE;
+  const { url, apiKey, instance } = resolveConfig(config);
 
   if (!url || !apiKey || !instance) {
     console.warn('[Evolution API] Variáveis não configuradas para envio de mídia');
@@ -113,11 +147,11 @@ export async function enviarMidiaWhatsApp(
 
     if (!response.ok) {
       const respBody = await response.text().catch(() => '');
-      console.error(`[Evolution API] Erro ao enviar mídia ${response.status}: ${respBody}`);
+      console.error(`[Evolution API] Erro ao enviar mídia ${response.status} (instance=${instance}): ${respBody}`);
       return { ok: false, erro: `http_${response.status}` };
     }
 
-    console.log(`[Evolution API] Mídia (${mediatype}) enviada para ${numero}`);
+    console.log(`[Evolution API] Mídia (${mediatype}) enviada para ${numero} via ${instance}`);
     return { ok: true };
   } catch (error) {
     console.error('[Evolution API] Falha ao enviar mídia:', error);

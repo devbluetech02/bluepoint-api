@@ -10,7 +10,11 @@ import {
 } from '@/lib/api-response';
 import { criarOuReaproveitarProvisorio } from '@/lib/usuarios-provisorios';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { enviarMensagemWhatsApp, enviarMidiaWhatsApp } from '@/lib/evolution-api';
+import {
+  enviarMensagemWhatsApp,
+  enviarMidiaWhatsApp,
+  getRecrutamentoEvolutionConfig,
+} from '@/lib/evolution-api';
 import {
   escolherTemplate,
   fetchDadosCargo,
@@ -293,7 +297,14 @@ async function abrirCaminhoA(args: {
     ].join('\n');
     // Sempre anexa o link de assinatura ao final da mensagem.
     const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
-    const result = await enviarMensagemWhatsApp(numeroWhats, mensagem);
+    // Dia de teste sai pela instância dedicada de recrutamento (RH_ROBSON
+    // em prod) — separa do canal People que cuida de pré-admissão e demais
+    // fluxos. Fallback p/ instância padrão se as envs não estiverem setadas.
+    const result = await enviarMensagemWhatsApp(
+      numeroWhats,
+      mensagem,
+      getRecrutamentoEvolutionConfig(),
+    );
     whatsappOk = result.ok;
     whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
   } else if (!numeroWhats || numeroWhats.length < 10) {
