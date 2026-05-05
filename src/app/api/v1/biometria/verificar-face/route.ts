@@ -265,6 +265,78 @@ async function registrarPontoBiometriaDispositivoNaoAutorizado(
   }
 }
 
+/**
+ * Salva a frame que falhou no detector de face (FACE_NOT_DETECTED ou
+ * LOW_QUALITY) no MinIO + registra entrada de auditoria com metadados.
+ * Usado pra investigar relatos do tipo "estava na frente do tablet
+ * mas o sistema não reconheceu" — gestor consulta a auditoria e
+ * confere visualmente o que o tablet realmente capturou.
+ *
+ * Best-effort: erros aqui só logam, não bloqueiam a resposta.
+ */
+async function auditarFrameSemFace(args: {
+  imagem: string;
+  codigo: 'FACE_NOT_DETECTED' | 'LOW_QUALITY';
+  motivo: string;
+  clientIp?: string | null;
+  userAgent?: string | null;
+  dispositivoCodigo?: string;
+  latitude?: number;
+  longitude?: number;
+  origem?: string;
+  qualidade?: number;
+  qualidadeDetalhada?: {
+    scoreDeteccao: number;
+    tamanhoFace: number;
+    centralizacao: number;
+  };
+}): Promise<void> {
+  try {
+    const base64 = args.imagem.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length === 0) return;
+
+    const isPng = args.imagem.startsWith('data:image/png');
+    const ext = isPng ? 'png' : 'jpg';
+    const ct = isPng ? 'image/png' : 'image/jpeg';
+    const dataDir = new Date().toISOString().split('T')[0];
+    const ts = Date.now();
+    const deviceTag = (args.dispositivoCodigo || 'sem-codigo').replace(
+      /[^a-zA-Z0-9_-]/g,
+      '_',
+    );
+    const path = `auditoria-face/${dataDir}/${deviceTag}/${ts}_${args.codigo.toLowerCase()}.${ext}`;
+
+    const url = await uploadArquivo(path, buffer, ct);
+
+    await registrarAuditoria({
+      usuarioId: null,
+      acao: 'criar',
+      modulo: 'biometria',
+      descricao: `Face não detectada (${args.codigo}): ${args.motivo}. Frame salvo em ${path}`,
+      ip: args.clientIp ?? undefined,
+      userAgent: args.userAgent ?? undefined,
+      entidadeTipo: 'biometria',
+      metadados: {
+        code: args.codigo,
+        motivo: args.motivo,
+        dispositivoCodigo: args.dispositivoCodigo ?? null,
+        origem: args.origem ?? null,
+        latitude: args.latitude ?? null,
+        longitude: args.longitude ?? null,
+        qualidade: args.qualidade ?? null,
+        qualidadeDetalhada: args.qualidadeDetalhada ?? null,
+        framePath: path,
+        frameUrl: url,
+      },
+    });
+
+    console.log(`[Auditoria ${args.codigo}] frame salvo em ${path}`);
+  } catch (e) {
+    console.error('[Auditoria face frame] erro ao salvar/registrar:', e);
+  }
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const clientIp = getClientIp(request);
@@ -361,6 +433,21 @@ export async function POST(request: NextRequest) {
     console.log(`[Verificar Face] Extração: ${Date.now() - extractStart}ms`);
 
     if (!encoding || error) {
+      // Sobe a frame que falhou pra MinIO + registra auditoria. Permite
+      // gestor revisar o que o tablet realmente capturou (cobertura
+      // de "colaborador disse que estava na frente mas o sistema não
+      // achou rosto"). Best-effort — não bloqueia a resposta.
+      auditarFrameSemFace({
+        imagem,
+        codigo: 'FACE_NOT_DETECTED',
+        motivo: error || 'Nenhuma face detectada na imagem',
+        clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        origem,
+      }).catch((e) => console.error('[Auditoria FACE_NOT_DETECTED] erro:', e));
       return jsonResponse({
         success: false,
         error: error || 'Não foi possível detectar a face na imagem',
@@ -371,6 +458,19 @@ export async function POST(request: NextRequest) {
 
     // Threshold mínimo de qualidade - apenas rejeita se o detector não encontrou face alguma
     if (qualidade < 0.05) {
+      auditarFrameSemFace({
+        imagem,
+        codigo: 'LOW_QUALITY',
+        motivo: `qualidade=${qualidade}`,
+        clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        origem,
+        qualidade,
+        qualidadeDetalhada,
+      }).catch((e) => console.error('[Auditoria LOW_QUALITY] erro:', e));
       return jsonResponse({
         success: false,
         error: 'Nenhuma face detectada na imagem',
