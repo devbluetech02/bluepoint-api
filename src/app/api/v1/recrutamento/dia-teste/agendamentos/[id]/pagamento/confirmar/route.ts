@@ -177,6 +177,11 @@ export async function POST(
         `[pagamento/confirmar] pagamento=${pag.id} agendamento=${id} estado=${estadoUpper} status_interno=${statusInterno} e2e=${pag.end_to_end_id}` +
         (estadoFalha ? ` motivo=${r.data.detalheRejeicao ?? 'n/d'}` : '')
       );
+      if (estadoFalha) {
+        console.warn(
+          `[pagamento/confirmar] FALHA — response Sicoob completo (pagamento=${pag.id}): ${JSON.stringify(r.data)}`
+        );
+      }
 
       if (estadoFalha) {
         return errorResponse(

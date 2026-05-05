@@ -89,6 +89,11 @@ export async function POST(
         `[pagamento/sincronizar] pagamento=${pag.id} agendamento=${id} e2e=${pag.end_to_end_id} estado=${estado} status_anterior=${pag.status} status_novo=${novoStatus} changed=${changed}` +
         (r.data.detalheRejeicao ? ` motivo=${r.data.detalheRejeicao}` : '')
       );
+      if (novoStatus === 'falha') {
+        console.warn(
+          `[pagamento/sincronizar] FALHA — response Sicoob completo (pagamento=${pag.id}): ${JSON.stringify(r.data)}`
+        );
+      }
       return successResponse({
         pagamentoId: pag.id,
         status: novoStatus,
