@@ -287,6 +287,30 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
     }
   }
 
+  // ── Backfill: varre solicitações que já estão em contrato_assinado ────
+  // (mas nunca foram admitidas — provavelmente assinaram antes do
+  // auto-admit estar ativo, ou o ciclo anterior falhou). Idempotente:
+  // autoAdmitir tem WHERE status='contrato_assinado' no UPDATE, então
+  // disparos duplicados no mesmo ciclo viram no-op.
+  try {
+    const orfas = await query<{ id: string }>(
+      `SELECT id FROM people.solicitacoes_admissao
+        WHERE status = 'contrato_assinado'
+          AND usuario_provisorio_id IS NOT NULL
+        LIMIT 50`
+    );
+    for (const row of orfas.rows) {
+      autoAdmitir(row.id).catch((err) => {
+        console.error(`[SignProof Checker] Backfill auto-admit ${row.id} falhou:`, err);
+      });
+    }
+    if (orfas.rows.length > 0) {
+      console.log(`[SignProof Checker] Backfill: ${orfas.rows.length} solicitação(ões) em contrato_assinado disparadas pra auto-admit`);
+    }
+  } catch (err) {
+    console.error('[SignProof Checker] Backfill scan falhou:', err);
+  }
+
   console.log(
     `[SignProof Checker] Ciclo concluído: ${resultado.documentos_verificados} verificado(s), ${resultado.documentos_atualizados} solicitação(ões) atualizada(s), ${resultado.erros.length} erro(s).`
   );
