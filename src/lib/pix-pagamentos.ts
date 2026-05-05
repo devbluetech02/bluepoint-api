@@ -213,6 +213,78 @@ export async function cadastrarBeneficiarioPix(
   }
 }
 
+/**
+ * Lista beneficiários cadastrados na allowlist da API filtrando por chave PIX.
+ * Retorna array bruto; caller decide o que fazer (pegar id, contar, etc).
+ */
+export async function listarBeneficiariosPorChave(
+  chavePix: string,
+  tipoChave: string,
+): Promise<PixApiResult<Array<Record<string, unknown>>>> {
+  const env = envOk();
+  if (!env) return { ok: false, erro: 'pix_api_nao_configurada' };
+  try {
+    const tipoNorm = tipoChaveSicoob(tipoChave);
+    const chaveNorm = normalizarChavePix(chavePix, tipoNorm);
+    const url = new URL(`${env.url}/pix-pagamentos/v2/beneficiarios`);
+    url.searchParams.set('chavePix', chaveNorm);
+    const resp = await fetch(url.toString(), {
+      method: 'GET',
+      headers: {
+        Authorization: env.key,
+        ...(env.clientId ? { client_id: env.clientId } : {}),
+      },
+    });
+    const text = await resp.text();
+    let parsed: unknown = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* noop */ }
+    if (!resp.ok) {
+      return { ok: false, status: resp.status, erro: `http_${resp.status}: ${text.slice(0, 400)}`, raw: parsed };
+    }
+    const arr = Array.isArray(parsed)
+      ? (parsed as Array<Record<string, unknown>>)
+      : (parsed && typeof parsed === 'object' && Array.isArray((parsed as { items?: unknown[] }).items)
+          ? ((parsed as { items: Array<Record<string, unknown>> }).items)
+          : []);
+    return { ok: true, data: arr };
+  } catch (e) {
+    return { ok: false, erro: `excecao: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Remove beneficiário pelo identificador retornado pela API
+ * (id numérico, uuid, ou a própria chave normalizada — depende do que a
+ * API aceita). Tenta DELETE /pix-pagamentos/v2/beneficiarios/{id}.
+ */
+export async function excluirBeneficiarioPix(
+  identificador: string | number,
+): Promise<PixApiResult<Record<string, unknown> | null>> {
+  const env = envOk();
+  if (!env) return { ok: false, erro: 'pix_api_nao_configurada' };
+  try {
+    const resp = await fetch(
+      `${env.url}/pix-pagamentos/v2/beneficiarios/${encodeURIComponent(String(identificador))}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: env.key,
+          ...(env.clientId ? { client_id: env.clientId } : {}),
+        },
+      },
+    );
+    const text = await resp.text();
+    let parsed: unknown = null;
+    try { parsed = text ? JSON.parse(text) : null; } catch { /* noop */ }
+    if (!resp.ok) {
+      return { ok: false, status: resp.status, erro: `http_${resp.status}: ${text.slice(0, 400)}`, raw: parsed };
+    }
+    return { ok: true, data: (parsed as Record<string, unknown> | null) };
+  } catch (e) {
+    return { ok: false, erro: `excecao: ${(e as Error).message}` };
+  }
+}
+
 export async function iniciarPagamentoPix(
   args: IniciarPagamentoArgs & { tipoChave?: string },
 ): Promise<PixApiResult<PagamentoIniciado>> {
