@@ -701,7 +701,7 @@ async function notificarAssinaturaContrato(
  *               biometria. Se `colaboradorIdExplicito` for passado, usa ele
  *               em vez de criar (compat com fluxo antigo /criar-colaborador).
  */
-async function processarTransicaoAdmitido(
+export async function processarTransicaoAdmitido(
   solicitacaoId: string,
   usuarioProvisorioId: number,
   fotoPerfilUrl: string | null,
