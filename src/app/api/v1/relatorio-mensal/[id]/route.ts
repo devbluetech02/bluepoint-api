@@ -197,8 +197,9 @@ export async function GET(
       }
 
       const colabResult = await query(
-        `SELECT c.id, c.nome, c.jornada_id
+        `SELECT c.id, c.nome, c.jornada_id, COALESCE(cg.cargo_confianca, FALSE) AS cargo_confianca
          FROM people.colaboradores c
+         LEFT JOIN people.cargos cg ON cg.id = c.cargo_id
          WHERE c.id = $1`,
         [colaboradorId]
       );
@@ -208,6 +209,30 @@ export async function GET(
       }
 
       const colab = colabResult.rows[0];
+
+      // Cargo de confiança = isento de marcação de ponto. Não há folha
+      // pra montar, assinar ou contestar — devolvemos um payload mínimo
+      // com status 'isento' e cargoConfianca=true pra o cliente esconder
+      // a notificação de assinatura sem precisar inferir.
+      if (colab.cargo_confianca === true) {
+        return successResponse({
+          colaboradorId,
+          mes,
+          ano,
+          status: 'isento',
+          cargoConfianca: true,
+          diasTrabalhados: 0,
+          horasTrabalhadas: '00:00',
+          horasExtras: '00:00',
+          bancoHoras: '+00:00',
+          faltas: 0,
+          atrasos: 0,
+          totalAtrasos: '00:00',
+          assinadoEm: null,
+          assinatura: null,
+          dias: [],
+        });
+      }
 
       let jornadaHorarios: JornadaHorario[] = [];
       if (colab.jornada_id) {
