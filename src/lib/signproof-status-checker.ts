@@ -78,7 +78,7 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
   const pendentesResult = await query<DocPendente>(
     `SELECT s.id AS solicitacao_id,
             d.id AS doc_table_id,
-            COALESCE(d.signproof_doc_id, s.documento_assinatura_id) AS signproof_doc_id
+            COALESCE(d.signproof_doc_id, s.documento_assinatura_id::text) AS signproof_doc_id
        FROM people.solicitacoes_admissao s
   LEFT JOIN people.solicitacoes_admissao_documentos d
          ON d.solicitacao_id = s.id AND d.status = 'enviado'
