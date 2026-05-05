@@ -18,8 +18,12 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://face-service:50
 // - Mesma pessoa, mesma câmera: ~0.0-0.15
 // - Mesma pessoa, câmeras diferentes: ~0.15-0.30
 // - Pessoas DIFERENTES: tipicamente >0.45
-// Threshold de 0.4 é seguro e funcional
-const MATCH_THRESHOLD = 0.4;
+// Histórico real (logs prod 2026-05-05): falsos negativos para mesma
+// pessoa cadastrada via portal externo ficaram em 0.405-0.415 —
+// gap < 0.02 do antigo threshold 0.40. Outras pessoas no mesmo dia
+// ficaram 0.65-0.85. 0.45 mantém margem ampla contra falsos positivos
+// e elimina o "Rosto não reconhecido" para quem está cadastrado.
+const MATCH_THRESHOLD = 0.45;
 
 // Timeout para chamadas ao serviço (ms)
 // /extract p99 real ≈ 500ms. 8s cobre picos sem enfileirar requests que
@@ -289,13 +293,15 @@ export function getMatchThreshold(): number {
  * Com ArcFace, o threshold é muito mais estável - variação mínima
  */
 export function calcularThresholdDinamico(qualidade: number): number {
-  // Threshold adaptativo: quanto pior a qualidade, mais flexível o threshold.
-  // Com AdaFace os embeddings de baixa qualidade ainda convergem bem para a mesma pessoa.
-  if (qualidade >= 0.7) return MATCH_THRESHOLD;         // ótima qualidade: 0.40
-  if (qualidade >= 0.5) return MATCH_THRESHOLD + 0.04;  // boa qualidade: 0.44
-  if (qualidade >= 0.3) return MATCH_THRESHOLD + 0.08;  // baixa qualidade: 0.48
-  if (qualidade >= 0.15) return MATCH_THRESHOLD + 0.12; // muito baixa: 0.52
-  return MATCH_THRESHOLD + 0.15;                        // limite extremo: 0.55
+  // Threshold adaptativo: quanto pior a qualidade, mais flexível o
+  // threshold. MATCH_THRESHOLD base = 0.45. Degraus mantêm margem
+  // segura contra falsos positivos (pessoas diferentes ficam 0.55+
+  // tipicamente), evitando inflar o teto além de 0.55.
+  if (qualidade >= 0.7) return MATCH_THRESHOLD;         // ótima: 0.45
+  if (qualidade >= 0.5) return MATCH_THRESHOLD + 0.02;  // boa: 0.47
+  if (qualidade >= 0.3) return MATCH_THRESHOLD + 0.05;  // baixa: 0.50
+  if (qualidade >= 0.15) return MATCH_THRESHOLD + 0.07; // muito baixa: 0.52
+  return MATCH_THRESHOLD + 0.10;                        // limite: 0.55
 }
 
 // ==========================================
