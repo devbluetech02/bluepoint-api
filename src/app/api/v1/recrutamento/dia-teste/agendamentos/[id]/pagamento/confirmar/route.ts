@@ -81,7 +81,7 @@ export async function POST(
       const valorBR = formatarValorBR(valor);
       const descricao =
         parsed.data.descricao?.slice(0, 140) ??
-        `Diária dia de teste — agendamento #${id}`;
+        `Diaria dia de teste - agendamento ${id}`;
 
       // Detecta repetição: já houve pagamento REALIZADO pra mesma chave+valor+cnpj
       // antes? Sicoob exige flag `repeticao: true` na confirmação dessa

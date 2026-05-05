@@ -316,7 +316,8 @@ export async function confirmarPagamentoPix(
   if (args.descricao) body.descricao = args.descricao;
   if (args.cnpj) body.cnpj = args.cnpj;
   if (args.dataAgendamento) body.dataAgendamento = args.dataAgendamento;
-  if (typeof args.repeticao === 'boolean') body.repeticao = args.repeticao;
+  // Só envia repeticao quando true. Body do dev BlueTech omite o campo.
+  if (args.repeticao === true) body.repeticao = true;
   return postJson<PagamentoSnapshot>(
     '/pix-pagamentos/v2/confirmar',
     body,
