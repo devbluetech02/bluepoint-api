@@ -839,6 +839,13 @@ export async function POST(request: NextRequest) {
 
     const podeRegistrarPontoBiometria = deveRegistrarPonto && (dispositivo || dispositivoCodigoNaoCadastrado || !dispositivoCodigo);
 
+    if (deveRegistrarPonto && !podeRegistrarPontoBiometria) {
+      console.warn(
+        `[Verificar Face] colaborador=${colaborador.id} (${colaborador.nome}) deveRegistrarPonto=true mas NAO entrou no fluxo de registro. ` +
+        `dispositivoCodigo=${dispositivoCodigo ?? 'null'} dispositivoEncontrado=${dispositivo ? dispositivo.id : 'null'} dispositivoCodigoNaoCadastrado=${dispositivoCodigoNaoCadastrado}`
+      );
+    }
+
     if (podeRegistrarPontoBiometria) {
       let tipoFinal: 'entrada' | 'saida' | 'almoco' | 'retorno';
       let tipoDetectado = false;
@@ -1113,6 +1120,19 @@ export async function POST(request: NextRequest) {
           }, 400, rateLimitHeaders);
         }
       }
+    }
+
+    if (deveRegistrarPonto && !pontoRegistrado && !atrasoInfo) {
+      console.error(
+        `[Verificar Face] FALHA SILENCIOSA: colaborador=${colaborador.id} (${colaborador.nome}) deveRegistrarPonto=true porém ponto NAO foi registrado e sem atrasoInfo. ` +
+        `dispositivoCodigo=${dispositivoCodigo ?? 'null'} dispositivoCodigoNaoCadastrado=${dispositivoCodigoNaoCadastrado}`
+      );
+      return jsonResponse({
+        success: false,
+        error: 'Face identificada mas o ponto não foi registrado. Tente novamente.',
+        code: 'CLOCK_IN_NOT_PROCESSED',
+        colaborador: { id: colaborador.id, nome: colaborador.nome },
+      }, 422, rateLimitHeaders);
     }
 
     return jsonResponse({
