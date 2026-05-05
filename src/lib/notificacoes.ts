@@ -103,7 +103,7 @@ export async function criarNotificacao(params: CriarNotificacaoParams): Promise<
             AND COALESCE(link,'')               = COALESCE($5,'')
             AND COALESCE(metadados::text,'')    = COALESCE($6::text,'')
             AND lida       = false
-            AND criado_em  > NOW() - ($7::int * interval '1 second')
+            AND data_envio > NOW() - ($7::int * interval '1 second')
        )
        RETURNING id`,
       [
