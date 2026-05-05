@@ -117,10 +117,16 @@ export async function POST(
         );
       }
 
+      // Mapeamento de estado Sicoob -> status interno.
+      // REALIZADO/LIQUIDADO/SUCESSO/EFETIVADO = sucesso (terminal positivo)
+      // REJEITADO/NAO_REALIZADO/FALHA          = falha (terminal negativo)
+      // AGENDADO/EM_PROCESSAMENTO              = enviado (intermediario)
+      // Demais                                 = enviado (default, GET sincroniza)
       await query(
         `UPDATE people.pagamento_pix
             SET status = CASE
-                  WHEN $1 IN ('LIQUIDADO','SUCESSO','SUCCESS','EFETIVADO') THEN 'sucesso'
+                  WHEN $1 IN ('REALIZADO','LIQUIDADO','SUCESSO','SUCCESS','EFETIVADO') THEN 'sucesso'
+                  WHEN $1 IN ('REJEITADO','NAO_REALIZADO','FALHA','FAILED') THEN 'falha'
                   ELSE 'enviado'
                 END,
                 resposta_confirmar = $2::jsonb,
