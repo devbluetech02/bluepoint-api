@@ -18,7 +18,9 @@
  */
 
 const DEFAULT_MODEL = 'google/gemini-2.0-flash-001';
+const DEFAULT_TIEBREAK_MODEL = 'anthropic/claude-sonnet-4.5';
 const REQUEST_TIMEOUT_MS = 8_000;
+const TIEBREAK_TIMEOUT_MS = 20_000;
 
 export interface LlmVerifyResult {
   confirmed: boolean;
@@ -101,6 +103,202 @@ function parseLlmJson(raw: string): { match: boolean; confidence: number; reason
  * imagem de referência inacessível, modelo retornou JSON inválido).
  * Nesses casos o caller decide se aceita o match do ArcFace ou rejeita.
  */
+/**
+ * Identifica qual candidato dentre N é o mais parecido com a foto
+ * capturada. Usado no fallback "não sou eu" — ArcFace devolveu o cara
+ * errado, cliente rejeitou, agora um modelo grande olha top-N
+ * candidatos e escolhe.
+ *
+ * `candidates` é a lista ranqueada do ArcFace (top-1 é o mais
+ * parecido pelo vetor). O modelo recebe nomes + ranking + fotos +
+ * a captura, e responde o índice escolhido (0..N-1) ou null.
+ */
+export interface TiebreakCandidate {
+  index: number;
+  colaboradorId: number | null;
+  externalIds: Record<string, string>;
+  nome: string;
+  distancia: number;
+  fotoReferenciaUrl: string | null;
+}
+
+export interface TiebreakResult {
+  matchedIndex: number | null;
+  confidence: number;
+  reason: string;
+  model: string;
+  latencyMs: number;
+  candidatosConsiderados: number;
+}
+
+export async function escolherCandidatoComLLM(args: {
+  capturedDataUri: string;
+  candidates: TiebreakCandidate[];
+}): Promise<TiebreakResult | null> {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const baseUrl = process.env.OPENAI_API_BASE_URL || 'https://openrouter.ai/api/v1';
+  const model = process.env.LLM_TIEBREAK_MODEL || DEFAULT_TIEBREAK_MODEL;
+
+  if (!apiKey) {
+    console.warn('[LLM Tiebreak] OPENROUTER_API_KEY não configurado');
+    return null;
+  }
+  if (args.candidates.length === 0) {
+    return {
+      matchedIndex: null,
+      confidence: 0,
+      reason: 'sem candidatos',
+      model,
+      latencyMs: 0,
+      candidatosConsiderados: 0,
+    };
+  }
+
+  // Baixar todas as fotos de referência em paralelo (até 7 — limite imposto
+  // pelo caller, não aqui). Pula candidato sem foto válida.
+  const refs = await Promise.all(
+    args.candidates.map(async (c) =>
+      c.fotoReferenciaUrl
+        ? { c, dataUri: await urlToDataUri(c.fotoReferenciaUrl) }
+        : { c, dataUri: null },
+    ),
+  );
+  const valid = refs.filter((r) => r.dataUri);
+  if (valid.length === 0) {
+    console.warn('[LLM Tiebreak] Nenhuma foto de referência acessível');
+    return null;
+  }
+
+  const lista = valid
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.c.nome} (rank ArcFace ${r.c.index + 1}, dist=${r.c.distancia.toFixed(3)})`,
+    )
+    .join('\n');
+
+  const prompt =
+    `Você é um sistema de verificação biométrica de ponto eletrônico.\n\n` +
+    `A primeira imagem é a captura ao vivo da pessoa que tentou bater ponto.\n` +
+    `As próximas ${valid.length} imagens são fotos de referência de candidatos cadastrados, ranqueados pelo classificador ArcFace por similaridade (1 = mais parecido):\n\n${lista}\n\n` +
+    `Sua tarefa: dizer com QUAL desses candidatos a captura corresponde, ou null se nenhum for da mesma pessoa. Considere variações naturais (iluminação, ângulo, idade leve, óculos, barba, cabelo, máscara). Seja RIGOROSO — se houver dúvida razoável, devolva null.\n\n` +
+    `Responda EXCLUSIVAMENTE em JSON, sem markdown:\n` +
+    `{"matchedIndex": <0-based index entre 0 e ${valid.length - 1}> | null, "confidence": 0.0-1.0, "reason": "explicação curta em português"}`;
+
+  const content: Array<Record<string, unknown>> = [
+    { type: 'text', text: prompt },
+    { type: 'image_url', image_url: { url: args.capturedDataUri } },
+  ];
+  for (const r of valid) {
+    content.push({ type: 'image_url', image_url: { url: r.dataUri! } });
+  }
+
+  const body = {
+    model,
+    messages: [{ role: 'user', content }],
+    temperature: 0,
+    max_tokens: 400,
+  };
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), TIEBREAK_TIMEOUT_MS);
+  const startedAt = Date.now();
+
+  try {
+    const resp = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://people-api.valerisapp.com.br',
+        'X-Title': 'People — Face Tiebreak',
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '');
+      console.warn(`[LLM Tiebreak] HTTP ${resp.status}: ${txt.slice(0, 300)}`);
+      return null;
+    }
+    const data = (await resp.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const raw = data.choices?.[0]?.message?.content || '';
+    const trimmed = raw.trim();
+    let parsed: { matchedIndex: number | null; confidence: number; reason: string } | null = null;
+    const candidates: string[] = [];
+    const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenceMatch) candidates.push(fenceMatch[1]);
+    const braceStart = trimmed.indexOf('{');
+    const braceEnd = trimmed.lastIndexOf('}');
+    if (braceStart !== -1 && braceEnd > braceStart) {
+      candidates.push(trimmed.slice(braceStart, braceEnd + 1));
+    }
+    candidates.push(trimmed);
+    for (const c of candidates) {
+      try {
+        const obj = JSON.parse(c) as Record<string, unknown>;
+        if (obj && typeof obj === 'object') {
+          const idxRaw = obj.matchedIndex;
+          let idx: number | null = null;
+          if (idxRaw === null || idxRaw === undefined) idx = null;
+          else if (typeof idxRaw === 'number') idx = Math.floor(idxRaw);
+          else if (typeof idxRaw === 'string' && /^\d+$/.test(idxRaw)) idx = parseInt(idxRaw, 10);
+          const confRaw = obj.confidence;
+          const conf =
+            typeof confRaw === 'number'
+              ? confRaw
+              : typeof confRaw === 'string'
+                ? parseFloat(confRaw)
+                : 0;
+          parsed = {
+            matchedIndex: idx,
+            confidence: isNaN(conf) ? 0 : Math.max(0, Math.min(1, conf)),
+            reason: ((obj.reason ?? obj.explanation) ?? '').toString(),
+          };
+          break;
+        }
+      } catch {
+        // tenta próximo
+      }
+    }
+
+    if (!parsed) {
+      console.warn('[LLM Tiebreak] JSON inválido:', raw.slice(0, 300));
+      return null;
+    }
+
+    // Mapear índice retornado (na lista válida) para o índice original.
+    let originalIndex: number | null = null;
+    if (
+      parsed.matchedIndex !== null &&
+      parsed.matchedIndex >= 0 &&
+      parsed.matchedIndex < valid.length
+    ) {
+      originalIndex = valid[parsed.matchedIndex].c.index;
+    }
+
+    const result: TiebreakResult = {
+      matchedIndex: originalIndex,
+      confidence: parsed.confidence,
+      reason: parsed.reason || '',
+      model,
+      latencyMs: Date.now() - startedAt,
+      candidatosConsiderados: valid.length,
+    };
+    console.log(
+      `[LLM Tiebreak] matchedIndex=${result.matchedIndex} conf=${result.confidence.toFixed(2)} ` +
+        `latency=${result.latencyMs}ms model=${model} — ${result.reason}`,
+    );
+    return result;
+  } catch (e) {
+    console.warn('[LLM Tiebreak] Exceção:', e);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function verificarFacesComLLM(args: {
   capturedDataUri: string;
   referenceUrl: string | null;
