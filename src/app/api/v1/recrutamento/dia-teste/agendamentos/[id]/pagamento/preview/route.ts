@@ -247,7 +247,10 @@ export async function POST(
         nomeBeneficiario: nomeBenef,
         documentoBeneficiario: ag.candidato_cpf_norm || undefined,
         cnpj: cnpjPagadorDigitsBenef,
-        valorMaximoCentavos: 0,
+        // BlueTech/Sicoob trata 0 como "valor zero permitido" -> bloqueia débito.
+        // Manda o valor exato do pagamento em centavos pra autorizar essa
+        // transação específica.
+        valorMaximoCentavos: Math.max(1, Math.round(valor * 100)),
       });
       console.log(
         `[pagamento/preview] cadastro beneficiario agendamento=${id} chave=${chavePix} tipo=${tipoChaveDet} nome="${nomeBenef}" cpf=${ag.candidato_cpf_norm ?? 'n/d'} ok=${cad.ok}` +
