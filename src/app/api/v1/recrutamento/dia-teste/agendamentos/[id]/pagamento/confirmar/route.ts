@@ -174,7 +174,7 @@ export async function POST(
       );
 
       console.log(
-        `[pagamento/confirmar] pagamento=${pag.id} agendamento=${id} estado=${estadoUpper} status_interno=${statusInterno}` +
+        `[pagamento/confirmar] pagamento=${pag.id} agendamento=${id} estado=${estadoUpper} status_interno=${statusInterno} e2e=${pag.end_to_end_id}` +
         (estadoFalha ? ` motivo=${r.data.detalheRejeicao ?? 'n/d'}` : '')
       );
 

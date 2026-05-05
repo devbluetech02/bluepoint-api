@@ -85,6 +85,10 @@ export async function POST(
           ],
         );
       }
+      console.log(
+        `[pagamento/sincronizar] pagamento=${pag.id} agendamento=${id} e2e=${pag.end_to_end_id} estado=${estado} status_anterior=${pag.status} status_novo=${novoStatus} changed=${changed}` +
+        (r.data.detalheRejeicao ? ` motivo=${r.data.detalheRejeicao}` : '')
+      );
       return successResponse({
         pagamentoId: pag.id,
         status: novoStatus,
