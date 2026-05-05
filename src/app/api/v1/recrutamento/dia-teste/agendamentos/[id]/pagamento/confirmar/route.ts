@@ -50,10 +50,11 @@ export async function POST(
         status: string;
         cnpj_pagador: string | null;
         destino_nome: string | null;
+        chave_pix: string | null;
       }>(
         `SELECT id::text, agendamento_id::text, valor::text AS valor,
                 end_to_end_id, idempotency_key, status, cnpj_pagador,
-                destino_nome
+                destino_nome, chave_pix
            FROM people.pagamento_pix
           WHERE id = $1::bigint
           LIMIT 1`,
@@ -81,6 +82,25 @@ export async function POST(
         parsed.data.descricao?.slice(0, 140) ??
         `Diária dia de teste — agendamento #${id}`;
 
+      // Detecta repetição: já houve pagamento REALIZADO pra mesma chave+valor+cnpj
+      // antes? Sicoob exige flag `repeticao: true` na confirmação dessa
+      // segunda+ tentativa pra mesmo destino/valor; sem isso responde
+      // EM_PROCESSAMENTO inicialmente e marca NAO_REALIZADO/REJEITADO no GET.
+      const repRes = await query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM people.pagamento_pix
+          WHERE id <> $1::bigint
+            AND status = 'sucesso'
+            AND chave_pix = $2
+            AND valor = $3::numeric
+            AND COALESCE(cnpj_pagador, '') = COALESCE($4, '')`,
+        [pag.id, pag.chave_pix, pag.valor, PIX_CNPJ_DEFAULT],
+      );
+      const repeticao = (parseInt(repRes.rows[0].count, 10) || 0) > 0;
+      console.log(
+        `[pagamento/confirmar] repeticao=${repeticao} chave=${pag.chave_pix} valor=${pag.valor} pagamento=${pag.id}`
+      );
+
       const r = await confirmarPagamentoPix({
         endToEndId: pag.end_to_end_id,
         valor: valorBR,
@@ -91,6 +111,7 @@ export async function POST(
         // Sempre debita Ethos — fluxo de dia de teste paga só dessa conta.
         cnpj: PIX_CNPJ_DEFAULT,
         idempotencyKey: pag.idempotency_key,
+        repeticao,
       });
 
       if (!r.ok) {
