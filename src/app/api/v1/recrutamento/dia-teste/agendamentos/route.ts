@@ -272,26 +272,70 @@ export async function GET(request: NextRequest) {
           .map((r) => r.documento_assinatura_id)
           .filter((v): v is string => v != null && v !== '')
       ));
-      const docStatusMap = new Map<string, string>();
+      // Pra cada doc, busca progresso detalhado (status agregado +
+      // signers individuais, sem signing_link). N requests em paralelo —
+      // SignProof não tem batch endpoint pra esse nível de detalhe.
+      // O batch-status antigo só devolvia status agregado; aqui ganhamos
+      // signed_count/signer_count + lista de signatários.
+      interface DocProgresso {
+        status: string;
+        signedCount: number;
+        signerCount: number;
+        allSigned: boolean;
+        signers: Array<{
+          id: string;
+          nome: string;
+          email: string | null;
+          role: string | null;
+          signOrder: number | null;
+          status: string;
+          signedAt: string | null;
+        }>;
+      }
+      const docStatusMap = new Map<string, DocProgresso>();
       if (docIds.length > 0) {
         const baseUrl = process.env.SIGNPROOF_API_URL;
         const apiKey = process.env.SIGNPROOF_API_KEY;
         if (baseUrl && apiKey) {
-          try {
-            const spResp = await fetch(`${baseUrl}/api/v1/integration/documents/batch-status`, {
-              method: 'POST',
-              headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ document_ids: docIds }),
-            });
-            if (spResp.ok) {
-              const spData = await spResp.json() as { data?: { id?: string; status?: string }[] };
-              for (const d of spData.data ?? []) {
-                if (d.id && d.status) docStatusMap.set(d.id, d.status);
+          await Promise.allSettled(
+            docIds.map(async (docId) => {
+              try {
+                const r = await fetch(
+                  `${baseUrl}/api/v1/integration/documents/${docId}/status`,
+                  { headers: { 'X-API-Key': apiKey, Accept: 'application/json' } },
+                );
+                if (!r.ok) return;
+                const d = (await r.json()) as {
+                  status?: string;
+                  signer_count?: number;
+                  signed_count?: number;
+                  all_signed?: boolean;
+                  signers?: Array<{
+                    id?: string; name?: string; email?: string | null;
+                    role?: string | null; sign_order?: number | null;
+                    status?: string; signed_at?: string | null;
+                  }>;
+                };
+                docStatusMap.set(docId, {
+                  status: d.status ?? 'pending',
+                  signedCount: d.signed_count ?? 0,
+                  signerCount: d.signer_count ?? 0,
+                  allSigned: d.all_signed ?? false,
+                  signers: (d.signers ?? []).map((s) => ({
+                    id: s.id ?? '',
+                    nome: s.name ?? '',
+                    email: s.email ?? null,
+                    role: s.role ?? null,
+                    signOrder: s.sign_order ?? null,
+                    status: s.status ?? 'pending',
+                    signedAt: s.signed_at ?? null,
+                  })),
+                });
+              } catch (e) {
+                console.warn(`[recrutamento/dia-teste/agendamentos] falha ao consultar SignProof doc ${docId}:`, e);
               }
-            }
-          } catch (e) {
-            console.warn('[recrutamento/dia-teste/agendamentos] falha ao consultar SignProof batch-status:', e);
-          }
+            }),
+          );
         }
       }
 
@@ -371,7 +415,12 @@ export async function GET(request: NextRequest) {
           criadoEm: r.criado_em,
           processoStatus: r.processo_status,
           documentoAssinaturaId: r.documento_assinatura_id,
-          documentoAssinaturaStatus: r.documento_assinatura_id ? (docStatusMap.get(r.documento_assinatura_id) ?? null) : null,
+          documentoAssinaturaStatus: r.documento_assinatura_id
+            ? (docStatusMap.get(r.documento_assinatura_id)?.status ?? null)
+            : null,
+          documentoAssinaturaProgresso: r.documento_assinatura_id
+            ? (docStatusMap.get(r.documento_assinatura_id) ?? null)
+            : null,
           vagaOrigem: r.vaga_snapshot,
           enviadoPor: {
             id: toIntOrNull(r.criado_por),

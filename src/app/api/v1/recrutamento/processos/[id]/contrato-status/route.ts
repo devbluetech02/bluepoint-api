@@ -10,11 +10,21 @@ import {
 
 // GET /api/v1/recrutamento/processos/:id/contrato-status
 //
-// Endpoint leve para polling do status do contrato no SignProof. Devolve
-// o id do documento e o status atual (ex: "in_progress", "completed",
-// "cancelled"). Pensado pra ser chamado a cada ~30s pela web/mobile
-// enquanto o usuário fica olhando o modal de detalhe — barato porque
-// é uma única chamada single-doc no SignProof, sem joins extras.
+// Endpoint leve para polling do progresso do contrato no SignProof.
+// Usa o endpoint single-doc `/integration/documents/:id/status` que
+// devolve agregado + signers detalhados (sem signing_link, mais barato
+// e sem dado sensível). Pensado pra ser chamado a cada ~30s pela
+// web/mobile enquanto o gestor olha o modal de detalhe.
+
+interface SignerProgresso {
+  id: string;
+  nome: string;
+  email: string | null;
+  role: string | null;
+  signOrder: number | null;
+  status: string;
+  signedAt: string | null;
+}
 
 export async function GET(
   request: NextRequest,
@@ -39,6 +49,10 @@ export async function GET(
           processoId: id,
           documentoId: null,
           status: null,
+          signers: [],
+          signedCount: 0,
+          signerCount: 0,
+          allSigned: false,
         });
       }
 
@@ -49,14 +63,9 @@ export async function GET(
       }
 
       const resp = await fetch(
-        `${baseUrl}/api/v1/integration/documents/batch-status`,
+        `${baseUrl}/api/v1/integration/documents/${proc.documento_assinatura_id}/status`,
         {
-          method: 'POST',
-          headers: {
-            'X-API-Key': apiKey,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ document_ids: [proc.documento_assinatura_id] }),
+          headers: { 'X-API-Key': apiKey, Accept: 'application/json' },
         }
       );
       if (!resp.ok) {
@@ -67,16 +76,39 @@ export async function GET(
         );
       }
       const data = (await resp.json()) as {
-        data?: { id?: string; status?: string }[];
+        status?: string;
+        signer_count?: number;
+        signed_count?: number;
+        all_signed?: boolean;
+        signers?: Array<{
+          id?: string;
+          name?: string;
+          email?: string | null;
+          role?: string | null;
+          sign_order?: number | null;
+          status?: string;
+          signed_at?: string | null;
+        }>;
       };
-      const item = (data.data ?? []).find(
-        (d) => d.id === proc.documento_assinatura_id
-      );
+
+      const signers: SignerProgresso[] = (data.signers ?? []).map((s) => ({
+        id: s.id ?? '',
+        nome: s.name ?? '',
+        email: s.email ?? null,
+        role: s.role ?? null,
+        signOrder: s.sign_order ?? null,
+        status: s.status ?? 'pending',
+        signedAt: s.signed_at ?? null,
+      }));
 
       return successResponse({
         processoId: id,
         documentoId: proc.documento_assinatura_id,
-        status: item?.status ?? null,
+        status: data.status ?? null,
+        signedCount: data.signed_count ?? 0,
+        signerCount: data.signer_count ?? signers.length,
+        allSigned: data.all_signed ?? false,
+        signers,
       });
     } catch (error) {
       console.error(
