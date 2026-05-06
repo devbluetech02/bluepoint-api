@@ -349,20 +349,28 @@ export function calcularThresholdDinamico(qualidade: number): number {
 // AUTO-APRENDIZADO
 // ==========================================
 
-// Máximo de encodings aprendidos por pessoa
-const MAX_ENCODINGS_APRENDIDOS = 40;
+// Máximo de encodings aprendidos por pessoa.
+// Reduzido de 40 → 20 após incidente de contaminação (caso EDUARDO
+// NATANAEL com 47 aprendidos: aparecia como Top1/Top2 pra várias
+// pessoas diferentes em distâncias <0.30 — cluster expandido demais).
+const MAX_ENCODINGS_APRENDIDOS = 20;
 
-// Distância mínima entre encodings para considerar "diverso" (evita redundância)
-// Reduzido para capturar variações sutis de ângulo e iluminação
-const DIVERSIDADE_MINIMA = 0.04;
+// Distância mínima entre encodings p/ considerar "diverso" (evita redundância).
+// Subido de 0.04 → 0.08: encoding novo precisa trazer informação real,
+// não micro-variação que só infla o cluster.
+const DIVERSIDADE_MINIMA = 0.08;
 
-// Confiança mínima para auto-aprender (distância máxima aceita)
-// Aprende de qualquer match válido (dentro do threshold), não só matches perfeitos
-const AUTO_APRENDER_MAX_DISTANCIA = 0.42;
+// Confiança mínima para auto-aprender (distância máxima aceita).
+// Apertado de 0.42 → 0.28: só aprende de matches MUITO confiantes
+// (mesma pessoa, mesma câmera, ~zero ambiguidade). 0.42 era praticamente
+// o threshold de match (0.45) — qualquer match-no-limite virava
+// aprendizado e contaminava o cluster.
+const AUTO_APRENDER_MAX_DISTANCIA = 0.28;
 
-// Qualidade mínima da imagem para auto-aprender
-// Baixo deliberadamente: condições difíceis são exatamente o que queremos aprender
-const AUTO_APRENDER_MIN_QUALIDADE = 0.12;
+// Qualidade mínima da imagem p/ auto-aprender.
+// Subido de 0.12 → 0.50: foto borrada/escura nunca devia virar
+// referência — só piora o cluster.
+const AUTO_APRENDER_MIN_QUALIDADE = 0.50;
 
 /**
  * Verifica se um encoding é suficientemente diverso em relação aos existentes.

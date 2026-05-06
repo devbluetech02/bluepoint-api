@@ -74,7 +74,11 @@ export const CACHE_KEYS = {
   
   // Biometria
   BIOMETRIA: 'biometria:',
-  BIOMETRIA_ENCODINGS: 'biometria:encodings',
+  // v2: bump após reset de aprendidos contaminados (incidente EDUARDO
+  // NATANAEL, 2026-05-06) + endurecer critérios de auto-learn. Bump
+  // força MISS imediato em todas as instâncias, descartando cache stale
+  // com aprendidos antigos sem precisar de SCAN/DEL no Redis.
+  BIOMETRIA_ENCODINGS: 'biometria:encodings:v2',
   BIOMETRIA_STATUS: 'biometria:status:',
   
   // Notificações

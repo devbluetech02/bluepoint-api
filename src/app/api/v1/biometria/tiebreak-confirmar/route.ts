@@ -158,6 +158,13 @@ async function inserirMarcacao(args: {
  * Auto-aprende o encoding capturado pro colaborador escolhido.
  * Roda em background (não bloqueia a resposta).
  */
+// Mesmas constantes da face-recognition.ts (mantidas em sync — após
+// incidente de cluster contaminado em 2026-05-06, qualquer caminho
+// de auto-aprendizado precisa respeitar esses tetos).
+const MAX_ENCODINGS_APRENDIDOS = 20;
+const AUTO_APRENDER_MIN_QUALIDADE = 0.50;
+const DIVERSIDADE_MINIMA_TIEBREAK = 0.08;
+
 async function autoAprenderEncoding(
   colaboradorId: number,
   imagem: string,
@@ -165,6 +172,12 @@ async function autoAprenderEncoding(
   try {
     const ext = await extractFaceEncoding(imagem);
     if (!ext.encoding) return;
+    if (ext.qualidade < AUTO_APRENDER_MIN_QUALIDADE) {
+      console.log(
+        `[Tiebreak Auto-Aprendizado] Pulando — qualidade ${ext.qualidade.toFixed(3)} < ${AUTO_APRENDER_MIN_QUALIDADE}`,
+      );
+      return;
+    }
 
     const bioResult = await query<{
       id: number;
@@ -179,6 +192,13 @@ async function autoAprenderEncoding(
     );
     if (bioResult.rows.length === 0) return;
     const bio = bioResult.rows[0];
+
+    if ((bio.total_aprendidos ?? 0) >= MAX_ENCODINGS_APRENDIDOS) {
+      console.log(
+        `[Tiebreak Auto-Aprendizado] Pulando — já tem ${bio.total_aprendidos} aprendidos (cap=${MAX_ENCODINGS_APRENDIDOS})`,
+      );
+      return;
+    }
 
     // Verificar diversidade — pula se já é muito parecido com algum encoding
     // existente (não acrescenta informação nova).
@@ -212,9 +232,9 @@ async function autoAprenderEncoding(
       const d = await compareFaces(ext.encoding, e);
       if (d < menorDist) menorDist = d;
     }
-    if (menorDist < 0.20) {
+    if (menorDist < DIVERSIDADE_MINIMA_TIEBREAK) {
       console.log(
-        `[Tiebreak Auto-Aprendizado] Pulando — encoding muito similar (dist=${menorDist.toFixed(4)}) ao já cadastrado.`,
+        `[Tiebreak Auto-Aprendizado] Pulando — encoding muito similar (dist=${menorDist.toFixed(4)} < ${DIVERSIDADE_MINIMA_TIEBREAK}).`,
       );
       return;
     }
