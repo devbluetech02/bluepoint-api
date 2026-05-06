@@ -42,6 +42,19 @@ export async function GET(request: NextRequest) {
           WHERE c.status = 'ativo'
             AND cg.nivel_acesso_id IS NOT NULL
             AND cg.nivel_acesso_id >= 2
+            -- Recrutadores tem nivel 2 mas nao aprovam solicitacoes de
+            -- ponto/hora extra. Filtra fora por nome do cargo (cobre
+            -- "Recrutador(a)", "Analista de Recrutamento", etc.).
+            -- translate cobre acentuacao PT-BR sem exigir a extensao
+            -- unaccent (mesmo padrao do helper normalizar-nome).
+            AND UPPER(translate(COALESCE(cg.nome, ''),
+                                'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+                                'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
+              NOT LIKE '%RECRUTADOR%'
+            AND UPPER(translate(COALESCE(cg.nome, ''),
+                                'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+                                'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
+              NOT LIKE '%RECRUTAMENTO%'
           ORDER BY c.nome ASC`,
       );
 
