@@ -9,7 +9,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
+import { enviarMensagemWhatsApp, getRecrutamentoEvolutionConfig } from '@/lib/evolution-api';
 import { criarTokenReferencias } from '@/lib/referencias-token';
 import {
   loadAgendamento,
@@ -251,7 +251,14 @@ export async function POST(
               `Agradecemos desde já!`,
             ].join('\n');
 
-            const r = await enviarMensagemWhatsApp(tel, mensagem);
+            // Manda pela instancia do RH/recrutamento (env
+            // EVOLUTION_INSTANCE_RECRUTAMENTO) — quem assina o pedido. Cai pra
+            // instancia padrao se a env nao estiver setada.
+            const r = await enviarMensagemWhatsApp(
+              tel,
+              mensagem,
+              getRecrutamentoEvolutionConfig(),
+            );
             whatsappReferencias = { enviado: r.ok, erro: r.ok ? undefined : r.erro };
             if (!r.ok) {
               console.warn(`[dia-teste/aprovar] WhatsApp pedindo referências falhou: ${r.erro}`);
