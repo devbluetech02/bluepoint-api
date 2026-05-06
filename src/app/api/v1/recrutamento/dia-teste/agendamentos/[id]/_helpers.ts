@@ -8,6 +8,9 @@
 
 import { query } from '@/lib/db';
 import { queryRecrutamento } from '@/lib/db';
+import { JWTPayload, isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
+import { obterEscopoGestor } from '@/lib/escopo-gestor';
+import { NIVEL_ADMIN, NIVEL_GESTOR } from '@/lib/niveis';
 
 export interface AgendamentoRow {
   id: string;
@@ -36,6 +39,63 @@ export interface AgendamentoRow {
   departamento_id: string | number | null;
   departamento_nome: string | null;
   processo_status: string;
+}
+
+function toIntOrNullLocal(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    const n = parseInt(v, 10);
+    return Number.isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+/**
+ * Verifica se o usuário pode operar (ver/decidir) sobre um agendamento
+ * de dia de teste. Admin/super/API-key têm acesso global. Gestor (nível
+ * 2) só passa quando o departamento OU empresa do processo está no seu
+ * escopo (gestor_departamentos / gestor_empresas + departamento próprio).
+ *
+ * Use no início dos handlers de decisão (aprovar, reprovar, compareceu,
+ * nao-compareceu, desistencia, pagamento, referencias) logo após
+ * `loadAgendamento`. Devolve null em sucesso ou objeto com motivo em
+ * falha — caller monta a Response 403.
+ */
+export async function verificarEscopoGestorAgendamento(
+  user: JWTPayload,
+  agendamento: AgendamentoRow,
+): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  if (isSuperAdmin(user)) return { ok: true };
+  if (user.userId < 0) return { ok: true }; // API key
+
+  const nivelId =
+    typeof user.nivelId === 'number'
+      ? user.nivelId
+      : await resolveNivelFromColaborador(user.userId);
+
+  if (nivelId !== null && nivelId >= NIVEL_ADMIN) return { ok: true };
+  if (nivelId !== NIVEL_GESTOR) {
+    return {
+      ok: false,
+      motivo: 'Você não tem permissão de gestão sobre processos seletivos.',
+    };
+  }
+
+  const escopo = await obterEscopoGestor(user.userId);
+  const deptId = toIntOrNullLocal(agendamento.departamento_id);
+  const empId = toIntOrNullLocal(agendamento.empresa_id);
+  if (deptId !== null && escopo.departamentoIds.includes(deptId)) {
+    return { ok: true };
+  }
+  if (empId !== null && escopo.empresaIds.includes(empId)) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    motivo:
+      'Este candidato em teste não pertence ao seu departamento/empresa.',
+  };
 }
 
 /**

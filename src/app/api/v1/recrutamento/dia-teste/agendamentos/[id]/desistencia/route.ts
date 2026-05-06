@@ -6,6 +6,7 @@ import {
   successResponse,
   errorResponse,
   notFoundResponse,
+  forbiddenResponse,
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
@@ -13,6 +14,7 @@ import {
   loadAgendamento,
   avancarProcessoAposDecisao,
   calcularValorTotalProcesso,
+  verificarEscopoGestorAgendamento,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/desistencia
@@ -45,6 +47,11 @@ export async function POST(
 
       const ag = await loadAgendamento(id);
       if (!ag) return notFoundResponse('Agendamento não encontrado');
+
+      const escopoCheck = await verificarEscopoGestorAgendamento(user, ag);
+      if (!escopoCheck.ok) {
+        return forbiddenResponse(escopoCheck.motivo);
+      }
 
       if (ag.processo_status === 'cancelado') {
         return errorResponse(

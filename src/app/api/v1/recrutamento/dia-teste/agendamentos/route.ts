@@ -2,6 +2,9 @@ import { NextRequest } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
+import { isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
+import { obterEscopoGestor } from '@/lib/escopo-gestor';
+import { NIVEL_ADMIN, NIVEL_GESTOR } from '@/lib/niveis';
 import {
   calcularPodeDecidir,
   calcularValorProporcional,
@@ -77,7 +80,7 @@ function toIntOrNull(v: unknown): number | null {
 }
 
 export async function GET(request: NextRequest) {
-  return withGestor(request, async (req) => {
+  return withGestor(request, async (req, user) => {
     try {
       const { searchParams } = new URL(req.url);
       const data = searchParams.get('data');
@@ -87,8 +90,46 @@ export async function GET(request: NextRequest) {
       const empresaId = searchParams.get('empresaId');
       const todos = searchParams.get('todos') === 'true';
 
+      // Escopo: admin/superadmin/API key vê tudo. Gestor (nível 2)
+      // só vê processos cujo departamento OU empresa está na lista
+      // que ele gerencia (gestor_departamentos / gestor_empresas).
+      // Padrão consistente com /listar-colaboradores.
+      const isSuper = isSuperAdmin(user);
+      const isApiKey = user.userId < 0;
+      const nivelId =
+        typeof user.nivelId === 'number'
+          ? user.nivelId
+          : isApiKey
+            ? null
+            : await resolveNivelFromColaborador(user.userId);
+      const escopoGlobal =
+        isSuper || isApiKey || (nivelId !== null && nivelId >= NIVEL_ADMIN);
+
       const filtros: string[] = [];
       const params: unknown[] = [];
+
+      if (!escopoGlobal && nivelId === NIVEL_GESTOR) {
+        const escopo = await obterEscopoGestor(user.userId);
+        const deptIds = escopo.departamentoIds;
+        const empIds = escopo.empresaIds;
+        // Sem nada no escopo → não enxerga nenhum agendamento.
+        if (deptIds.length === 0 && empIds.length === 0) {
+          return successResponse([]);
+        }
+        const partes: string[] = [];
+        if (deptIds.length > 0) {
+          partes.push(`ps.departamento_id = ANY($${params.length + 1}::int[])`);
+          params.push(deptIds);
+        }
+        if (empIds.length > 0) {
+          partes.push(`ps.empresa_id = ANY($${params.length + 1}::int[])`);
+          params.push(empIds);
+        }
+        filtros.push(`(${partes.join(' OR ')})`);
+      } else if (!escopoGlobal) {
+        // Nível 1 ou desconhecido → não vê agendamentos.
+        return successResponse([]);
+      }
 
       if (data) {
         filtros.push(`a.data = $${params.length + 1}::date`);

@@ -18,7 +18,9 @@ import {
   calcularValorTotalProcesso,
   contarAgendamentosPendentesDoProcesso,
   criarProximoDiaTeste,
+  verificarEscopoGestorAgendamento,
 } from '../_helpers';
+import { forbiddenResponse } from '@/lib/api-response';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/aprovar
 //
@@ -62,6 +64,11 @@ export async function POST(
 
       const ag = await loadAgendamento(id);
       if (!ag) return notFoundResponse('Agendamento não encontrado');
+
+      const escopoCheck = await verificarEscopoGestorAgendamento(user, ag);
+      if (!escopoCheck.ok) {
+        return forbiddenResponse(escopoCheck.motivo);
+      }
 
       if (ag.processo_status === 'cancelado') {
         return errorResponse(
