@@ -338,6 +338,39 @@ async function auditarFrameSemFace(args: {
   }
 }
 
+/**
+ * Sobe a imagem capturada pra MinIO em pasta dedicada de logs e
+ * devolve a URL pública. Usado pra anexar foto a eventos de
+ * face_recognition_logs (NOT_IDENTIFIED, AMBIGUOUS_MATCH,
+ * LLM_REJECTED, INACTIVE_COLLABORATOR, MATCH_PROPOSED) sem precisar
+ * gravar em auditoria. Best-effort — falha → null.
+ */
+async function uploadFotoLog(
+  imagem: string,
+  evento: string,
+  dispositivoCodigo?: string,
+): Promise<string | null> {
+  try {
+    const base64 = imagem.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length === 0) return null;
+    const isPng = imagem.startsWith('data:image/png');
+    const ext = isPng ? 'png' : 'jpg';
+    const ct = isPng ? 'image/png' : 'image/jpeg';
+    const dataDir = new Date().toISOString().split('T')[0];
+    const ts = Date.now();
+    const deviceTag = (dispositivoCodigo || 'sem-codigo').replace(
+      /[^a-zA-Z0-9_-]/g,
+      '_',
+    );
+    const path = `face-logs/${dataDir}/${deviceTag}/${ts}_${evento.toLowerCase()}.${ext}`;
+    return await uploadArquivo(path, buffer, ct);
+  } catch (e) {
+    console.warn('[uploadFotoLog] falha:', e);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const clientIp = getClientIp(request);
@@ -695,23 +728,27 @@ export async function POST(request: NextRequest) {
 
     // (1) Sem candidato dentro do threshold = NOT_IDENTIFIED clássico.
     if (!best || best.distance >= thresholdEfetivo) {
-      logFaceEventAsync({
-        evento: 'NOT_IDENTIFIED',
-        endpoint: 'verificar-face',
-        origem,
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo,
-        latitude,
-        longitude,
-        qualidade,
-        thresholdEfetivo,
-        distanciaTop1: best?.distance ?? null,
-        distanciaTop2: second?.distance ?? null,
-        gapTop12:
-          best && second ? second.distance - best.distance : null,
-        duracaoMs: Date.now() - startTime,
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoLog(imagem, 'NOT_IDENTIFIED', dispositivoCodigo);
+        logFaceEventAsync({
+          evento: 'NOT_IDENTIFIED',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          qualidade,
+          thresholdEfetivo,
+          distanciaTop1: best?.distance ?? null,
+          distanciaTop2: second?.distance ?? null,
+          gapTop12:
+            best && second ? second.distance - best.distance : null,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+        });
+      })().catch((e) => console.error('[NOT_IDENTIFIED log] falha:', e));
       return jsonResponse({
         success: true,
         data: {
@@ -747,28 +784,32 @@ export async function POST(request: NextRequest) {
         `[Verificar Face] AMBIGUOUS_MATCH: ${best.key}=${best.distance.toFixed(4)} vs ` +
           `${second.key}=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)} < ${AMBIGUITY_GAP}) — rejeitado`,
       );
-      logFaceEventAsync({
-        evento: 'AMBIGUOUS_MATCH',
-        endpoint: 'verificar-face',
-        origem,
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo,
-        latitude,
-        longitude,
-        qualidade,
-        thresholdEfetivo,
-        colaboradorIdProposto: best.match.colaboradorId ?? null,
-        externalIdProposto: best.match.externalIds ?? null,
-        distanciaTop1: best.distance,
-        distanciaTop2: second.distance,
-        gapTop12: second.distance - best.distance,
-        duracaoMs: Date.now() - startTime,
-        metadados: {
-          top2Key: second.key,
-          ambiguityGap: AMBIGUITY_GAP,
-        },
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoLog(imagem, 'AMBIGUOUS_MATCH', dispositivoCodigo);
+        logFaceEventAsync({
+          evento: 'AMBIGUOUS_MATCH',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          qualidade,
+          thresholdEfetivo,
+          colaboradorIdProposto: best.match.colaboradorId ?? null,
+          externalIdProposto: best.match.externalIds ?? null,
+          distanciaTop1: best.distance,
+          distanciaTop2: second.distance,
+          gapTop12: second.distance - best.distance,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+          metadados: {
+            top2Key: second.key,
+            ambiguityGap: AMBIGUITY_GAP,
+          },
+        });
+      })().catch((e) => console.error('[AMBIGUOUS_MATCH log] falha:', e));
       return jsonResponse({
         success: true,
         data: {
@@ -861,29 +902,33 @@ export async function POST(request: NextRequest) {
               reject: 'LLM',
             },
           });
-          logFaceEventAsync({
-            evento: 'LLM_REJECTED',
-            endpoint: 'verificar-face',
-            origem,
-            ip: clientIp,
-            userAgent: getUserAgent(request),
-            dispositivoCodigo,
-            latitude,
-            longitude,
-            qualidade,
-            thresholdEfetivo,
-            colaboradorIdProposto: matchedRecord.colaboradorId ?? null,
-            externalIdProposto: matchedRecord.externalIds ?? null,
-            distanciaTop1: best.distance,
-            distanciaTop2: second?.distance ?? null,
-            gapTop12: second ? second.distance - best.distance : null,
-            llmModelo: llm.model,
-            llmConfirmou: false,
-            llmConfidence: llm.confidence,
-            llmRazao: llm.reason,
-            llmLatencyMs: llm.latencyMs,
-            duracaoMs: Date.now() - startTime,
-          });
+          (async () => {
+            const fotoUrl = await uploadFotoLog(imagem, 'LLM_REJECTED', dispositivoCodigo);
+            logFaceEventAsync({
+              evento: 'LLM_REJECTED',
+              endpoint: 'verificar-face',
+              origem,
+              ip: clientIp,
+              userAgent: getUserAgent(request),
+              dispositivoCodigo,
+              latitude,
+              longitude,
+              qualidade,
+              thresholdEfetivo,
+              colaboradorIdProposto: matchedRecord.colaboradorId ?? null,
+              externalIdProposto: matchedRecord.externalIds ?? null,
+              distanciaTop1: best.distance,
+              distanciaTop2: second?.distance ?? null,
+              gapTop12: second ? second.distance - best.distance : null,
+              llmModelo: llm.model,
+              llmConfirmou: false,
+              llmConfidence: llm.confidence,
+              llmRazao: llm.reason,
+              llmLatencyMs: llm.latencyMs,
+              fotoUrl,
+              duracaoMs: Date.now() - startTime,
+            });
+          })().catch((e) => console.error('[LLM_REJECTED log] falha:', e));
           return jsonResponse({
             success: true,
             data: {
@@ -1141,21 +1186,25 @@ export async function POST(request: NextRequest) {
           motivo: 'colaborador_inativo_ou_inexistente',
         },
       });
-      logFaceEventAsync({
-        evento: 'INACTIVE_COLLABORATOR',
-        endpoint: 'verificar-face',
-        origem,
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo,
-        latitude,
-        longitude,
-        qualidade,
-        thresholdEfetivo,
-        colaboradorIdProposto: colaboradorIdFinal ?? null,
-        distanciaTop1: best.distance,
-        duracaoMs: Date.now() - startTime,
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoLog(imagem, 'INACTIVE_COLLABORATOR', dispositivoCodigo);
+        logFaceEventAsync({
+          evento: 'INACTIVE_COLLABORATOR',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          qualidade,
+          thresholdEfetivo,
+          colaboradorIdProposto: colaboradorIdFinal ?? null,
+          distanciaTop1: best.distance,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+        });
+      })().catch((e) => console.error('[INACTIVE log] falha:', e));
       return jsonResponse({
         success: true,
         data: {
@@ -1550,26 +1599,34 @@ export async function POST(request: NextRequest) {
 
     // Log de sucesso. MATCH_CONFIRMED quando ponto foi registrado;
     // MATCH_PROPOSED quando só identificou (deveRegistrarPonto=false).
-    logFaceEventAsync({
-      evento: pontoRegistrado ? 'MATCH_CONFIRMED' : 'MATCH_PROPOSED',
-      endpoint: 'verificar-face',
-      origem,
-      ip: clientIp,
-      userAgent: getUserAgent(request),
-      dispositivoCodigo,
-      latitude,
-      longitude,
-      qualidade,
-      thresholdEfetivo,
-      colaboradorIdProposto: colaborador.id,
-      colaboradorIdConfirmado: pontoRegistrado ? colaborador.id : null,
-      distanciaTop1: best.distance,
-      distanciaTop2: second?.distance ?? null,
-      gapTop12: second ? second.distance - best.distance : null,
-      marcacaoId: pontoRegistrado?.marcacaoId ?? null,
-      duracaoMs: Date.now() - startTime,
-      metadados: atrasoInfo ? { requerAprovacaoAtraso: true } : null,
-    });
+    // Pra ambos os casos sobe a foto capturada — em MATCH_CONFIRMED a
+    // marcação também tem foto_url, mas mantemos cópia dedicada nos
+    // logs pra não acoplar storage de marcação ao histórico de eventos.
+    const eventoSucesso = pontoRegistrado ? 'MATCH_CONFIRMED' : 'MATCH_PROPOSED';
+    (async () => {
+      const fotoUrl = await uploadFotoLog(imagem, eventoSucesso, dispositivoCodigo);
+      logFaceEventAsync({
+        evento: eventoSucesso,
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        qualidade,
+        thresholdEfetivo,
+        colaboradorIdProposto: colaborador.id,
+        colaboradorIdConfirmado: pontoRegistrado ? colaborador.id : null,
+        distanciaTop1: best.distance,
+        distanciaTop2: second?.distance ?? null,
+        gapTop12: second ? second.distance - best.distance : null,
+        marcacaoId: pontoRegistrado?.marcacaoId ?? null,
+        fotoUrl,
+        duracaoMs: Date.now() - startTime,
+        metadados: atrasoInfo ? { requerAprovacaoAtraso: true } : null,
+      });
+    })().catch((e) => console.error(`[${eventoSucesso} log] falha:`, e));
     return jsonResponse({
       success: true,
       data: {
