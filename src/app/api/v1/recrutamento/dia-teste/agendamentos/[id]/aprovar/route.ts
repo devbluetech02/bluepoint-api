@@ -9,7 +9,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { enviarMensagemWhatsApp, getRecrutamentoEvolutionConfig } from '@/lib/evolution-api';
+import { enviarMensagemWhatsApp, getRecrutamentoEvolutionConfigPorResponsavel } from '@/lib/evolution-api';
 import { criarTokenReferencias } from '@/lib/referencias-token';
 import {
   loadAgendamento,
@@ -212,13 +212,15 @@ export async function POST(
           const candRes = await queryRecrutamento<{
             nome: string | null;
             telefone: string | null;
+            resposavel: string | null;
           }>(
-            `SELECT nome, telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
+            `SELECT nome, telefone, resposavel FROM public.candidatos WHERE id = $1 LIMIT 1`,
             [Number(ag.candidato_recrutamento_id)],
           );
           const cand = candRes.rows[0];
           const tel = (cand?.telefone ?? '').replace(/\D/g, '');
           const primeiroNome = (cand?.nome ?? 'Candidato').split(' ')[0];
+          const responsavel = cand?.resposavel ?? null;
 
           if (tel.length >= 10) {
             const token = criarTokenReferencias({
@@ -251,13 +253,13 @@ export async function POST(
               `Agradecemos desde já!`,
             ].join('\n');
 
-            // Manda pela instancia do RH/recrutamento (env
-            // EVOLUTION_INSTANCE_RECRUTAMENTO) — quem assina o pedido. Cai pra
-            // instancia padrao se a env nao estiver setada.
+            // Manda pela instancia do recrutador responsavel pelo candidato
+            // (mapa em EVOLUTION_INSTANCES_RECRUTAMENTO). Cai pro default
+            // (Robson) quando responsavel nao reconhecido ou env nao setada.
             const r = await enviarMensagemWhatsApp(
               tel,
               mensagem,
-              getRecrutamentoEvolutionConfig(),
+              getRecrutamentoEvolutionConfigPorResponsavel(responsavel),
             );
             whatsappReferencias = { enviado: r.ok, erro: r.ok ? undefined : r.erro };
             if (!r.ok) {

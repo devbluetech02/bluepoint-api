@@ -47,6 +47,77 @@ export function getRecrutamentoEvolutionConfig(): EvolutionConfig {
   };
 }
 
+/**
+ * Cada recrutador (responsável pelo candidato no banco de Recrutamento) tem
+ * sua própria instância WhatsApp na Evolution. Mensagens de processo
+ * seletivo (ex.: pedir referências após aprovar+encerrar) saem da
+ * instância do responsável daquele candidato — assim o lead recebe
+ * sempre do mesmo número que falou com ele desde o início.
+ *
+ * Configuração via env `EVOLUTION_INSTANCES_RECRUTAMENTO` em formato JSON:
+ *   {"renata":{"instance":"RH_RENATA","apiKey":"..."},
+ *    "thayane":{"instance":"RH_THAYANE","apiKey":"..."},
+ *    "robson":{"instance":"RH_ROBSON","apiKey":"..."}}
+ *
+ * Lookup por primeiro nome do responsável (case/accent insensitive).
+ * Se não houver match, devolve o config recrutamento default
+ * (`getRecrutamentoEvolutionConfig()` — hoje aponta pro Robson).
+ */
+type EvolutionInstanceMap = Record<string, { instance?: string; apiKey?: string; url?: string }>;
+
+function lerInstancesMap(): EvolutionInstanceMap {
+  const raw = process.env.EVOLUTION_INSTANCES_RECRUTAMENTO;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      // Normaliza chaves pra lowercase sem acento
+      const out: EvolutionInstanceMap = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          out[normalizarNome(k)] = v as { instance?: string; apiKey?: string; url?: string };
+        }
+      }
+      return out;
+    }
+  } catch (e) {
+    console.warn('[Evolution API] EVOLUTION_INSTANCES_RECRUTAMENTO JSON inválido:', e);
+  }
+  return {};
+}
+
+function normalizarNome(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // strip diacritics
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)[0]; // primeiro nome
+}
+
+export function getRecrutamentoEvolutionConfigPorResponsavel(
+  nomeResponsavel: string | null | undefined,
+): EvolutionConfig {
+  const fallback = getRecrutamentoEvolutionConfig();
+  if (!nomeResponsavel) return fallback;
+
+  const primeiroNome = normalizarNome(nomeResponsavel);
+  if (!primeiroNome) return fallback;
+
+  const map = lerInstancesMap();
+  const entry = map[primeiroNome];
+  if (!entry) {
+    console.warn(`[Evolution API] Sem instância configurada pro responsável "${nomeResponsavel}" (chave="${primeiroNome}") — usando default`);
+    return fallback;
+  }
+
+  return {
+    url: entry.url ?? fallback.url,
+    apiKey: entry.apiKey ?? fallback.apiKey,
+    instance: entry.instance ?? fallback.instance,
+  };
+}
+
 export async function enviarMensagemWhatsApp(
   numero: string,
   texto: string,
