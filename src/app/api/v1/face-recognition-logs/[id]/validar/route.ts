@@ -34,7 +34,13 @@ import { cacheDel, CACHE_KEYS } from '@/lib/cache';
 
 const MAX_ENCODINGS_APRENDIDOS = 20;
 const AUTO_APRENDER_MIN_QUALIDADE = 0.50;
-const DIVERSIDADE_MINIMA = 0.08;
+// Validação supervisionada é mais permissiva que auto-aprendizado:
+// admin já confirmou que é a pessoa certa, então mesmo encodings
+// quase iguais não contaminam o cluster. Reduz de 0.08 → 0.03 pra
+// não pular tantos casos. Apenas duplicatas exatas (dist < 0.03)
+// ainda são puladas — se a foto for idêntica a uma já cadastrada,
+// nada novo pra aprender.
+const DIVERSIDADE_MINIMA = 0.03;
 
 const schema = z.object({
   correto: z.boolean(),
@@ -238,6 +244,16 @@ export async function POST(
           colaboradorId: log.colaborador_id_proposto,
           fotoUrl: log.foto_url,
         });
+        // Persiste o resultado em metadados do log pra que o admin
+        // veja na aba de Auditoria por que o aprendizado pulou (ou não).
+        await query(
+          `UPDATE people.face_recognition_logs
+              SET metadados = COALESCE(metadados, '{}'::jsonb) || jsonb_build_object(
+                'validacao_aprendizado', $1::jsonb
+              )
+            WHERE id = $2`,
+          [JSON.stringify(aprendizado), logId],
+        );
       } catch (e) {
         console.error('[validar] erro no auto-aprendizado (não crítico):', e);
         aprendizado = { aprendido: false, motivo: `excecao: ${(e as Error).message}` };
