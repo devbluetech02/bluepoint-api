@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { withAuth } from '@/lib/middleware';
-import { normalizarNomeRecrutador } from '@/lib/normalizar-nome';
+import { normalizarNomeRecrutador, SQL_NORMALIZE_NOME } from '@/lib/normalizar-nome';
 import {
   successResponse,
   forbiddenResponse,
@@ -23,14 +23,25 @@ export async function POST(request: NextRequest) {
       const nome = normalizarNomeRecrutador(user.nome);
       if (!nome) return forbiddenResponse('Sem nome no token');
 
+      // Match accent/case-insensitive — recrutador_nome no banco vem
+      // gravado com SQL_NORMALIZE_NOME pelo cron, mas JS-side
+      // normalizarNomeRecrutador pode discordar em edge cases (espacos
+      // extras, caracteres ñ, etc). Compara ambos os lados normalizados
+      // pra garantir match.
       const r = await query<{ id: string }>(
         `UPDATE people.recrutador_avaliacao_ia
             SET visto_em = now()
-          WHERE recrutador_nome = $1
+          WHERE ${SQL_NORMALIZE_NOME('recrutador_nome')} = ${SQL_NORMALIZE_NOME('$1')}
             AND visto_em IS NULL
         RETURNING id::text`,
         [nome]
       );
+
+      if (r.rows.length === 0) {
+        console.warn(
+          `[feedback-pendente/visto] marcadas=0 user="${user.nome}" normalizado="${nome}" — provavel mismatch entre nome no JWT e recrutador_nome gravado`
+        );
+      }
 
       return successResponse({
         marcadas: r.rows.length,

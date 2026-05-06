@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
 import { withAuth } from '@/lib/middleware';
-import { normalizarNomeRecrutador } from '@/lib/normalizar-nome';
+import { normalizarNomeRecrutador, SQL_NORMALIZE_NOME } from '@/lib/normalizar-nome';
 import {
   successResponse,
   serverErrorResponse,
@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
         `SELECT id::text, score, veredito, feedback_recrutador,
                 pontos_fortes, pontos_fracos, entrevistas_avaliadas, criado_em
            FROM people.recrutador_avaliacao_ia
-          WHERE recrutador_nome = $1
+          WHERE ${SQL_NORMALIZE_NOME('recrutador_nome')} = ${SQL_NORMALIZE_NOME('$1')}
             AND visto_em IS NULL
           ORDER BY criado_em ASC`,
         [nome]
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
         const ultRes = await query<{ ultimo: Date | null }>(
           `SELECT MAX(visto_em) AS ultimo
              FROM people.recrutador_avaliacao_ia
-            WHERE recrutador_nome = $1
+            WHERE ${SQL_NORMALIZE_NOME('recrutador_nome')} = ${SQL_NORMALIZE_NOME('$1')}
               AND visto_em IS NOT NULL`,
           [nome]
         );
