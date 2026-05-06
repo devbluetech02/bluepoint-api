@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { withRole } from '@/lib/middleware';
+import { withGestor } from '@/lib/middleware';
 import { JWTPayload } from '@/lib/auth';
 import { extractFaceEncoding, encodingToBuffer } from '@/lib/face-recognition';
 import { registrarAuditoria } from '@/lib/audit';
@@ -19,9 +19,6 @@ const cadastrarFaceCpfSchema = z.object({
   // Imagem facial
   imagem: z.string().min(100, 'Imagem inválida'),
 });
-
-// Tipos de usuário que podem cadastrar biometria
-const TIPOS_PERMITIDOS = ['admin', 'gestor', 'gerente', 'supervisor', 'coordenador', 'rh'];
 
 // Response helper
 function jsonResponse(data: object, status: number = 200, headers: Record<string, string> = {}) {
@@ -104,8 +101,9 @@ export async function POST(request: NextRequest) {
     }, 429, rateLimitHeaders);
   }
 
-  // Autenticação via JWT com validação de role
-  return withRole(request, TIPOS_PERMITIDOS, async (req: NextRequest, user: JWTPayload) => {
+  // Autenticação via JWT — aceita super admin (id 1), nível >= 2 (gestor/admin)
+  // ou tipo legado em TIPOS_GESTAO (compat com JWTs antigos).
+  return withGestor(request, async (req: NextRequest, user: JWTPayload) => {
     try {
       // Parse body
       let body;
