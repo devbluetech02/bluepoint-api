@@ -77,6 +77,16 @@ export async function GET(request: NextRequest) {
           filtros.push(`criado_em < ($${i++}::date + INTERVAL '1 day')`);
           params.push(periodoAte);
         }
+        // Recrutador deve ser colaborador ATIVO no people. Match por nome
+        // normalizado (UPPER+TRIM) — recrutador_avaliacao_ia.recrutador_nome
+        // já vem do banco de Recrutamento sem ID estável de colaborador.
+        // Recrutadores que sairam do quadro (status='inativo') somem da
+        // listagem e do dropdown.
+        filtros.push(
+          `UPPER(TRIM(recrutador_nome)) IN (
+             SELECT UPPER(TRIM(nome)) FROM people.colaboradores WHERE status = 'ativo'
+           )`
+        );
         const where = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
 
         // Total + items + recrutadores distinct numa cadeia de queries.
@@ -117,9 +127,14 @@ export async function GET(request: NextRequest) {
           [...params, limit, offset]
         );
 
+        // Mesma regra de filtro: dropdown só lista recrutadores que ainda
+        // são colaboradores ativos.
         const recrutRes = await query<{ recrutador_nome: string }>(
           `SELECT DISTINCT recrutador_nome
              FROM people.recrutador_avaliacao_ia
+            WHERE UPPER(TRIM(recrutador_nome)) IN (
+              SELECT UPPER(TRIM(nome)) FROM people.colaboradores WHERE status = 'ativo'
+            )
             ORDER BY recrutador_nome ASC`
         );
 
