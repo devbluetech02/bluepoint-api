@@ -774,62 +774,18 @@ export async function POST(request: NextRequest) {
       }, 200, rateLimitHeaders);
     }
 
-    // (2) Ambíguo: duas pessoas com distâncias muito próximas. Mesmo
-    // dentro do threshold, isso é o caso clássico de falso positivo
-    // (rosto cruzando com colaborador parecido). Rejeita e pede outra
-    // tentativa — o cliente segue escaneando.
-    const AMBIGUITY_GAP = 0.05;
-    if (second && second.distance - best.distance < AMBIGUITY_GAP) {
+    // (2) Antes rejeitávamos quando o gap top-1 vs top-2 era muito
+    // pequeno (AMBIGUOUS_MATCH). A trava virou ruído em campo —
+    // gente legitimamente parecida (clusters próximos) era barrada
+    // toda hora. Agora seguimos com o menor (best) e deixamos a
+    // segurança extra a cargo da camada LLM (verifyFacesComLLM
+    // dispara quando dist > 0.30). Mantemos warning em log pra
+    // continuar observando o fenômeno.
+    if (second && second.distance - best.distance < 0.05) {
       console.warn(
-        `[Verificar Face] AMBIGUOUS_MATCH: ${best.key}=${best.distance.toFixed(4)} vs ` +
-          `${second.key}=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)} < ${AMBIGUITY_GAP}) — rejeitado`,
+        `[Verificar Face] gap pequeno top1↔top2: ${best.key}=${best.distance.toFixed(4)} vs ` +
+          `${second.key}=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)}) — seguindo com top-1`,
       );
-      (async () => {
-        const fotoUrl = await uploadFotoLog(imagem, 'AMBIGUOUS_MATCH', dispositivoCodigo);
-        logFaceEventAsync({
-          evento: 'AMBIGUOUS_MATCH',
-          endpoint: 'verificar-face',
-          origem,
-          ip: clientIp,
-          userAgent: getUserAgent(request),
-          dispositivoCodigo,
-          latitude,
-          longitude,
-          qualidade,
-          thresholdEfetivo,
-          colaboradorIdProposto: best.match.colaboradorId ?? null,
-          externalIdProposto: best.match.externalIds ?? null,
-          distanciaTop1: best.distance,
-          distanciaTop2: second.distance,
-          gapTop12: second.distance - best.distance,
-          fotoUrl,
-          duracaoMs: Date.now() - startTime,
-          metadados: {
-            top2Key: second.key,
-            ambiguityGap: AMBIGUITY_GAP,
-          },
-        });
-      })().catch((e) => console.error('[AMBIGUOUS_MATCH log] falha:', e));
-      return jsonResponse({
-        success: true,
-        data: {
-          identificado: false,
-          tipo: null,
-          colaboradorId: null,
-          externalId: null,
-          colaborador: null,
-          confianca: 0,
-          token: null,
-          refreshToken: null,
-          pontoRegistrado: null,
-          mensagem:
-            'Não foi possível confirmar sua identidade com segurança (mais de uma pessoa parecida). Tente novamente.',
-          code: 'AMBIGUOUS_MATCH',
-          qualidadeCaptura: qualidade,
-          thresholdUtilizado: thresholdEfetivo,
-          processedIn: Date.now() - startTime,
-        },
-      }, 200, rateLimitHeaders);
     }
 
     const matchedRecord = best.match;
