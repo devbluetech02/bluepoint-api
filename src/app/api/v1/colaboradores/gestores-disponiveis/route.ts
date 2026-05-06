@@ -3,6 +3,11 @@ import { query } from '@/lib/db';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
 import { withAuth } from '@/lib/middleware';
 
+// Cargos cujo nome (normalizado, accent-insensitive, UPPER) faz match
+// contra qualquer um destes substrings sao filtrados — nivel 2/3 mas
+// nao aprovam solicitacoes rotineiras de ponto/hora extra.
+const CARGOS_EXCLUIDOS_SUBSTRINGS = ['RECRUTADOR', 'RECRUTAMENTO', 'OWNER'];
+
 // GET /api/v1/colaboradores/gestores-disponiveis
 //
 // Lista enxuta de gestores ativos pra dropdown de "Selecione o gestor"
@@ -18,8 +23,19 @@ import { withAuth } from '@/lib/middleware';
 // e-mail, CPF, telefone ou dados internos.
 
 export async function GET(request: NextRequest) {
-  return withAuth(request, async () => {
+  return withAuth(request, async (_req, user) => {
     try {
+      // Monta clausulas dinamicas pra filtrar cargos excluidos.
+      // translate cobre acentuacao PT-BR sem exigir extensao unaccent
+      // (mesmo padrao do helper normalizar-nome).
+      const cargoNomeNormalizado = `UPPER(translate(COALESCE(cg.nome, ''),
+        'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+        'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))`;
+      const cargoFilters = CARGOS_EXCLUIDOS_SUBSTRINGS.map(
+        (sub, i) => `${cargoNomeNormalizado} NOT LIKE $${i + 2}`,
+      ).join(' AND ');
+      const cargoFilterParams = CARGOS_EXCLUIDOS_SUBSTRINGS.map((s) => `%${s}%`);
+
       const result = await query<{
         id: number;
         nome: string;
@@ -40,22 +56,12 @@ export async function GET(request: NextRequest) {
            LEFT JOIN people.departamentos d  ON d.id = c.departamento_id
            LEFT JOIN people.empresas e       ON e.id = c.empresa_id
           WHERE c.status = 'ativo'
+            AND c.id <> $1
             AND cg.nivel_acesso_id IS NOT NULL
             AND cg.nivel_acesso_id >= 2
-            -- Recrutadores tem nivel 2 mas nao aprovam solicitacoes de
-            -- ponto/hora extra. Filtra fora por nome do cargo (cobre
-            -- "Recrutador(a)", "Analista de Recrutamento", etc.).
-            -- translate cobre acentuacao PT-BR sem exigir a extensao
-            -- unaccent (mesmo padrao do helper normalizar-nome).
-            AND UPPER(translate(COALESCE(cg.nome, ''),
-                                'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
-                                'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
-              NOT LIKE '%RECRUTADOR%'
-            AND UPPER(translate(COALESCE(cg.nome, ''),
-                                'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
-                                'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'))
-              NOT LIKE '%RECRUTAMENTO%'
+            AND ${cargoFilters}
           ORDER BY c.nome ASC`,
+        [user.userId, ...cargoFilterParams],
       );
 
       const dados = result.rows.map((r) => ({
