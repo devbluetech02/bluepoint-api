@@ -205,6 +205,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         values.push(body.mensagemAso.trim());  sets.push(`mensagem_aso = $${values.length}`);
         sets.push('aso_solicitado_em = NOW()');
       }
+      if (body.status === 'aso_recebido') {
+        sets.push('aso_recebido_em = NOW()');
+      }
+      if (body.status === 'assinatura_solicitada') {
+        sets.push('assinatura_solicitada_em = NOW()');
+      }
 
       // Preserva o status anterior ao entrar em correcao_solicitada — usado
       // no reenvio pós-correção para restaurar o ponto em que o candidato estava.

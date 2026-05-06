@@ -47,6 +47,9 @@ export async function GET(request: NextRequest, { params }: Params) {
            s.data_exame_aso,
            s.mensagem_aso,
            s.aso_solicitado_em,
+           s.aso_recebido_em,
+           s.assinatura_solicitada_em,
+           s.contrato_assinado_em,
            s.criado_em,
            s.atualizado_em,
            s.usuario_provisorio_id,
@@ -170,6 +173,10 @@ export async function GET(request: NextRequest, { params }: Params) {
         dadosExtraidosEm:    s.dados_extraidos_em    ?? null,
         criadoEm:            s.criado_em,
         atualizadoEm:        s.atualizado_em,
+        asoSolicitadoEm:        s.aso_solicitado_em        ?? null,
+        asoRecebidoEm:          s.aso_recebido_em          ?? null,
+        assinaturaSolicitadaEm: s.assinatura_solicitada_em ?? null,
+        contratoAssinadoEm:     s.contrato_assinado_em     ?? null,
       });
     } catch (error) {
       console.error('Erro ao obter solicitação de admissão:', error);
