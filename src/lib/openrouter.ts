@@ -116,6 +116,95 @@ export async function openRouterChat(
 }
 
 /**
+ * Variante multimodal — manda imagens junto com texto. Usa o mesmo modelo
+ * default (claude-sonnet-4.5 suporta vision) ou outro especificado em
+ * opts. Cada item de imageUrls precisa ser HTTP/HTTPS publicamente
+ * acessível pelo OpenRouter (S3 com OAC pode falhar; usa MinIO/Cloudinary).
+ */
+export async function openRouterVision(
+  textPrompt: string,
+  imageUrls: string[],
+  opts?: {
+    systemPrompt?: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    responseFormatJson?: boolean;
+    timeoutMs?: number;
+  },
+): Promise<OpenRouterResult | OpenRouterFailure> {
+  const apiKey = process.env.OPENROUTER_API_KEY || process.env.OPENAI_API_KEY;
+  if (!apiKey) return { ok: false, reason: 'openrouter_key_ausente' };
+
+  const model = opts?.model
+    ?? process.env.OPENROUTER_MODEL
+    ?? process.env.OPENAI_MODEL
+    ?? 'anthropic/claude-sonnet-4.5';
+
+  const userContent: Array<Record<string, unknown>> = [
+    { type: 'text', text: textPrompt },
+    ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } })),
+  ];
+
+  const messages: Array<{ role: string; content: unknown }> = [];
+  if (opts?.systemPrompt) {
+    messages.push({ role: 'system', content: opts.systemPrompt });
+  }
+  messages.push({ role: 'user', content: userContent });
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: opts?.temperature ?? 0.1,
+  };
+  if (opts?.maxTokens) body.max_tokens = opts.maxTokens;
+  if (opts?.responseFormatJson) body.response_format = { type: 'json_object' };
+
+  const controller = new AbortController();
+  const timeoutMs = opts?.timeoutMs ?? 60_000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': process.env.OPENROUTER_REFERRER ?? 'https://people-api.valerisapp.com.br',
+        'X-Title': 'BluePoint People - IA Vision',
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await resp.text();
+    if (!resp.ok) {
+      return { ok: false, reason: `http_${resp.status}: ${text.slice(0, 300)}`, status: resp.status };
+    }
+    const parsed = JSON.parse(text) as {
+      model?: string;
+      choices?: { message?: { content?: string } }[];
+      usage?: OpenRouterUsage;
+    };
+    const content = parsed.choices?.[0]?.message?.content ?? '';
+    if (!content) return { ok: false, reason: 'content_vazio' };
+    return {
+      ok: true,
+      model: parsed.model ?? model,
+      content,
+      usage: parsed.usage ?? {},
+      raw: parsed,
+    };
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      return { ok: false, reason: 'timeout' };
+    }
+    return { ok: false, reason: `excecao: ${(err as Error).message}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Extrai o primeiro bloco JSON válido da resposta do modelo. Modelos LLM às
  * vezes embrulham em ```json ... ``` ou adicionam texto antes/depois. Usamos
  * a resposta crua + algumas heurísticas pra ser robusto.
