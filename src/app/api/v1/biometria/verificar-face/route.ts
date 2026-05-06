@@ -32,7 +32,11 @@ import { uploadArquivo } from '@/lib/storage';
 import { z } from 'zod';
 
 const verificarFaceSchema = z.object({
-  imagem: z.string().min(100, 'Imagem inválida'),
+  // Compat: cliente antigo manda 1 foto. Cliente novo manda array com
+  // até 5 frames consecutivos pra consensus (multi-frame). Pelo menos
+  // um dos dois precisa estar presente.
+  imagem: z.string().min(100).optional(),
+  imagens: z.array(z.string().min(100)).min(1).max(5).optional(),
   // Campos opcionais para dispositivo autorizado
   dispositivoCodigo: z.string().length(6).toUpperCase().optional(),
   registrarPonto: z.boolean().optional().default(false),
@@ -423,7 +427,35 @@ export async function POST(request: NextRequest) {
       }, 422, rateLimitHeaders);
     }
 
-    const { imagem, dispositivoCodigo, registrarPonto: deveRegistrarPonto, tipoPonto, latitude, longitude, origem } = validation.data;
+    const {
+      imagem: imagemSingle,
+      imagens,
+      dispositivoCodigo,
+      registrarPonto: deveRegistrarPonto,
+      tipoPonto,
+      latitude,
+      longitude,
+      origem,
+    } = validation.data;
+
+    // Lista normalizada de frames pra consensus (1 ou mais, até 5).
+    // Se cliente antigo mandou só `imagem`, vira array de 1.
+    const imagensArray: string[] = (() => {
+      if (imagens && imagens.length > 0) return imagens.slice(0, 5);
+      if (imagemSingle) return [imagemSingle];
+      return [];
+    })();
+    if (imagensArray.length === 0) {
+      return jsonResponse({
+        success: false,
+        error: 'Imagem é obrigatória (campo `imagem` ou `imagens`)',
+        code: 'VALIDATION_ERROR',
+      }, 422, rateLimitHeaders);
+    }
+    // Compat com o resto do código que usa `imagem` (upload de foto, LLM,
+    // marcação): pega a primeira (será substituída pela de melhor
+    // qualidade após extração).
+    let imagem: string = imagensArray[0];
 
     // Código de dispositivo inexistente (DEVICE_NOT_FOUND) não bloqueia: registra ponto após face + colaborador válido.
     // Dispositivo inativo/bloqueado continua sendo rejeitado aqui.
@@ -460,15 +492,65 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Extrair encoding da imagem enviada via InsightFace/ArcFace
+    // Extrair encoding via InsightFace/ArcFace.
+    //
+    // Multi-frame consensus: se cliente enviou múltiplos frames,
+    // extrai todos em paralelo e calcula a MÉDIA L2-normalizada dos
+    // embeddings válidos. Reduz ruído de movimento/blink/oclusão
+    // momentânea — uma frame ruim sozinha tem peso reduzido.
+    // A foto associada (logs, marcação) é sempre a de MELHOR qualidade
+    // do conjunto, pra que a evidência visual fique útil.
     const extractStart = Date.now();
-    const { 
-      encoding, 
-      qualidade, 
-      qualidadeDetalhada,
-      error 
-    } = await extractFaceEncoding(imagem);
-    console.log(`[Verificar Face] Extração: ${Date.now() - extractStart}ms`);
+    const extracoes = await Promise.all(
+      imagensArray.map((img) => extractFaceEncoding(img)),
+    );
+    const validas = extracoes
+      .map((e, idx) => ({ ...e, idx }))
+      .filter((e): e is typeof e & { encoding: Float32Array } => !!e.encoding);
+
+    let encoding: Float32Array | null = null;
+    let qualidade = 0;
+    let qualidadeDetalhada: typeof extracoes[number]['qualidadeDetalhada'] = undefined;
+    let error: string | undefined;
+
+    if (validas.length === 0) {
+      error = extracoes[0]?.error || 'Nenhuma face detectada nas imagens';
+    } else {
+      // Pega a frame de melhor qualidade pra ser usada como evidência
+      // (foto da marcação, log, comparação visual no admin).
+      const best = validas.reduce((a, b) => (a.qualidade >= b.qualidade ? a : b));
+      qualidade = best.qualidade;
+      qualidadeDetalhada = best.qualidadeDetalhada;
+      imagem = imagensArray[best.idx];
+
+      if (validas.length === 1) {
+        encoding = validas[0].encoding;
+      } else {
+        // Mean L2-normalized — embeddings já vêm L2-norm do face-service.
+        // Soma e renormaliza pra que cosine distance funcione no espaço
+        // unitário esperado pelo ArcFace.
+        const len = validas[0].encoding.length;
+        const mean = new Float32Array(len);
+        for (const v of validas) {
+          for (let i = 0; i < len; i++) {
+            mean[i] += v.encoding[i];
+          }
+        }
+        for (let i = 0; i < len; i++) mean[i] /= validas.length;
+        let norm = 0;
+        for (let i = 0; i < len; i++) norm += mean[i] * mean[i];
+        norm = Math.sqrt(norm);
+        if (norm > 0) {
+          for (let i = 0; i < len; i++) mean[i] /= norm;
+        }
+        encoding = mean;
+      }
+    }
+    console.log(
+      `[Verificar Face] Extração: ${Date.now() - extractStart}ms, ` +
+        `frames=${imagensArray.length} válidos=${validas.length}, ` +
+        `qualidade=${qualidade.toFixed(3)}`,
+    );
 
     if (!encoding || error) {
       // Sobe a frame que falhou pra MinIO + registra auditoria. Permite
