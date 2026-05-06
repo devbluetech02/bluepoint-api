@@ -492,6 +492,10 @@ export async function POST(request: NextRequest) {
     
     if (!encodings) {
       console.log('[Verificar Face] Cache MISS - buscando do banco...');
+      // Trava: colaborador INATIVO não entra no banco de encodings.
+      // Antes, registros com external_id passavam mesmo se o
+      // colaborador estivesse inativo, abrindo brecha pra match em
+      // ex-funcionário ou conta desativada.
       const encodingsResult = await query(
         `SELECT bf.colaborador_id, bf.external_id, bf.encoding, bf.encodings_extras,
                 bf.encodings_aprendidos, bf.qualidades_aprendidos, bf.total_aprendidos
@@ -499,8 +503,8 @@ export async function POST(request: NextRequest) {
          LEFT JOIN people.colaboradores c ON bf.colaborador_id = c.id
          WHERE bf.encoding IS NOT NULL
            AND (
-             bf.external_id IS NOT NULL 
-             OR (bf.colaborador_id IS NOT NULL AND c.status = 'ativo')
+             bf.colaborador_id IS NULL
+             OR c.status = 'ativo'
            )`
       );
 
@@ -1007,11 +1011,52 @@ export async function POST(request: NextRequest) {
     );
 
     if (colaboradorResult.rows.length === 0) {
+      // Defesa em profundidade: a query do cache já filtra inativos,
+      // mas se algum encoding stale escapou (cache antigo de antes do
+      // colaborador virar inativo), capturamos aqui — invalidamos o
+      // cache pra forçar reload limpo no próximo request, e
+      // registramos a tentativa em auditoria pra rastrear.
+      console.warn(
+        `[Verificar Face] Match de colaborador NÃO ATIVO (id=${colaboradorIdFinal}) — rejeitando + invalidando cache de encodings`,
+      );
+      try {
+        await cacheDelPattern(`${CACHE_KEYS.BIOMETRIA_ENCODINGS}*`);
+      } catch (e) {
+        console.warn('[Verificar Face] Falha ao invalidar cache:', e);
+      }
+      await registrarAuditoria({
+        usuarioId: null,
+        acao: 'criar',
+        modulo: 'biometria',
+        descricao: `Tentativa de reconhecimento bloqueada: colaborador alvo inativo ou não cadastrado (id=${colaboradorIdFinal}, dist=${best.distance.toFixed(4)})`,
+        ip: getClientIp(request),
+        userAgent: getUserAgent(request),
+        colaboradorId: colaboradorIdFinal ?? undefined,
+        entidadeTipo: 'biometria',
+        metadados: {
+          colaboradorId: colaboradorIdFinal,
+          distance: best.distance,
+          motivo: 'colaborador_inativo_ou_inexistente',
+        },
+      });
       return jsonResponse({
-        success: false,
-        error: 'Colaborador não encontrado no banco de dados',
-        code: 'COLLABORATOR_NOT_FOUND',
-      }, 404, rateLimitHeaders);
+        success: true,
+        data: {
+          identificado: false,
+          tipo: null,
+          colaboradorId: null,
+          externalId: null,
+          colaborador: null,
+          confianca: 0,
+          token: null,
+          refreshToken: null,
+          pontoRegistrado: null,
+          mensagem:
+            'Colaborador inativo ou sem cadastro válido. Procure o RH.',
+          code: 'INACTIVE_COLLABORATOR',
+          processedIn: Date.now() - startTime,
+        },
+      }, 200, rateLimitHeaders);
     }
 
     const colaborador = colaboradorResult.rows[0];

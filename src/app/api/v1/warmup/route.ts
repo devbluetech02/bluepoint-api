@@ -32,14 +32,15 @@ export async function GET() {
     let encodings = await cacheGet(CACHE_KEYS.BIOMETRIA_ENCODINGS);
     
     if (!encodings) {
+      // Mesma trava de inativos: ver /verificar-face/route.ts.
       const encodingsResult = await query(
         `SELECT bf.colaborador_id, bf.external_id, bf.encoding
          FROM people.biometria_facial bf
          LEFT JOIN people.colaboradores c ON bf.colaborador_id = c.id
          WHERE bf.encoding IS NOT NULL
            AND (
-             bf.external_id IS NOT NULL 
-             OR (bf.colaborador_id IS NOT NULL AND c.status = 'ativo')
+             bf.colaborador_id IS NULL
+             OR c.status = 'ativo'
            )`
       );
 

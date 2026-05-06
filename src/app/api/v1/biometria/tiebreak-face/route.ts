@@ -145,6 +145,9 @@ export async function POST(request: NextRequest) {
       CACHE_KEYS.BIOMETRIA_ENCODINGS,
     );
     if (!encodingsCached) {
+      // Mesma trava de inativos do /verificar-face: registros com
+      // colaborador_id != null exigem status='ativo'. Externos puros
+      // continuam passando (colaborador_id IS NULL).
       const r = await query(
         `SELECT bf.colaborador_id, bf.external_id, bf.encoding, bf.encodings_extras,
                 bf.encodings_aprendidos, bf.qualidades_aprendidos, bf.total_aprendidos
@@ -152,8 +155,8 @@ export async function POST(request: NextRequest) {
            LEFT JOIN people.colaboradores c ON bf.colaborador_id = c.id
           WHERE bf.encoding IS NOT NULL
             AND (
-              bf.external_id IS NOT NULL
-              OR (bf.colaborador_id IS NOT NULL AND c.status = 'ativo')
+              bf.colaborador_id IS NULL
+              OR c.status = 'ativo'
             )`,
       );
       encodingsCached = r.rows.map((row) => {
