@@ -9,7 +9,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
-import { criarOuReaproveitarProvisorio } from '@/lib/usuarios-provisorios';
+import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
@@ -175,128 +175,69 @@ export async function POST(
         proximoStatus = 'dia_teste';
       }
 
-      // Aprovação no dia de teste = candidato segue pra pré-admissão.
-      // Cria usuário provisório + solicitação de admissão (mesmo trilho do
-      // caminho B em /recrutamento/processos), e linka ao processo_seletivo.
-      // Sem isso, o processo fica em 'pre_admissao' sem provisório nem form
-      // pra preencher — é o gap que travava a continuação do fluxo.
-      let provisorioInfo: {
+      // Aprovação no dia de teste com acao='encerrar' agora NÃO cria
+      // provisório/solicitação direto — o processo entra em
+      // 'coletar_referencias'. Provisório só é gerado quando RH preenche
+      // 2 referências do candidato via POST /referencias.
+      //
+      // Aqui só dispara WhatsApp pro candidato pedindo as referências
+      // (best-effort — falha não bloqueia a aprovação).
+      let whatsappReferencias: { enviado: boolean; erro?: string } | null = null;
+
+      if (acao === 'encerrar' && proximoStatus === 'coletar_referencias') {
+        try {
+          const candRes = await queryRecrutamento<{
+            nome: string | null;
+            telefone: string | null;
+          }>(
+            `SELECT nome, telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
+            [Number(ag.candidato_recrutamento_id)],
+          );
+          const cand = candRes.rows[0];
+          const tel = (cand?.telefone ?? '').replace(/\D/g, '');
+          const primeiroNome = (cand?.nome ?? 'Candidato').split(' ')[0];
+
+          if (tel.length >= 10) {
+            // TODO: substituir pelo template definitivo informado pelo RH.
+            const mensagem = [
+              `Olá, ${primeiroNome}!`,
+              ``,
+              `Você foi APROVADO no dia de teste — parabéns! 🎉`,
+              ``,
+              `Pra prosseguir com a admissão, precisamos de 2 referências profissionais (nome completo + telefone).`,
+              ``,
+              `Por favor, responda esta mensagem com:`,
+              `*Referência 1:* Nome — Telefone`,
+              `*Referência 2:* Nome — Telefone`,
+            ].join('\n');
+
+            const r = await enviarMensagemWhatsApp(tel, mensagem);
+            whatsappReferencias = { enviado: r.ok, erro: r.ok ? undefined : r.erro };
+            if (!r.ok) {
+              console.warn(`[dia-teste/aprovar] WhatsApp pedindo referências falhou: ${r.erro}`);
+            }
+          } else {
+            whatsappReferencias = { enviado: false, erro: 'telefone do candidato ausente' };
+            console.warn('[dia-teste/aprovar] sem telefone pra disparar WhatsApp de referências');
+          }
+        } catch (e) {
+          console.warn('[dia-teste/aprovar] erro ao disparar WhatsApp de referências:', e);
+          whatsappReferencias = { enviado: false, erro: `${e}` };
+        }
+      }
+
+      // Mantido vazio aqui — agora só preenchido pelo /referencias quando
+      // RH confirma as referências e a pré-admissão é efetivamente criada.
+      const provisorioInfo: {
         provisorioId: number;
         solicitacaoId: string;
         reutilizado: boolean;
         readmissao: boolean;
       } | null = null;
 
-      if (acao === 'encerrar' && proximoStatus === 'pre_admissao') {
-        const ctxRes = await query<{
-          empresa_id: number;
-          cargo_id: number;
-          departamento_id: number;
-          jornada_id: number;
-        }>(
-          `SELECT empresa_id, cargo_id, departamento_id, jornada_id
-             FROM people.processo_seletivo
-            WHERE id = $1::bigint
-            LIMIT 1`,
-          [ag.processo_seletivo_id],
-        );
-        const ctx = ctxRes.rows[0];
-        if (!ctx) {
-          return serverErrorResponse('Processo seletivo não encontrado para criar pré-admissão');
-        }
-
-        // Nome do candidato vem do banco externo de Recrutamento.
-        // Best-effort: se cair, usa fallback genérico — não bloqueia.
-        let nomeCandidato = `Candidato ${ag.candidato_cpf_norm}`;
-        try {
-          const nRes = await queryRecrutamento<{ nome: string | null }>(
-            `SELECT nome FROM public.candidatos WHERE id = $1 LIMIT 1`,
-            [Number(ag.candidato_recrutamento_id)],
-          );
-          const n = nRes.rows[0]?.nome?.trim();
-          if (n) nomeCandidato = n;
-        } catch (e) {
-          console.warn('[dia-teste/aprovar] falha ao buscar nome do candidato:', e);
-        }
-
-        const resProv = await criarOuReaproveitarProvisorio(
-          {
-            nome: nomeCandidato,
-            cpf: ag.candidato_cpf_norm,
-            empresaId: Number(ctx.empresa_id),
-            cargoId: Number(ctx.cargo_id),
-            departamentoId: Number(ctx.departamento_id),
-            jornadaId: Number(ctx.jornada_id),
-            diasTeste: null,
-          },
-          user.userId,
-        );
-
-        if (!resProv.ok) {
-          // Aprovação já comitada — registra falha em audit pra gestor
-          // resolver manualmente, e retorna 500 com diagnóstico claro.
-          console.error('[dia-teste/aprovar] falha ao criar provisório/solicitação:', resProv.erro);
-          await registrarAuditoria(
-            buildAuditParams(req, user, {
-              acao: 'editar',
-              modulo: 'recrutamento_dia_teste',
-              descricao: `Aprovação registrada (#${id}) mas pré-admissão NÃO foi criada (${resProv.erro.code}) — intervenção manual necessária`,
-              dadosNovos: {
-                agendamentoId: id,
-                processoId: ag.processo_seletivo_id,
-                erroProvisorio: resProv.erro,
-              },
-            }),
-          );
-          const erro = resProv.erro;
-          let detalhe = 'erro desconhecido';
-          switch (erro.code) {
-            case 'cpf_invalido':
-              detalhe = 'CPF do candidato inválido';
-              break;
-            case 'colaborador_ativo':
-              detalhe = 'já existe colaborador ativo com este CPF';
-              break;
-            case 'processo_em_andamento':
-              detalhe = 'já existe processo de admissão em andamento para este CPF';
-              break;
-            case 'fk_invalida':
-              detalhe = `${erro.campo} (id ${erro.id}) não encontrada`;
-              break;
-            case 'sem_formulario_ativo':
-              detalhe = 'nenhum formulário de admissão ativo configurado';
-              break;
-          }
-          return errorResponse(
-            `Candidato aprovado, mas a pré-admissão não pôde ser criada: ${detalhe}. Contate o administrador.`,
-            500,
-          );
-        }
-
-        await query(
-          `UPDATE people.processo_seletivo
-              SET usuario_provisorio_id = $1,
-                  solicitacao_admissao_id = $2::uuid,
-                  atualizado_em = NOW()
-            WHERE id = $3::bigint`,
-          [
-            resProv.data.provRow.id,
-            resProv.data.solicitacaoId,
-            ag.processo_seletivo_id,
-          ],
-        );
-
-        provisorioInfo = {
-          provisorioId: resProv.data.provRow.id,
-          solicitacaoId: resProv.data.solicitacaoId,
-          reutilizado: resProv.data.reutilizado,
-          readmissao: resProv.data.readmissao,
-        };
-      }
-
       const descAcao =
         acao === 'encerrar'
-          ? 'segue para pré-admissão'
+          ? 'aguardando RH coletar 2 referências do candidato'
           : acao === 'adicionar_dia'
             ? `mantido em teste — novo dia agendado (${novoAgendamento?.data}, ordem ${novoAgendamento?.ordem})`
             : 'mantido em teste — aguardando próximo dia já agendado';
@@ -318,6 +259,7 @@ export async function POST(
             observacao: parsed.data.observacao ?? null,
             provisorio: provisorioInfo,
             novoAgendamento,
+            whatsappReferencias,
           },
         }),
       );
@@ -328,7 +270,7 @@ export async function POST(
       // período atual). valorAgendamentoAtual = só o agendamento atual.
       const proximoPasso =
         acao === 'encerrar'
-          ? proximoStatus === 'pre_admissao' ? 'pre_admissao' : 'encerrado'
+          ? proximoStatus === 'coletar_referencias' ? 'coletar_referencias' : 'encerrado'
           : acao === 'adicionar_dia'
             ? 'novo_dia_agendado'
             : 'manter_em_teste';
@@ -350,6 +292,7 @@ export async function POST(
         },
         provisorio: provisorioInfo,
         novoAgendamento,
+        whatsappReferencias,
       });
     } catch (error) {
       console.error(

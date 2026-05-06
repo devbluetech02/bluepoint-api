@@ -430,13 +430,17 @@ export async function avancarProcessoAposDecisao(
   );
 
   if (decisao === 'aprovado') {
+    // Antes ia direto pra 'pre_admissao'. Agora passa pelo estado
+    // intermediário 'coletar_referencias' — RH precisa preencher 2
+    // referências do candidato (auto via WhatsApp ou manual no modal)
+    // antes de gerar provisório+solicitação e seguir pra pré-admissão.
     await query(
       `UPDATE people.processo_seletivo
-          SET status = 'pre_admissao', atualizado_em = NOW()
+          SET status = 'coletar_referencias', atualizado_em = NOW()
         WHERE id = $1::bigint AND status = 'dia_teste'`,
       [processoId],
     );
-    return 'pre_admissao';
+    return 'coletar_referencias';
   }
   // Demais decisões = encerramento do processo.
   await query(

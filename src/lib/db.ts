@@ -187,5 +187,41 @@ export async function queryRecrutamento<T extends QueryResultRow = QueryResultRo
   return pool.query<T>(text, params);
 }
 
+/**
+ * Variante write-allowed da queryRecrutamento. Sem o gate de SELECT/WITH
+ * — caller assume responsabilidade pela query (UPDATE/INSERT). Use com
+ * parcimônia: o banco de Recrutamento (DigitalOcean) é compartilhado
+ * com o sistema de captação e qualquer escrita afeta os recrutadores
+ * direto. Hoje só é usada pra preencher referências de candidato após
+ * aprovação no dia de teste.
+ */
+export async function queryRecrutamentoWrite<T extends QueryResultRow = QueryResultRow>(
+  text: string,
+  params?: unknown[]
+): Promise<QueryResult<T>> {
+  const pool = getRecrutamentoPool();
+  return pool.query<T>(text, params);
+}
+
+export async function atualizarTelefoneCandidatoRecrutamentoPorCpf(
+  cpfNorm: string,
+  telefone: string
+): Promise<QueryResult<{ id: number; telefone: string | null }>> {
+  const pool = getRecrutamentoPool();
+  return pool.query<{ id: number; telefone: string | null }>(
+    `UPDATE public.candidatos
+        SET telefone = $2
+      WHERE id = (
+        SELECT id
+          FROM public.candidatos
+         WHERE regexp_replace(cpf, '\\D', '', 'g') = $1
+         ORDER BY data_candidatura DESC NULLS LAST, id DESC
+         LIMIT 1
+      )
+      RETURNING id, telefone`,
+    [cpfNorm, telefone]
+  );
+}
+
 export type { PoolClient };
 export default { query, getClient, healthCheck, getPoolStats };

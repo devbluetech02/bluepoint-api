@@ -201,7 +201,15 @@ export async function GET(request: NextRequest) {
         )
       );
 
-      const candidatosMap = new Map<number, { nome: string; telefone: string | null; email: string | null; cpf: string; responsavel: string | null }>();
+      const candidatosMap = new Map<number, {
+        nome: string;
+        telefone: string | null;
+        email: string | null;
+        cpf: string;
+        responsavel: string | null;
+        referencia1: { nome: string | null; telefone: string | null; descricao: string | null; status: string | null } | null;
+        referencia2: { nome: string | null; telefone: string | null; descricao: string | null; status: string | null } | null;
+      }>();
       if (candidatoIds.length > 0) {
         try {
           const cRes = await queryRecrutamento<{
@@ -211,9 +219,19 @@ export async function GET(request: NextRequest) {
             email: string | null;
             cpf: string | null;
             resposavel: string | null;
+            nome_referencia: string | null;
+            telefone_referencia: string | null;
+            descricao_referencia: string | null;
+            status_referencia: string | null;
+            nome_referencia_2: string | null;
+            telefone_referencia_2: string | null;
+            descricao_referencia_2: string | null;
+            status_referencia_2: string | null;
           }>(
             `SELECT id, nome, telefone, email, resposavel,
-                    regexp_replace(cpf, '\\D', '', 'g') AS cpf
+                    regexp_replace(cpf, '\\D', '', 'g') AS cpf,
+                    nome_referencia, telefone_referencia, descricao_referencia, status_referencia,
+                    nome_referencia_2, telefone_referencia_2, descricao_referencia_2, status_referencia_2
                FROM public.candidatos
               WHERE id = ANY($1::int[])`,
             [candidatoIds]
@@ -225,6 +243,22 @@ export async function GET(request: NextRequest) {
               email: c.email ? c.email.trim() : null,
               cpf: c.cpf ?? '',
               responsavel: c.resposavel ? c.resposavel.trim() : null,
+              referencia1: (c.nome_referencia || c.telefone_referencia)
+                ? {
+                    nome: c.nome_referencia,
+                    telefone: c.telefone_referencia,
+                    descricao: c.descricao_referencia,
+                    status: c.status_referencia,
+                  }
+                : null,
+              referencia2: (c.nome_referencia_2 || c.telefone_referencia_2)
+                ? {
+                    nome: c.nome_referencia_2,
+                    telefone: c.telefone_referencia_2,
+                    descricao: c.descricao_referencia_2,
+                    status: c.status_referencia_2,
+                  }
+                : null,
             });
           }
         } catch (e) {
@@ -350,6 +384,8 @@ export async function GET(request: NextRequest) {
             telefone: cand?.telefone ?? null,
             email: cand?.email ?? null,
             responsavel: cand?.responsavel ?? null,
+            referencia1: cand?.referencia1 ?? null,
+            referencia2: cand?.referencia2 ?? null,
           },
           cargo: cargoId !== null ? { id: cargoId, nome: r.cargo_nome ?? '' } : null,
           empresa: empresaId !== null ? { id: empresaId, nome: r.empresa_nome ?? '' } : null,
