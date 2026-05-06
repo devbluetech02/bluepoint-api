@@ -28,6 +28,8 @@ export type FaceEventType =
   | 'TIEBREAK_NO_MATCH'
   | 'TIEBREAK_CONFIRMED'
   | 'TIEBREAK_REJECTED_BY_USER'
+  | 'NEAR_MISS_RECOVERED'
+  | 'NEAR_MISS_NOT_RECOVERED'
   | 'INTERNAL_ERROR';
 
 export type FaceEndpoint =

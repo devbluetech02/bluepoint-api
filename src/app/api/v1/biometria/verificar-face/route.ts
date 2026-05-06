@@ -9,7 +9,11 @@ import {
   verificarDiversidade,
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
-import { verificarFacesComLLM } from '@/lib/face-llm-verify';
+import {
+  verificarFacesComLLM,
+  escolherCandidatoComLLM,
+  type TiebreakCandidate,
+} from '@/lib/face-llm-verify';
 import { logFaceEventAsync } from '@/lib/face-log';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
 import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
@@ -714,7 +718,7 @@ export async function POST(request: NextRequest) {
     );
     console.log(`[Verificar Face] Comparação: ${Date.now() - matchStart}ms`);
 
-    const best = topMatches[0] ?? null;
+    let best = topMatches[0] ?? null;
     const second = topMatches[1] ?? null;
 
     if (best) {
@@ -726,8 +730,181 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // (1) Sem candidato dentro do threshold = NOT_IDENTIFIED clássico.
-    if (!best || best.distance >= thresholdEfetivo) {
+    // (1) Sem candidato dentro do threshold = NOT_IDENTIFIED.
+    //
+    // Antes de devolver NOT_IDENTIFIED, dá uma 2ª chance via LLM para
+    // "near-misses" (best.distance entre threshold e 0.55). Modelo de
+    // visão olha as fotos dos top-N candidatos próximos e decide se
+    // algum bate. Se sim, "promove" o best e segue como match normal.
+    // Se não, mantém NOT_IDENTIFIED. Scans realmente vazios (>0.55)
+    // não pagam LLM.
+    const NEAR_MISS_LIMIT = 0.55;
+    let llmRecoveryUsed = false;
+    let llmRecoveryConfidence: number | null = null;
+    let llmRecoveryModel: string | null = null;
+    let llmRecoveryReason: string | null = null;
+
+    if (
+      best &&
+      best.distance >= thresholdEfetivo &&
+      best.distance < NEAR_MISS_LIMIT
+    ) {
+      // Pega top-N pessoas com dist < NEAR_MISS_LIMIT e que tenham
+      // colaborador associado (registros 100% externos não geram match
+      // de ponto direto).
+      const near = topMatches
+        .filter(
+          (m) =>
+            m.distance < NEAR_MISS_LIMIT && m.match.colaboradorId !== null,
+        )
+        .slice(0, 5);
+
+      if (near.length > 0) {
+        try {
+          const colabIds = near.map((m) => m.match.colaboradorId!);
+          const r = await query<{
+            colaborador_id: number;
+            nome: string;
+            foto: string | null;
+          }>(
+            `SELECT bf.colaborador_id,
+                    c.nome,
+                    COALESCE(bf.foto_referencia_url, c.foto_url) AS foto
+               FROM people.biometria_facial bf
+               JOIN people.colaboradores c ON c.id = bf.colaborador_id
+              WHERE bf.colaborador_id = ANY($1::int[])
+                AND c.status = 'ativo'`,
+            [colabIds],
+          );
+          const fotosMap = new Map(
+            r.rows.map((x) => [
+              x.colaborador_id,
+              { nome: x.nome, foto: x.foto },
+            ]),
+          );
+
+          const candidates: TiebreakCandidate[] = near.map((m, idx) => {
+            const info = fotosMap.get(m.match.colaboradorId!);
+            return {
+              index: idx,
+              colaboradorId: m.match.colaboradorId,
+              externalIds: m.match.externalIds,
+              nome: info?.nome ?? `#${m.match.colaboradorId}`,
+              distancia: m.distance,
+              fotoReferenciaUrl: info?.foto ?? null,
+            };
+          });
+
+          const llm = await escolherCandidatoComLLM({
+            capturedDataUri: imagem,
+            candidates,
+          });
+
+          if (
+            llm &&
+            llm.matchedIndex !== null &&
+            llm.matchedIndex >= 0 &&
+            llm.matchedIndex < near.length
+          ) {
+            // Promove o candidato escolhido pelo LLM. Substitui best
+            // pra que o restante do fluxo (busca colaborador, registra
+            // ponto, auditoria, auto-aprendizado) trate como match.
+            best = near[llm.matchedIndex];
+            llmRecoveryUsed = true;
+            llmRecoveryConfidence = llm.confidence;
+            llmRecoveryModel = llm.model;
+            llmRecoveryReason = llm.reason;
+            console.log(
+              `[Verificar Face] NEAR_MISS_RECOVERED: LLM (${llm.model}) escolheu c:${best.match.colaboradorId} ` +
+                `entre ${near.length} candidatos (dist original=${best.distance.toFixed(4)}, conf=${llm.confidence})`,
+            );
+            (async () => {
+              const fotoUrl = await uploadFotoLog(
+                imagem,
+                'NEAR_MISS_RECOVERED',
+                dispositivoCodigo,
+              );
+              logFaceEventAsync({
+                evento: 'NEAR_MISS_RECOVERED',
+                endpoint: 'verificar-face',
+                origem,
+                ip: clientIp,
+                userAgent: getUserAgent(request),
+                dispositivoCodigo,
+                latitude,
+                longitude,
+                qualidade,
+                thresholdEfetivo,
+                colaboradorIdProposto: best!.match.colaboradorId ?? null,
+                distanciaTop1: best!.distance,
+                distanciaTop2: second?.distance ?? null,
+                gapTop12: second
+                  ? second.distance - best!.distance
+                  : null,
+                llmModelo: llm.model,
+                llmConfirmou: true,
+                llmConfidence: llm.confidence,
+                llmRazao: llm.reason,
+                llmLatencyMs: llm.latencyMs,
+                fotoUrl,
+                duracaoMs: Date.now() - startTime,
+                metadados: {
+                  candidatosConsiderados: candidates.length,
+                  candidatos: candidates.map((c) => ({
+                    colaboradorId: c.colaboradorId,
+                    distancia: c.distancia,
+                  })),
+                },
+              });
+            })().catch((e) =>
+              console.error('[NEAR_MISS_RECOVERED log] falha:', e),
+            );
+          } else if (llm) {
+            // LLM analisou mas decidiu null — registra evento separado
+            // pra que possamos analisar acertos/erros do recovery.
+            (async () => {
+              const fotoUrl = await uploadFotoLog(
+                imagem,
+                'NEAR_MISS_NOT_RECOVERED',
+                dispositivoCodigo,
+              );
+              logFaceEventAsync({
+                evento: 'NEAR_MISS_NOT_RECOVERED',
+                endpoint: 'verificar-face',
+                origem,
+                ip: clientIp,
+                userAgent: getUserAgent(request),
+                dispositivoCodigo,
+                latitude,
+                longitude,
+                qualidade,
+                thresholdEfetivo,
+                distanciaTop1: best!.distance,
+                distanciaTop2: second?.distance ?? null,
+                llmModelo: llm.model,
+                llmConfirmou: false,
+                llmConfidence: llm.confidence,
+                llmRazao: llm.reason,
+                llmLatencyMs: llm.latencyMs,
+                fotoUrl,
+                duracaoMs: Date.now() - startTime,
+                metadados: {
+                  candidatosConsiderados: candidates.length,
+                },
+              });
+            })().catch((e) =>
+              console.error('[NEAR_MISS_NOT_RECOVERED log] falha:', e),
+            );
+          }
+        } catch (e) {
+          console.error('[Verificar Face] near-miss LLM falhou:', e);
+        }
+      }
+    }
+
+    // Se a recuperação por LLM não promoveu best, segue o NOT_IDENTIFIED
+    // clássico.
+    if (!llmRecoveryUsed && (!best || best.distance >= thresholdEfetivo)) {
       (async () => {
         const fotoUrl = await uploadFotoLog(imagem, 'NOT_IDENTIFIED', dispositivoCodigo);
         logFaceEventAsync({
@@ -797,8 +974,11 @@ export async function POST(request: NextRequest) {
     // mesma pessoa. Matches "fáceis" (dist < 0.30) pulam a chamada
     // pra economizar latência. Se a LLM rejeitar, reportamos como
     // NOT_IDENTIFIED com motivo `LLM_REJECTED`.
+    //
+    // Pula esta etapa se o best veio do near-miss recovery — o LLM
+    // já analisou e escolheu este candidato, redundante chamar de novo.
     const LLM_VERIFY_THRESHOLD = 0.30;
-    if (best.distance > LLM_VERIFY_THRESHOLD) {
+    if (!llmRecoveryUsed && best.distance > LLM_VERIFY_THRESHOLD) {
       try {
         // Buscar foto_referencia_url + nome do candidato para alimentar a LLM
         let refUrl: string | null = null;
@@ -1578,9 +1758,16 @@ export async function POST(request: NextRequest) {
         distanciaTop2: second?.distance ?? null,
         gapTop12: second ? second.distance - best.distance : null,
         marcacaoId: pontoRegistrado?.marcacaoId ?? null,
+        llmModelo: llmRecoveryUsed ? llmRecoveryModel : null,
+        llmConfirmou: llmRecoveryUsed ? true : null,
+        llmConfidence: llmRecoveryUsed ? llmRecoveryConfidence : null,
+        llmRazao: llmRecoveryUsed ? llmRecoveryReason : null,
         fotoUrl,
         duracaoMs: Date.now() - startTime,
-        metadados: atrasoInfo ? { requerAprovacaoAtraso: true } : null,
+        metadados: {
+          ...(atrasoInfo && { requerAprovacaoAtraso: true }),
+          ...(llmRecoveryUsed && { recoveredFromNearMiss: true }),
+        },
       });
     })().catch((e) => console.error(`[${eventoSucesso} log] falha:`, e));
     return jsonResponse({
