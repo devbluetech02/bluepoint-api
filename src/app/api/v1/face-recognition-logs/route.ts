@@ -116,7 +116,11 @@ export async function GET(request: NextRequest) {
            l.colaborador_id_proposto,
            l.colaborador_id_confirmado,
            cp.nome AS proposto_nome,
+           cp.foto_url AS proposto_foto_url,
            cc.nome AS confirmado_nome,
+           cc.foto_url AS confirmado_foto_url,
+           bp.foto_referencia_url AS proposto_foto_biometria,
+           bc.foto_referencia_url AS confirmado_foto_biometria,
            l.distancia_top1,
            l.distancia_top2,
            l.gap_top12,
@@ -137,6 +141,18 @@ export async function GET(request: NextRequest) {
            ON cp.id = l.colaborador_id_proposto
          LEFT JOIN people.colaboradores cc
            ON cc.id = l.colaborador_id_confirmado
+         LEFT JOIN LATERAL (
+           SELECT foto_referencia_url
+             FROM people.biometria_facial
+            WHERE colaborador_id = l.colaborador_id_proposto
+            LIMIT 1
+         ) bp ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT foto_referencia_url
+             FROM people.biometria_facial
+            WHERE colaborador_id = l.colaborador_id_confirmado
+            LIMIT 1
+         ) bc ON TRUE
          ${whereClause}
          ORDER BY l.data_hora DESC
          LIMIT $${i++} OFFSET $${i++}`,
@@ -156,7 +172,13 @@ export async function GET(request: NextRequest) {
         colaboradorIdProposto: row.colaborador_id_proposto,
         colaboradorIdConfirmado: row.colaborador_id_confirmado,
         propostoNome: row.proposto_nome,
+        // Foto pra preview lado-a-lado: prioriza foto_referencia_url
+        // (a foto cadastrada na biometria) e cai pra foto_url do
+        // colaborador (que pode ser do app ou cadastro). Permite
+        // comparar visualmente com a captura no modal de detalhe.
+        propostoFotoUrl: row.proposto_foto_biometria ?? row.proposto_foto_url,
         confirmadoNome: row.confirmado_nome,
+        confirmadoFotoUrl: row.confirmado_foto_biometria ?? row.confirmado_foto_url,
         distanciaTop1: row.distancia_top1 !== null ? Number(row.distancia_top1) : null,
         distanciaTop2: row.distancia_top2 !== null ? Number(row.distancia_top2) : null,
         gapTop12: row.gap_top12 !== null ? Number(row.gap_top12) : null,
