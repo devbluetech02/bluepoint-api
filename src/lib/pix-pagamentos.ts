@@ -162,12 +162,35 @@ function normalizarChavePix(chave: string, tipo: string): string {
 }
 
 /**
- * Mapeia tipos do nosso domínio (lowercase) pro enum exigido pelo Sicoob
- * (uppercase + EVP em vez de aleatoria).
+ * Mapeia tipos do nosso domínio (lowercase / com variações em PT-BR) pro
+ * enum exigido pelo Sicoob: { TELEFONE, CPF, CNPJ, EMAIL, EVP }.
+ *
+ * Variações tratadas:
+ *   - "telefone celular", "celular", "fone"           -> TELEFONE
+ *   - "aleatoria", "chave aleatoria", "aleatória"     -> EVP
+ *   - "e-mail"                                        -> EMAIL
+ * Strings desconhecidas voltam em UPPER pra Sicoob retornar 400 explicito
+ * em vez de a gente esconder o problema.
  */
 function tipoChaveSicoob(tipo: string): string {
-  const t = tipo.trim().toUpperCase();
-  if (t === 'ALEATORIA') return 'EVP';
+  const t = tipo
+    .trim()
+    .toUpperCase()
+    .replace(/[ÁÀÂÃÄ]/g, 'A')
+    .replace(/[ÉÈÊË]/g, 'E')
+    .replace(/[ÍÌÎÏ]/g, 'I')
+    .replace(/[ÓÒÔÕÖ]/g, 'O')
+    .replace(/[ÚÙÛÜ]/g, 'U')
+    .replace(/[Ç]/g, 'C');
+  if (t.includes('TELEFONE') || t.includes('CELULAR') || t === 'FONE') {
+    return 'TELEFONE';
+  }
+  if (t.includes('ALEATORIA') || t === 'EVP' || t === 'CHAVE ALEATORIA') {
+    return 'EVP';
+  }
+  if (t.includes('EMAIL') || t === 'E-MAIL') return 'EMAIL';
+  if (t === 'CPF') return 'CPF';
+  if (t === 'CNPJ') return 'CNPJ';
   return t;
 }
 
