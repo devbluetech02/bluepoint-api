@@ -767,7 +767,11 @@ async function notificarPrazoContestacao(): Promise<void> {
         AND rm.criado_em > NOW() - INTERVAL '30 days'
         -- Cargos de confiança não recebem lembrete (não há contestação a fazer).
         AND COALESCE(cg.cargo_confianca, FALSE) = FALSE
-    `);
+        -- Não lembra de relatório anterior ao corte de produção
+        -- (sistema entrou em produção em maio/2026; abril/2026 e
+        -- anteriores não têm marcações reais).
+        AND (rm.ano > $1 OR (rm.ano = $1 AND rm.mes >= $2))
+    `, [RELATORIO_MES_REF_MIN.ano, RELATORIO_MES_REF_MIN.mes]);
 
     if (result.rows.length === 0) return;
 
@@ -823,6 +827,19 @@ async function notificarPrazoContestacao(): Promise<void> {
 // várias vezes no dia (ON CONFLICT DO NOTHING + cache de 30d para o push).
 // =====================================================
 
+// Mês de referência mínimo elegível pra relatório/push.
+// Sistema entrou em produção em maio/2026; abril/2026 não tem dados
+// completos de marcação, então não faz sentido gerar relatório de
+// referência <= 2026-04. Primeiro push válido sai em 01/06/2026
+// (referência maio/2026).
+const RELATORIO_MES_REF_MIN = { ano: 2026, mes: 5 };
+
+function refAntesDoCorte(ano: number, mes: number): boolean {
+  if (ano < RELATORIO_MES_REF_MIN.ano) return true;
+  if (ano > RELATORIO_MES_REF_MIN.ano) return false;
+  return mes < RELATORIO_MES_REF_MIN.mes;
+}
+
 async function gerarRelatoriosMensaisDia1(): Promise<void> {
   try {
     const hojeSP = new Date(
@@ -833,6 +850,16 @@ async function gerarRelatoriosMensaisDia1(): Promise<void> {
     // Mês de referência = mês anterior ao corrente
     const mesRef = hojeSP.getMonth() === 0 ? 12 : hojeSP.getMonth();
     const anoRef = hojeSP.getMonth() === 0 ? hojeSP.getFullYear() - 1 : hojeSP.getFullYear();
+
+    // Sistema não rodou em abril/2026 — push de relatório de qualquer mês
+    // anterior a maio/2026 não tem dados consistentes. Pula a geração e
+    // o disparo pra evitar notificar colaborador de relatório vazio.
+    if (refAntesDoCorte(anoRef, mesRef)) {
+      console.log(
+        `[Alertas Periodicos] Pulando geração de relatório ${mesRef}/${anoRef} — anterior ao corte ${RELATORIO_MES_REF_MIN.mes}/${RELATORIO_MES_REF_MIN.ano}.`,
+      );
+      return;
+    }
     const ultimoDiaMesRef = new Date(anoRef, mesRef, 0).getDate();
     const ultimoDiaMesRefStr = `${anoRef}-${String(mesRef).padStart(2, '0')}-${String(ultimoDiaMesRef).padStart(2, '0')}`;
 
