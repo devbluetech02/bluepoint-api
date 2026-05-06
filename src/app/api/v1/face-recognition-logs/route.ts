@@ -135,7 +135,10 @@ export async function GET(request: NextRequest) {
            l.foto_url,
            l.duracao_ms,
            l.marcacao_id,
-           l.metadados
+           l.metadados,
+           l.match_validado_correto,
+           l.match_validado_em,
+           l.match_validado_por
          FROM people.face_recognition_logs l
          LEFT JOIN people.colaboradores cp
            ON cp.id = l.colaborador_id_proposto
@@ -194,6 +197,9 @@ export async function GET(request: NextRequest) {
         duracaoMs: row.duracao_ms,
         marcacaoId: row.marcacao_id,
         metadados: row.metadados,
+        matchValidadoCorreto: row.match_validado_correto,
+        matchValidadoEm: row.match_validado_em,
+        matchValidadoPor: row.match_validado_por,
       }));
 
       return paginatedSuccessResponse(dados, total, pagina, limite);
