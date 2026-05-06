@@ -248,6 +248,9 @@ export async function GET(request: NextRequest) {
         email: string | null;
         cpf: string;
         responsavel: string | null;
+        chavePix: string | null;
+        tipoChavePix: string | null;
+        banco: string | null;
         referencia1: { nome: string | null; telefone: string | null; descricao: string | null; status: string | null } | null;
         referencia2: { nome: string | null; telefone: string | null; descricao: string | null; status: string | null } | null;
       }>();
@@ -260,6 +263,9 @@ export async function GET(request: NextRequest) {
             email: string | null;
             cpf: string | null;
             resposavel: string | null;
+            chave_pix: string | null;
+            tipo_chave: string | null;
+            banco: string | null;
             nome_referencia: string | null;
             telefone_referencia: string | null;
             descricao_referencia: string | null;
@@ -271,6 +277,7 @@ export async function GET(request: NextRequest) {
           }>(
             `SELECT id, nome, telefone, email, resposavel,
                     regexp_replace(cpf, '\\D', '', 'g') AS cpf,
+                    chave_pix, tipo_chave, banco,
                     nome_referencia, telefone_referencia, descricao_referencia, status_referencia,
                     nome_referencia_2, telefone_referencia_2, descricao_referencia_2, status_referencia_2
                FROM public.candidatos
@@ -284,6 +291,9 @@ export async function GET(request: NextRequest) {
               email: c.email ? c.email.trim() : null,
               cpf: c.cpf ?? '',
               responsavel: c.resposavel ? c.resposavel.trim() : null,
+              chavePix: c.chave_pix ? c.chave_pix.trim() : null,
+              tipoChavePix: c.tipo_chave ? c.tipo_chave.trim() : null,
+              banco: c.banco ? c.banco.trim() : null,
               referencia1: (c.nome_referencia || c.telefone_referencia)
                 ? {
                     nome: c.nome_referencia,
@@ -474,6 +484,9 @@ export async function GET(request: NextRequest) {
             telefone: cand?.telefone ?? null,
             email: cand?.email ?? null,
             responsavel: cand?.responsavel ?? null,
+            chavePix: cand?.chavePix ?? null,
+            tipoChavePix: cand?.tipoChavePix ?? null,
+            banco: cand?.banco ?? null,
             referencia1: cand?.referencia1 ?? null,
             referencia2: cand?.referencia2 ?? null,
           },
