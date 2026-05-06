@@ -10,6 +10,7 @@ import {
   verificarCondicoesAutoAprendizado,
 } from '@/lib/face-recognition';
 import { verificarFacesComLLM } from '@/lib/face-llm-verify';
+import { logFaceEventAsync } from '@/lib/face-log';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
 import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 import { cacheGet, cacheSet, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
@@ -448,6 +449,18 @@ export async function POST(request: NextRequest) {
         longitude,
         origem,
       }).catch((e) => console.error('[Auditoria FACE_NOT_DETECTED] erro:', e));
+      logFaceEventAsync({
+        evento: 'FACE_NOT_DETECTED',
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        duracaoMs: Date.now() - startTime,
+        metadados: { motivo: error || 'sem_face' },
+      });
       return jsonResponse({
         success: false,
         error: error || 'Não foi possível detectar a face na imagem',
@@ -471,6 +484,21 @@ export async function POST(request: NextRequest) {
         qualidade,
         qualidadeDetalhada,
       }).catch((e) => console.error('[Auditoria LOW_QUALITY] erro:', e));
+      logFaceEventAsync({
+        evento: 'LOW_QUALITY',
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        qualidade,
+        qualidadeDetalhada: qualidadeDetalhada
+          ? (qualidadeDetalhada as unknown as Record<string, unknown>)
+          : null,
+        duracaoMs: Date.now() - startTime,
+      });
       return jsonResponse({
         success: false,
         error: 'Nenhuma face detectada na imagem',
@@ -509,6 +537,18 @@ export async function POST(request: NextRequest) {
       );
 
       if (encodingsResult.rows.length === 0) {
+        logFaceEventAsync({
+          evento: 'NO_FACES_REGISTERED',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          qualidade,
+          duracaoMs: Date.now() - startTime,
+        });
         return jsonResponse({
           success: true,
           data: {
@@ -655,6 +695,23 @@ export async function POST(request: NextRequest) {
 
     // (1) Sem candidato dentro do threshold = NOT_IDENTIFIED clássico.
     if (!best || best.distance >= thresholdEfetivo) {
+      logFaceEventAsync({
+        evento: 'NOT_IDENTIFIED',
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        qualidade,
+        thresholdEfetivo,
+        distanciaTop1: best?.distance ?? null,
+        distanciaTop2: second?.distance ?? null,
+        gapTop12:
+          best && second ? second.distance - best.distance : null,
+        duracaoMs: Date.now() - startTime,
+      });
       return jsonResponse({
         success: true,
         data: {
@@ -690,6 +747,28 @@ export async function POST(request: NextRequest) {
         `[Verificar Face] AMBIGUOUS_MATCH: ${best.key}=${best.distance.toFixed(4)} vs ` +
           `${second.key}=${second.distance.toFixed(4)} (gap=${(second.distance - best.distance).toFixed(4)} < ${AMBIGUITY_GAP}) — rejeitado`,
       );
+      logFaceEventAsync({
+        evento: 'AMBIGUOUS_MATCH',
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        qualidade,
+        thresholdEfetivo,
+        colaboradorIdProposto: best.match.colaboradorId ?? null,
+        externalIdProposto: best.match.externalIds ?? null,
+        distanciaTop1: best.distance,
+        distanciaTop2: second.distance,
+        gapTop12: second.distance - best.distance,
+        duracaoMs: Date.now() - startTime,
+        metadados: {
+          top2Key: second.key,
+          ambiguityGap: AMBIGUITY_GAP,
+        },
+      });
       return jsonResponse({
         success: true,
         data: {
@@ -781,6 +860,29 @@ export async function POST(request: NextRequest) {
               llmReason: llm.reason,
               reject: 'LLM',
             },
+          });
+          logFaceEventAsync({
+            evento: 'LLM_REJECTED',
+            endpoint: 'verificar-face',
+            origem,
+            ip: clientIp,
+            userAgent: getUserAgent(request),
+            dispositivoCodigo,
+            latitude,
+            longitude,
+            qualidade,
+            thresholdEfetivo,
+            colaboradorIdProposto: matchedRecord.colaboradorId ?? null,
+            externalIdProposto: matchedRecord.externalIds ?? null,
+            distanciaTop1: best.distance,
+            distanciaTop2: second?.distance ?? null,
+            gapTop12: second ? second.distance - best.distance : null,
+            llmModelo: llm.model,
+            llmConfirmou: false,
+            llmConfidence: llm.confidence,
+            llmRazao: llm.reason,
+            llmLatencyMs: llm.latencyMs,
+            duracaoMs: Date.now() - startTime,
           });
           return jsonResponse({
             success: true,
@@ -1038,6 +1140,21 @@ export async function POST(request: NextRequest) {
           distance: best.distance,
           motivo: 'colaborador_inativo_ou_inexistente',
         },
+      });
+      logFaceEventAsync({
+        evento: 'INACTIVE_COLLABORATOR',
+        endpoint: 'verificar-face',
+        origem,
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo,
+        latitude,
+        longitude,
+        qualidade,
+        thresholdEfetivo,
+        colaboradorIdProposto: colaboradorIdFinal ?? null,
+        distanciaTop1: best.distance,
+        duracaoMs: Date.now() - startTime,
       });
       return jsonResponse({
         success: true,
@@ -1431,6 +1548,28 @@ export async function POST(request: NextRequest) {
       }, 422, rateLimitHeaders);
     }
 
+    // Log de sucesso. MATCH_CONFIRMED quando ponto foi registrado;
+    // MATCH_PROPOSED quando só identificou (deveRegistrarPonto=false).
+    logFaceEventAsync({
+      evento: pontoRegistrado ? 'MATCH_CONFIRMED' : 'MATCH_PROPOSED',
+      endpoint: 'verificar-face',
+      origem,
+      ip: clientIp,
+      userAgent: getUserAgent(request),
+      dispositivoCodigo,
+      latitude,
+      longitude,
+      qualidade,
+      thresholdEfetivo,
+      colaboradorIdProposto: colaborador.id,
+      colaboradorIdConfirmado: pontoRegistrado ? colaborador.id : null,
+      distanciaTop1: best.distance,
+      distanciaTop2: second?.distance ?? null,
+      gapTop12: second ? second.distance - best.distance : null,
+      marcacaoId: pontoRegistrado?.marcacaoId ?? null,
+      duracaoMs: Date.now() - startTime,
+      metadados: atrasoInfo ? { requerAprovacaoAtraso: true } : null,
+    });
     return jsonResponse({
       success: true,
       data: {

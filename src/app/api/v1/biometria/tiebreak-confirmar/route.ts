@@ -16,6 +16,7 @@ import {
   extractFaceEncoding,
 } from '@/lib/face-recognition';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { logFaceEventAsync } from '@/lib/face-log';
 import { uploadArquivo } from '@/lib/storage';
 import { embedTableRowAfterInsert } from '@/lib/embeddings';
 import { tipoPontoBiometriaSchema } from '@/lib/validation';
@@ -429,6 +430,25 @@ export async function POST(request: NextRequest) {
     // Consome a sessão (1 uso só)
     await cacheDel(`${SESSION_PREFIX}${sessionId}`);
 
+    logFaceEventAsync({
+      evento: 'TIEBREAK_CONFIRMED',
+      endpoint: 'tiebreak-confirmar',
+      origem,
+      ip: clientIp,
+      userAgent: getUserAgent(request),
+      dispositivoCodigo,
+      latitude,
+      longitude,
+      colaboradorIdProposto: colab.id,
+      colaboradorIdConfirmado: colab.id,
+      llmModelo: session.llm.model,
+      llmConfirmou: true,
+      llmConfidence: session.llm.confidence,
+      llmRazao: session.llm.reason,
+      marcacaoId: marcacao.marcacaoId,
+      duracaoMs: Date.now() - startTime,
+      metadados: { sessionId },
+    });
     return jsonResponse({
       success: true,
       data: {
