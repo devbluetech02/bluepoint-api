@@ -5,6 +5,7 @@ import {
   successResponse,
   serverErrorResponse,
 } from '@/lib/api-response';
+import { SQL_NORMALIZE_NOME } from '@/lib/normalizar-nome';
 
 // GET /api/v1/recrutamento/avaliacoes-ia
 //
@@ -77,14 +78,17 @@ export async function GET(request: NextRequest) {
           filtros.push(`criado_em < ($${i++}::date + INTERVAL '1 day')`);
           params.push(periodoAte);
         }
-        // Recrutador deve ser colaborador ATIVO no people. Match por nome
-        // normalizado (UPPER+TRIM) — recrutador_avaliacao_ia.recrutador_nome
-        // já vem do banco de Recrutamento sem ID estável de colaborador.
-        // Recrutadores que sairam do quadro (status='inativo') somem da
-        // listagem e do dropdown.
+        // Recrutador deve ser colaborador ATIVO no people. Match por
+        // PRIMEIRO NOME normalizado (sem acento, UPPER) — sobrenome no
+        // banco de Recrutamento (entrevistas_agendadas.recrutador) muitas
+        // vezes diverge do cadastrado no people (ex: "TAYANE OLIVEIRA"
+        // no recrutamento vs "Tayane Passos" no people). Sem isso, o
+        // filtro tira recrutadores legitimos da listagem.
         filtros.push(
-          `UPPER(TRIM(recrutador_nome)) IN (
-             SELECT UPPER(TRIM(nome)) FROM people.colaboradores WHERE status = 'ativo'
+          `split_part(${SQL_NORMALIZE_NOME('recrutador_nome')}, ' ', 1) IN (
+             SELECT split_part(${SQL_NORMALIZE_NOME('nome')}, ' ', 1)
+               FROM people.colaboradores
+              WHERE status = 'ativo'
            )`
         );
         const where = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
@@ -127,13 +131,15 @@ export async function GET(request: NextRequest) {
           [...params, limit, offset]
         );
 
-        // Mesma regra de filtro: dropdown só lista recrutadores que ainda
-        // são colaboradores ativos.
+        // Mesma regra do filtro principal: dropdown só lista recrutadores
+        // cujo PRIMEIRO NOME bate com algum colaborador ativo no people.
         const recrutRes = await query<{ recrutador_nome: string }>(
           `SELECT DISTINCT recrutador_nome
              FROM people.recrutador_avaliacao_ia
-            WHERE UPPER(TRIM(recrutador_nome)) IN (
-              SELECT UPPER(TRIM(nome)) FROM people.colaboradores WHERE status = 'ativo'
+            WHERE split_part(${SQL_NORMALIZE_NOME('recrutador_nome')}, ' ', 1) IN (
+              SELECT split_part(${SQL_NORMALIZE_NOME('nome')}, ' ', 1)
+                FROM people.colaboradores
+               WHERE status = 'ativo'
             )
             ORDER BY recrutador_nome ASC`
         );
