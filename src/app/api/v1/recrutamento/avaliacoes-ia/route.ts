@@ -86,9 +86,11 @@ export async function GET(request: NextRequest) {
         // filtro tira recrutadores legitimos da listagem.
         filtros.push(
           `split_part(${SQL_NORMALIZE_NOME('recrutador_nome')}, ' ', 1) IN (
-             SELECT split_part(${SQL_NORMALIZE_NOME('nome')}, ' ', 1)
-               FROM people.colaboradores
-              WHERE status = 'ativo'
+             SELECT split_part(${SQL_NORMALIZE_NOME('c.nome')}, ' ', 1)
+               FROM people.colaboradores c
+               JOIN people.cargos cg ON cg.id = c.cargo_id
+              WHERE c.status = 'ativo'
+                AND ${SQL_NORMALIZE_NOME('cg.nome')} LIKE '%RECRUT%'
            )`
         );
         const where = filtros.length ? `WHERE ${filtros.join(' AND ')}` : '';
@@ -137,9 +139,11 @@ export async function GET(request: NextRequest) {
           `SELECT DISTINCT recrutador_nome
              FROM people.recrutador_avaliacao_ia
             WHERE split_part(${SQL_NORMALIZE_NOME('recrutador_nome')}, ' ', 1) IN (
-              SELECT split_part(${SQL_NORMALIZE_NOME('nome')}, ' ', 1)
-                FROM people.colaboradores
-               WHERE status = 'ativo'
+              SELECT split_part(${SQL_NORMALIZE_NOME('c.nome')}, ' ', 1)
+                FROM people.colaboradores c
+                JOIN people.cargos cg ON cg.id = c.cargo_id
+               WHERE c.status = 'ativo'
+                 AND ${SQL_NORMALIZE_NOME('cg.nome')} LIKE '%RECRUT%'
             )
             ORDER BY recrutador_nome ASC`
         );
