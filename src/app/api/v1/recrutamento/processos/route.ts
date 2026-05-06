@@ -64,6 +64,16 @@ const schemaDiaTeste = baseSchema.extend({
     valorDiaria: z.number().min(0).max(10000),
     cargaHoraria: z.number().int().min(1).max(12),
     dataPrimeiroDia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve ser YYYY-MM-DD'),
+    // Horário de início programado do 1º dia (HH:MM, 24h).
+    // hora >= 12:00 → 1 período (tarde, carga padrão 4h).
+    // hora <  12:00 → 2 períodos (manhã + tarde, carga padrão 8h).
+    // Default 08:00 mantém comportamento legado (dia inteiro de manhã).
+    // O 2º dia (quando diasQtd=2) sempre inicia 08:00.
+    horaInicio: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Horário deve ser HH:MM')
+      .optional()
+      .default('08:00'),
     templateOverride: z.string().min(1).max(120).optional(),
     rg: z.string().max(50).optional().nullable(),
     banco: z.string().max(100).optional().nullable(),
@@ -206,15 +216,17 @@ async function abrirCaminhoA(args: {
     processoId = procIns.rows[0].id;
 
     // Agendamentos (1 ou 2 dias).
+    // Hora de início: ordem=1 vem do payload; ordem=2 sempre 08:00 (manhã).
     for (let i = 0; i < dt.diasQtd; i++) {
       const data = i === 0
         ? dt.dataPrimeiroDia
         : addDiasISO(dt.dataPrimeiroDia, 1);
+      const horaInicio = i === 0 ? dt.horaInicio : '08:00';
       await query(
         `INSERT INTO people.dia_teste_agendamento
-           (processo_seletivo_id, ordem, data, valor_diaria, carga_horaria)
-         VALUES ($1::bigint, $2, $3::date, $4, $5)`,
-        [processoId, i + 1, data, dt.valorDiaria, dt.cargaHoraria]
+           (processo_seletivo_id, ordem, data, valor_diaria, carga_horaria, hora_inicio)
+         VALUES ($1::bigint, $2, $3::date, $4, $5, $6::time)`,
+        [processoId, i + 1, data, dt.valorDiaria, dt.cargaHoraria, horaInicio]
       );
     }
 

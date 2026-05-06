@@ -32,6 +32,7 @@ interface Row {
   data: string;
   valor_diaria: string;
   carga_horaria: number;
+  hora_inicio: string | null;
   status: string;
   // node-pg serializa bigint como string por default (overflow safety).
   decidido_por: string | number | null;
@@ -179,6 +180,7 @@ export async function GET(request: NextRequest) {
             a.data::text                AS data,
             a.valor_diaria::text        AS valor_diaria,
             a.carga_horaria,
+            to_char(a.hora_inicio, 'HH24:MI') AS hora_inicio,
             a.status,
             a.decidido_por,
             a.decidido_em,
@@ -448,6 +450,7 @@ export async function GET(request: NextRequest) {
           data: r.data,
           valorDiaria: parseFloat(r.valor_diaria),
           cargaHoraria: r.carga_horaria,
+          horaInicio: r.hora_inicio ?? '08:00',
           status: r.status,
           decididoPor: r.decidido_por != null ? String(r.decidido_por) : null,
           observacaoDecisao: r.observacao_decisao,
