@@ -12,6 +12,7 @@
  */
 
 import { query } from './db';
+import { uploadArquivo } from './storage';
 
 export type FaceEventType =
   | 'FACE_NOT_DETECTED'
@@ -70,6 +71,38 @@ export interface FaceLogPayload {
   marcacaoId?: number | null;
 
   metadados?: Record<string, unknown> | null;
+}
+
+/**
+ * Sobe a imagem capturada (data URI ou base64) para o MinIO em pasta
+ * dedicada de logs faciais e devolve a URL pública. Compartilhado por
+ * todos os endpoints que registram em face_recognition_logs (verificar-
+ * face, tiebreak-*). Best-effort — falha → null sem propagar erro.
+ */
+export async function uploadFotoFaceLog(
+  imagem: string,
+  evento: string,
+  dispositivoCodigo?: string,
+): Promise<string | null> {
+  try {
+    const base64 = imagem.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length === 0) return null;
+    const isPng = imagem.startsWith('data:image/png');
+    const ext = isPng ? 'png' : 'jpg';
+    const ct = isPng ? 'image/png' : 'image/jpeg';
+    const dataDir = new Date().toISOString().split('T')[0];
+    const ts = Date.now();
+    const deviceTag = (dispositivoCodigo || 'sem-codigo').replace(
+      /[^a-zA-Z0-9_-]/g,
+      '_',
+    );
+    const path = `face-logs/${dataDir}/${deviceTag}/${ts}_${evento.toLowerCase()}.${ext}`;
+    return await uploadArquivo(path, buffer, ct);
+  } catch (e) {
+    console.warn('[uploadFotoFaceLog] falha:', e);
+    return null;
+  }
 }
 
 export async function logFaceEvent(payload: FaceLogPayload): Promise<void> {

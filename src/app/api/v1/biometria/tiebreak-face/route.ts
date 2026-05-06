@@ -19,7 +19,7 @@ import {
   type TiebreakCandidate,
 } from '@/lib/face-llm-verify';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
-import { logFaceEventAsync } from '@/lib/face-log';
+import { logFaceEventAsync, uploadFotoFaceLog } from '@/lib/face-log';
 
 /**
  * POST /api/v1/biometria/tiebreak-face
@@ -379,30 +379,38 @@ export async function POST(request: NextRequest) {
           rejeitadosExternalKeys,
         },
       });
-      logFaceEventAsync({
-        evento: 'TIEBREAK_NO_MATCH',
-        endpoint: 'tiebreak-face',
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo: validation.data.dispositivoCodigo,
-        latitude: validation.data.latitude,
-        longitude: validation.data.longitude,
-        qualidade,
-        llmModelo: llmResult?.model ?? null,
-        llmConfirmou: llmResult ? false : null,
-        llmConfidence: llmResult?.confidence ?? null,
-        llmRazao: llmResult?.reason ?? null,
-        llmLatencyMs: llmResult?.latencyMs ?? null,
-        duracaoMs: Date.now() - startTime,
-        metadados: {
-          candidatosConsiderados: candidates.length,
-          candidatos: candidates.map((c) => ({
-            colaboradorId: c.colaboradorId,
-            distancia: c.distancia,
-          })),
-          rejeitadosColaboradorIds,
-        },
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoFaceLog(
+          imagem,
+          'TIEBREAK_NO_MATCH',
+          validation.data.dispositivoCodigo,
+        );
+        logFaceEventAsync({
+          evento: 'TIEBREAK_NO_MATCH',
+          endpoint: 'tiebreak-face',
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo: validation.data.dispositivoCodigo,
+          latitude: validation.data.latitude,
+          longitude: validation.data.longitude,
+          qualidade,
+          llmModelo: llmResult?.model ?? null,
+          llmConfirmou: llmResult ? false : null,
+          llmConfidence: llmResult?.confidence ?? null,
+          llmRazao: llmResult?.reason ?? null,
+          llmLatencyMs: llmResult?.latencyMs ?? null,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+          metadados: {
+            candidatosConsiderados: candidates.length,
+            candidatos: candidates.map((c) => ({
+              colaboradorId: c.colaboradorId,
+              distancia: c.distancia,
+            })),
+            rejeitadosColaboradorIds,
+          },
+        });
+      })().catch((e) => console.error('[TIEBREAK_NO_MATCH log] falha:', e));
       return jsonResponse({
         success: true,
         data: {
@@ -497,32 +505,40 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    logFaceEventAsync({
-      evento: 'TIEBREAK_PROPOSED',
-      endpoint: 'tiebreak-face',
-      ip: clientIp,
-      userAgent: getUserAgent(request),
-      dispositivoCodigo: validation.data.dispositivoCodigo,
-      latitude: validation.data.latitude,
-      longitude: validation.data.longitude,
-      qualidade,
-      colaboradorIdProposto: escolhido.colaboradorId,
-      distanciaTop1: escolhido.distancia,
-      llmModelo: llmResult.model,
-      llmConfirmou: true,
-      llmConfidence: llmResult.confidence,
-      llmRazao: llmResult.reason,
-      llmLatencyMs: llmResult.latencyMs,
-      duracaoMs: Date.now() - startTime,
-      metadados: {
-        sessionId,
-        candidatos: candidates.map((c) => ({
-          colaboradorId: c.colaboradorId,
-          distancia: c.distancia,
-        })),
-        rejeitadosColaboradorIds,
-      },
-    });
+    (async () => {
+      const fotoUrl = await uploadFotoFaceLog(
+        imagem,
+        'TIEBREAK_PROPOSED',
+        validation.data.dispositivoCodigo,
+      );
+      logFaceEventAsync({
+        evento: 'TIEBREAK_PROPOSED',
+        endpoint: 'tiebreak-face',
+        ip: clientIp,
+        userAgent: getUserAgent(request),
+        dispositivoCodigo: validation.data.dispositivoCodigo,
+        latitude: validation.data.latitude,
+        longitude: validation.data.longitude,
+        qualidade,
+        colaboradorIdProposto: escolhido.colaboradorId,
+        distanciaTop1: escolhido.distancia,
+        llmModelo: llmResult.model,
+        llmConfirmou: true,
+        llmConfidence: llmResult.confidence,
+        llmRazao: llmResult.reason,
+        llmLatencyMs: llmResult.latencyMs,
+        fotoUrl,
+        duracaoMs: Date.now() - startTime,
+        metadados: {
+          sessionId,
+          candidatos: candidates.map((c) => ({
+            colaboradorId: c.colaboradorId,
+            distancia: c.distancia,
+          })),
+          rejeitadosColaboradorIds,
+        },
+      });
+    })().catch((e) => console.error('[TIEBREAK_PROPOSED log] falha:', e));
     return jsonResponse({
       success: true,
       data: {

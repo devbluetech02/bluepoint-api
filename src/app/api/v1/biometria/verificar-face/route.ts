@@ -486,18 +486,22 @@ export async function POST(request: NextRequest) {
         longitude,
         origem,
       }).catch((e) => console.error('[Auditoria FACE_NOT_DETECTED] erro:', e));
-      logFaceEventAsync({
-        evento: 'FACE_NOT_DETECTED',
-        endpoint: 'verificar-face',
-        origem,
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo,
-        latitude,
-        longitude,
-        duracaoMs: Date.now() - startTime,
-        metadados: { motivo: error || 'sem_face' },
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoLog(imagem, 'FACE_NOT_DETECTED', dispositivoCodigo);
+        logFaceEventAsync({
+          evento: 'FACE_NOT_DETECTED',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+          metadados: { motivo: error || 'sem_face' },
+        });
+      })().catch((e) => console.error('[FACE_NOT_DETECTED log] falha:', e));
       return jsonResponse({
         success: false,
         error: error || 'Não foi possível detectar a face na imagem',
@@ -521,21 +525,25 @@ export async function POST(request: NextRequest) {
         qualidade,
         qualidadeDetalhada,
       }).catch((e) => console.error('[Auditoria LOW_QUALITY] erro:', e));
-      logFaceEventAsync({
-        evento: 'LOW_QUALITY',
-        endpoint: 'verificar-face',
-        origem,
-        ip: clientIp,
-        userAgent: getUserAgent(request),
-        dispositivoCodigo,
-        latitude,
-        longitude,
-        qualidade,
-        qualidadeDetalhada: qualidadeDetalhada
-          ? (qualidadeDetalhada as unknown as Record<string, unknown>)
-          : null,
-        duracaoMs: Date.now() - startTime,
-      });
+      (async () => {
+        const fotoUrl = await uploadFotoLog(imagem, 'LOW_QUALITY', dispositivoCodigo);
+        logFaceEventAsync({
+          evento: 'LOW_QUALITY',
+          endpoint: 'verificar-face',
+          origem,
+          ip: clientIp,
+          userAgent: getUserAgent(request),
+          dispositivoCodigo,
+          latitude,
+          longitude,
+          qualidade,
+          qualidadeDetalhada: qualidadeDetalhada
+            ? (qualidadeDetalhada as unknown as Record<string, unknown>)
+            : null,
+          fotoUrl,
+          duracaoMs: Date.now() - startTime,
+        });
+      })().catch((e) => console.error('[LOW_QUALITY log] falha:', e));
       return jsonResponse({
         success: false,
         error: 'Nenhuma face detectada na imagem',
@@ -574,18 +582,22 @@ export async function POST(request: NextRequest) {
       );
 
       if (encodingsResult.rows.length === 0) {
-        logFaceEventAsync({
-          evento: 'NO_FACES_REGISTERED',
-          endpoint: 'verificar-face',
-          origem,
-          ip: clientIp,
-          userAgent: getUserAgent(request),
-          dispositivoCodigo,
-          latitude,
-          longitude,
-          qualidade,
-          duracaoMs: Date.now() - startTime,
-        });
+        (async () => {
+          const fotoUrl = await uploadFotoLog(imagem, 'NO_FACES_REGISTERED', dispositivoCodigo);
+          logFaceEventAsync({
+            evento: 'NO_FACES_REGISTERED',
+            endpoint: 'verificar-face',
+            origem,
+            ip: clientIp,
+            userAgent: getUserAgent(request),
+            dispositivoCodigo,
+            latitude,
+            longitude,
+            qualidade,
+            fotoUrl,
+            duracaoMs: Date.now() - startTime,
+          });
+        })().catch((e) => console.error('[NO_FACES_REGISTERED log] falha:', e));
         return jsonResponse({
           success: true,
           data: {
