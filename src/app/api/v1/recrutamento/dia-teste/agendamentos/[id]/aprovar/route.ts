@@ -15,16 +15,35 @@ import {
   avancarProcessoAposDecisao,
   calcularPodeDecidir,
   calcularValorTotalProcesso,
+  contarAgendamentosPendentesDoProcesso,
+  criarProximoDiaTeste,
 } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/aprovar
 //
-// Aprova o candidato. Não há pagamento da diária — o candidato vira
-// colaborador via processo de pré-admissão. Transição: 'compareceu' →
-// 'aprovado' (terminal). Avança o processo seletivo para 'pre_admissao'.
+// Aprova o candidato no agendamento. 3 ações disponíveis:
+//
+//  - 'encerrar' (default): processo segue pra pré-admissão. Cancela
+//    quaisquer dias futuros do processo e cria provisório+solicitação.
+//  - 'manter':  marca agendamento atual como 'aprovado' SEM avançar
+//    processo. Só permitido se há outro agendamento pendente
+//    ('agendado'/'compareceu') no mesmo processo.
+//  - 'adicionar_dia': marca agendamento atual como 'aprovado' e cria
+//    um NOVO agendamento (ordem+1) no processo com a data informada.
+//    Só permitido quando NÃO há agendamento pendente além do atual.
+//
+// Em ambos 'manter' e 'adicionar_dia', o processo continua em 'dia_teste'
+// e nenhum provisório/solicitação é criado — a transição pra pré-admissão
+// só acontece quando o gestor escolhe 'encerrar' num dos dias.
 
 const schema = z.object({
   observacao: z.string().max(2000).optional(),
+  acao: z.enum(['encerrar', 'manter', 'adicionar_dia']).default('encerrar'),
+  // Obrigatório quando acao='adicionar_dia'.
+  dataNovoDia: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'dataNovoDia deve estar no formato YYYY-MM-DD')
+    .optional(),
 });
 
 export async function POST(
@@ -83,6 +102,35 @@ export async function POST(
       // dias restantes" só se aplica aos dias FUTUROS, não retroativo.
       const total = await calcularValorTotalProcesso(ag);
 
+      const acao = parsed.data.acao;
+
+      // Validações específicas de cada ação ────────────────────────────
+      const pendentes = await contarAgendamentosPendentesDoProcesso(
+        ag.processo_seletivo_id,
+        id,
+      );
+
+      if (acao === 'manter' && pendentes === 0) {
+        return errorResponse(
+          'Não há outro dia agendado para manter o candidato em teste — use "encerrar" ou "adicionar_dia"',
+          409,
+        );
+      }
+      if (acao === 'adicionar_dia') {
+        if (pendentes > 0) {
+          return errorResponse(
+            'Já existe um dia de teste agendado neste processo — use "manter em teste" para o próximo dia ou "encerrar"',
+            409,
+          );
+        }
+        if (!parsed.data.dataNovoDia) {
+          return errorResponse(
+            'Campo "dataNovoDia" é obrigatório quando acao="adicionar_dia"',
+            400,
+          );
+        }
+      }
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'aprovado',
@@ -102,11 +150,30 @@ export async function POST(
         ],
       );
 
-      const proximoStatus = await avancarProcessoAposDecisao(
-        ag.processo_seletivo_id,
-        'aprovado',
-        id,
-      );
+      // Decide próximo passo do processo conforme ação escolhida ─────────
+      let proximoStatus: string | null = null;
+      let novoAgendamento: { id: string; ordem: number; data: string } | null = null;
+
+      if (acao === 'encerrar') {
+        // Comportamento original: cancela futuros e move processo pra pré-admissão.
+        proximoStatus = await avancarProcessoAposDecisao(
+          ag.processo_seletivo_id,
+          'aprovado',
+          id,
+        );
+      } else if (acao === 'adicionar_dia') {
+        const novo = await criarProximoDiaTeste({
+          processoId: ag.processo_seletivo_id,
+          data: parsed.data.dataNovoDia!,
+          valorDiaria: ag.valor_diaria,
+          cargaHoraria: ag.carga_horaria,
+        });
+        novoAgendamento = { id: novo.id, ordem: novo.ordem, data: parsed.data.dataNovoDia! };
+        proximoStatus = 'dia_teste'; // processo permanece
+      } else {
+        // 'manter' — não toca em outros agendamentos nem no processo.
+        proximoStatus = 'dia_teste';
+      }
 
       // Aprovação no dia de teste = candidato segue pra pré-admissão.
       // Cria usuário provisório + solicitação de admissão (mesmo trilho do
@@ -120,7 +187,7 @@ export async function POST(
         readmissao: boolean;
       } | null = null;
 
-      if (proximoStatus === 'pre_admissao') {
+      if (acao === 'encerrar' && proximoStatus === 'pre_admissao') {
         const ctxRes = await query<{
           empresa_id: number;
           cargo_id: number;
@@ -227,14 +294,22 @@ export async function POST(
         };
       }
 
+      const descAcao =
+        acao === 'encerrar'
+          ? 'segue para pré-admissão'
+          : acao === 'adicionar_dia'
+            ? `mantido em teste — novo dia agendado (${novoAgendamento?.data}, ordem ${novoAgendamento?.ordem})`
+            : 'mantido em teste — aguardando próximo dia já agendado';
+
       await registrarAuditoria(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato APROVADO no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje); processo segue para pré-admissão`,
+          descricao: `Candidato APROVADO no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje); ${descAcao}`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
+            acao,
             periodosCumpridos: total.periodosAtual,
             percentualConcluido: total.percentualAtual,
             valorAgendamentoAtual: total.valorAgendamentoAtual,
@@ -242,6 +317,7 @@ export async function POST(
             valorTotal: total.valorTotal,
             observacao: parsed.data.observacao ?? null,
             provisorio: provisorioInfo,
+            novoAgendamento,
           },
         }),
       );
@@ -250,21 +326,30 @@ export async function POST(
       // valorAPagar e proximoPasso indicam que é uma decisão.
       // valorAPagar = total cumulativo do processo (dias anteriores +
       // período atual). valorAgendamentoAtual = só o agendamento atual.
+      const proximoPasso =
+        acao === 'encerrar'
+          ? proximoStatus === 'pre_admissao' ? 'pre_admissao' : 'encerrado'
+          : acao === 'adicionar_dia'
+            ? 'novo_dia_agendado'
+            : 'manter_em_teste';
+
       return successResponse({
         agendamentoId: id,
         status: 'aprovado',
+        acao,
         valorAPagar: total.valorTotal,
         valorAgendamentoAtual: total.valorAgendamentoAtual,
         valorDiasAnteriores: total.valorDiasAnteriores,
         periodosCumpridos: total.periodosAtual,
         percentualConcluido: total.percentualAtual,
         decididoEm: new Date().toISOString(),
-        proximoPasso: proximoStatus === 'pre_admissao' ? 'pre_admissao' : 'encerrado',
+        proximoPasso,
         processo: {
           id: ag.processo_seletivo_id,
           status: proximoStatus,
         },
         provisorio: provisorioInfo,
+        novoAgendamento,
       });
     } catch (error) {
       console.error(

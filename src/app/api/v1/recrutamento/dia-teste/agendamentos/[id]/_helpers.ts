@@ -353,6 +353,55 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
 }
 
 /**
+ * Conta quantos agendamentos do processo ainda estão pendentes (status
+ * 'agendado' ou 'compareceu') excluindo o atual. Usado pra decidir se
+ * é possível "aprovar e manter em teste" (precisa ter dia futuro) ou
+ * "aprovar e adicionar mais 1 dia" (NÃO pode ter dia pendente).
+ */
+export async function contarAgendamentosPendentesDoProcesso(
+  processoId: string,
+  agendamentoIdAtual: string,
+): Promise<number> {
+  const r = await query<{ count: string }>(
+    `SELECT COUNT(*)::text AS count
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint
+        AND status IN ('agendado', 'compareceu')
+        AND id != $2::bigint`,
+    [processoId, agendamentoIdAtual],
+  );
+  return parseInt(r.rows[0]?.count ?? '0', 10) || 0;
+}
+
+/**
+ * Cria um novo agendamento de dia de teste no processo, ordem = max+1.
+ * Reusa valor_diaria e carga_horaria do agendamento de referência (atual).
+ * Retorna o id do novo agendamento ou lança em caso de conflito.
+ */
+export async function criarProximoDiaTeste(args: {
+  processoId: string;
+  data: string; // YYYY-MM-DD
+  valorDiaria: string | number;
+  cargaHoraria: number;
+}): Promise<{ id: string; ordem: number }> {
+  const ordemRes = await query<{ proxima: number }>(
+    `SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint`,
+    [args.processoId],
+  );
+  const proxima = ordemRes.rows[0].proxima;
+  const ins = await query<{ id: string }>(
+    `INSERT INTO people.dia_teste_agendamento
+       (processo_seletivo_id, ordem, data, valor_diaria, carga_horaria, status)
+     VALUES ($1::bigint, $2, $3::date, $4, $5, 'agendado')
+     RETURNING id::text`,
+    [args.processoId, proxima, args.data, args.valorDiaria, args.cargaHoraria],
+  );
+  return { id: ins.rows[0].id, ordem: proxima };
+}
+
+/**
  * Avança o processo seletivo após uma decisão final no dia de teste.
  * - Se aprovado: status do processo vai pra `pre_admissao` E os demais
  *   dias agendados/pendentes do mesmo processo viram `cancelado`
