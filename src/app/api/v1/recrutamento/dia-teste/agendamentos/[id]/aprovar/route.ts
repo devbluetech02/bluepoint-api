@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
+import { criarTokenReferencias } from '@/lib/referencias-token';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
@@ -220,17 +221,34 @@ export async function POST(
           const primeiroNome = (cand?.nome ?? 'Candidato').split(' ')[0];
 
           if (tel.length >= 10) {
-            // TODO: substituir pelo template definitivo informado pelo RH.
+            const token = criarTokenReferencias({
+              agendamentoId: id,
+              candidatoCpf: ag.candidato_cpf_norm,
+              candidatoRecrutamentoId: Number(ag.candidato_recrutamento_id),
+            });
+            const baseWeb = process.env.PUBLIC_WEB_URL ?? 'https://people.valerisapp.com.br';
+            const link = `${baseWeb.replace(/\/$/, '')}/referencias?token=${encodeURIComponent(token)}`;
+
             const mensagem = [
-              `Olá, ${primeiroNome}!`,
+              `Prezado(a) ${primeiroNome},`,
               ``,
-              `Você foi APROVADO no dia de teste — parabéns! 🎉`,
+              `Para darmos continuidade ao processo seletivo, solicitamos o envio de 2 referências profissionais (preferencialmente gestor direto, como gerente, supervisor ou coordenador) das suas duas últimas experiências profissionais.`,
               ``,
-              `Pra prosseguir com a admissão, precisamos de 2 referências profissionais (nome completo + telefone).`,
+              `Por gentileza, encaminhar as seguintes informações:`,
               ``,
-              `Por favor, responda esta mensagem com:`,
-              `*Referência 1:* Nome — Telefone`,
-              `*Referência 2:* Nome — Telefone`,
+              `• Nome`,
+              `• Cargo`,
+              `• Empresa`,
+              `• Telefone para contato`,
+              ``,
+              `Você pode preencher diretamente neste formulário (mais rápido):`,
+              link,
+              ``,
+              `Ou, se preferir, basta responder esta mensagem com os dados.`,
+              ``,
+              `Quanto mais breve recebermos essas informações, mais ágil será a continuidade do seu processo.`,
+              ``,
+              `Agradecemos desde já!`,
             ].join('\n');
 
             const r = await enviarMensagemWhatsApp(tel, mensagem);

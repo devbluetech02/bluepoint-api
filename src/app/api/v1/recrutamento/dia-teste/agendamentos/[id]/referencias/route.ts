@@ -31,12 +31,30 @@ import { loadAgendamento } from '../_helpers';
 const referenciaSchema = z.object({
   nome: z.string().trim().min(2).max(120),
   telefone: z.string().trim().min(8).max(20),
+  cargo: z.string().trim().max(120).optional(),
+  empresa: z.string().trim().max(120).optional(),
+  // Mantido pra compat com clientes antigos. Novos devem usar cargo+empresa.
   descricao: z.string().trim().max(500).optional(),
 });
 
 const schema = z.object({
   referencias: z.array(referenciaSchema).length(2, 'Informe exatamente 2 referências'),
 });
+
+/**
+ * Compõe a descrição final gravada em descricao_referencia_X.
+ * Prioriza cargo/empresa (formato "<cargo> @ <empresa>") e cai pra descricao
+ * livre quando vieram do cliente antigo.
+ */
+function composeDescricao(args: { cargo?: string; empresa?: string; descricao?: string }): string | null {
+  const cargo = args.cargo?.trim();
+  const empresa = args.empresa?.trim();
+  if (cargo && empresa) return `${cargo} @ ${empresa}`;
+  if (cargo) return cargo;
+  if (empresa) return empresa;
+  if (args.descricao?.trim()) return args.descricao.trim();
+  return null;
+}
 
 export async function POST(
   request: NextRequest,
@@ -80,10 +98,10 @@ export async function POST(
             Number(ag.candidato_recrutamento_id),
             ref1.nome,
             ref1.telefone.replace(/\D/g, ''),
-            ref1.descricao ?? null,
+            composeDescricao(ref1),
             ref2.nome,
             ref2.telefone.replace(/\D/g, ''),
-            ref2.descricao ?? null,
+            composeDescricao(ref2),
           ],
         );
       } catch (e) {
