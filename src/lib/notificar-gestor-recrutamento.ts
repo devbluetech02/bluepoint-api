@@ -3,8 +3,9 @@ import { enviarPushParaColaboradores } from '@/lib/push-colaborador';
 
 /**
  * Dispara push pra todos os colaboradores ativos com permissão
- * `recrutamento:ver` ou `recrutamento:gerenciar` (= quem precisa
- * ser avisado quando um recrutador está mal-avaliado pela IA).
+ * `recrutamento:ver`, `recrutamento:iniciar_processo` ou
+ * `recrutamento:decidir` (= quem precisa ser avisado quando um
+ * recrutador está mal-avaliado pela IA).
  *
  * Usado pelo fluxo de avaliação IA (avaliar-recrutador, cron) quando
  * o veredito repete "ruim" em ciclos consecutivos.
@@ -25,7 +26,11 @@ export async function notificarGestoresRecrutamento(opts: {
            ON tp.tipo_usuario = c.tipo_usuario AND tp.concedido = true
          JOIN people.permissoes p ON p.id = tp.permissao_id
         WHERE c.status = 'ativo'
-          AND p.codigo IN ('recrutamento:ver', 'recrutamento:gerenciar')`
+          AND p.codigo IN (
+            'recrutamento:ver',
+            'recrutamento:iniciar_processo',
+            'recrutamento:decidir'
+          )`
     );
     const ids = r.rows.map((row) => row.id);
     if (ids.length === 0) return 0;
