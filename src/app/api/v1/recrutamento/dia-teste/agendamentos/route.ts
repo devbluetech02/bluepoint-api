@@ -62,6 +62,8 @@ interface Row {
   empresa_nome: string | null;
   departamento_id: string | number | null;
   departamento_nome: string | null;
+  pagamento_pix_id: string | number | null;
+  pagamento_pix_status: string | null;
 }
 
 function toIntOrNull(v: unknown): number | null {
@@ -82,6 +84,7 @@ export async function GET(request: NextRequest) {
       const de = searchParams.get('de');
       const ate = searchParams.get('ate');
       const status = searchParams.get('status');
+      const empresaId = searchParams.get('empresaId');
       const todos = searchParams.get('todos') === 'true';
 
       const filtros: string[] = [];
@@ -104,6 +107,14 @@ export async function GET(request: NextRequest) {
       if (status) {
         filtros.push(`a.status = $${params.length + 1}`);
         params.push(status);
+      }
+
+      if (empresaId) {
+        const eid = parseInt(empresaId, 10);
+        if (!Number.isNaN(eid)) {
+          filtros.push(`ps.empresa_id = $${params.length + 1}::bigint`);
+          params.push(eid);
+        }
       }
 
       // `todos=false` (default) esconde APENAS agendamentos cancelados
@@ -165,13 +176,16 @@ export async function GET(request: NextRequest) {
             ps.empresa_id,
             e.nome_fantasia             AS empresa_nome,
             ps.departamento_id,
-            d.nome                      AS departamento_nome
+            d.nome                      AS departamento_nome,
+            a.pagamento_pix_id::text    AS pagamento_pix_id,
+            pix.status                  AS pagamento_pix_status
            FROM people.dia_teste_agendamento a
            JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
            LEFT JOIN people.colaboradores col_criador ON col_criador.id = ps.criado_por
            LEFT JOIN people.cargos        c ON c.id = ps.cargo_id
            LEFT JOIN people.empresas      e ON e.id = ps.empresa_id
            LEFT JOIN people.departamentos d ON d.id = ps.departamento_id
+           LEFT JOIN people.pagamento_pix pix ON pix.id = a.pagamento_pix_id
            ${where}
           ORDER BY a.data ASC, a.ordem ASC, a.criado_em ASC`,
         params
@@ -342,6 +356,11 @@ export async function GET(request: NextRequest) {
           departamento: departamentoId !== null
             ? { id: departamentoId, nome: r.departamento_nome ?? '' }
             : null,
+          pagamentoPixId:
+            r.pagamento_pix_id != null && r.pagamento_pix_id !== ''
+              ? String(r.pagamento_pix_id)
+              : null,
+          pagamentoPixStatus: r.pagamento_pix_status ?? null,
         };
       });
 
