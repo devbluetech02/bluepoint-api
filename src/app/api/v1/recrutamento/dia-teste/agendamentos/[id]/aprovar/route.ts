@@ -97,9 +97,9 @@ export async function POST(
       }
 
       // Calcula o valor TOTAL do processo até este agendamento (dias
-      // anteriores cumpridos + período atual). Aprovado também paga
-      // proporcional aos períodos cumpridos — a regra de "decisão pula
-      // dias restantes" só se aplica aos dias FUTUROS, não retroativo.
+      // anteriores cumpridos + período atual). Em 'encerrar' paga proporcional
+      // aos períodos cumpridos. Em 'manter'/'adicionar_dia' o candidato vai
+      // continuar trabalhando o dia inteiro — recebe o dia COMPLETO.
       const total = await calcularValorTotalProcesso(ag);
 
       const acao = parsed.data.acao;
@@ -131,6 +131,28 @@ export async function POST(
         }
       }
 
+      // Sobrescreve valor/percentual quando aprovação MANTÉM o candidato em
+      // teste (manter ou adicionar_dia). Como ele vai cumprir o dia inteiro,
+      // recebe o valor cheio do dia independente do horário em que o gestor
+      // clicou. Encerrar mantém proporcional (decisão fim de carreira do dia).
+      const diariaCheia = parseFloat(ag.valor_diaria);
+      const ehManterOuAdicionar = acao === 'manter' || acao === 'adicionar_dia';
+      const valorAgendamentoAtualFinal = ehManterOuAdicionar
+        ? diariaCheia
+        : total.valorAgendamentoAtual;
+      const percentualAtualFinal = ehManterOuAdicionar
+        ? 100
+        : total.percentualAtual;
+      const periodosAtualFinal: 0 | 1 | 2 = ehManterOuAdicionar
+        ? 2
+        : total.periodosAtual;
+      const valorTotalFinal = ehManterOuAdicionar
+        ? Math.round((total.valorDiasAnteriores + diariaCheia) * 100) / 100
+        : total.valorTotal;
+      const periodosCumpridosProcessoFinal = ehManterOuAdicionar
+        ? total.periodosCumpridosProcesso - total.periodosAtual + 2
+        : total.periodosCumpridosProcesso;
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'aprovado',
@@ -143,8 +165,8 @@ export async function POST(
           WHERE id = $5::bigint`,
         [
           user.userId,
-          total.valorAgendamentoAtual,
-          total.percentualAtual,
+          valorAgendamentoAtualFinal,
+          percentualAtualFinal,
           parsed.data.observacao ?? null,
           id,
         ],
@@ -246,16 +268,16 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato APROVADO no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje); ${descAcao}`,
+          descricao: `Candidato APROVADO no dia de teste #${id} (a pagar: R$ ${valorTotalFinal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${valorAgendamentoAtualFinal.toFixed(2)} hoje); ${descAcao}`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
             acao,
-            periodosCumpridos: total.periodosAtual,
-            percentualConcluido: total.percentualAtual,
-            valorAgendamentoAtual: total.valorAgendamentoAtual,
+            periodosCumpridos: periodosAtualFinal,
+            percentualConcluido: percentualAtualFinal,
+            valorAgendamentoAtual: valorAgendamentoAtualFinal,
             valorDiasAnteriores: total.valorDiasAnteriores,
-            valorTotal: total.valorTotal,
+            valorTotal: valorTotalFinal,
             observacao: parsed.data.observacao ?? null,
             provisorio: provisorioInfo,
             novoAgendamento,
@@ -279,11 +301,12 @@ export async function POST(
         agendamentoId: id,
         status: 'aprovado',
         acao,
-        valorAPagar: total.valorTotal,
-        valorAgendamentoAtual: total.valorAgendamentoAtual,
+        valorAPagar: valorTotalFinal,
+        valorAgendamentoAtual: valorAgendamentoAtualFinal,
         valorDiasAnteriores: total.valorDiasAnteriores,
-        periodosCumpridos: total.periodosAtual,
-        percentualConcluido: total.percentualAtual,
+        periodosCumpridos: periodosAtualFinal,
+        percentualConcluido: percentualAtualFinal,
+        periodosCumpridosProcesso: periodosCumpridosProcessoFinal,
         decididoEm: new Date().toISOString(),
         proximoPasso,
         processo: {
