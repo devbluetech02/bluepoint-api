@@ -280,6 +280,16 @@ async function abrirCaminhoA(args: {
         WHERE id = $2::bigint`,
       [docId, processoId]
     );
+    // Pós-068: cada dia de teste também referencia seu próprio contrato.
+    // Na criação inicial todos os dias compartilham o MESMO doc; já o
+    // fluxo "adicionar mais 1 dia" gera contrato novo só pra aquele dia.
+    await query(
+      `UPDATE people.dia_teste_agendamento
+          SET documento_assinatura_id = $1, atualizado_em = NOW()
+        WHERE processo_seletivo_id = $2::bigint
+          AND documento_assinatura_id IS NULL`,
+      [docId, processoId]
+    );
     const env = await enviarDocumentoDiaTeste(docId);
     if (env.ok) {
       envioOk = true;

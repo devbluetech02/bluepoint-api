@@ -10,7 +10,12 @@
  *    DT-/ADM-; aqui usamos DT- pra dia de teste).
  */
 
-import { query } from './db';
+import { query, queryRecrutamento } from './db';
+import {
+  enviarMensagemWhatsApp,
+  getRecrutamentoEvolutionConfigPorResponsavel,
+  type EvolutionConfig,
+} from './evolution-api';
 
 // IDs canônicos cadastrados no SignProof (confirmados via
 // GET /api/v1/integration/templates):
@@ -333,6 +338,36 @@ export async function criarDocumentoDiaTeste(args: {
   }
 }
 
+/// Recupera o signing_link existente de um doc ja enviado. Usar pra
+/// reenviar lembrete pelo WhatsApp sem chamar /send (que so aceita
+/// docs em 'draft' — apos primeiro envio o doc fica in_progress e
+/// /send retorna 409).
+export async function obterSigningLinkExistente(documentId: string): Promise<{ ok: boolean; signingLink?: string; erro?: string }> {
+  const baseUrl = process.env.SIGNPROOF_API_URL;
+  const apiKey = process.env.SIGNPROOF_API_KEY;
+  if (!baseUrl || !apiKey) return { ok: false, erro: 'signproof_env_ausente' };
+
+  try {
+    const resp = await fetch(`${baseUrl}/api/v1/integration/documents/${documentId}/signing-links`, {
+      method: 'GET',
+      headers: {
+        'X-API-Key': apiKey,
+        Accept: 'application/json',
+      },
+    });
+    if (!resp.ok) {
+      const t = await resp.text().catch(() => '');
+      return { ok: false, erro: `http_${resp.status}: ${t.slice(0, 200)}` };
+    }
+    const data = await resp.json() as { signing_links?: { signing_link?: string }[] };
+    const link = data.signing_links?.[0]?.signing_link;
+    if (!link) return { ok: false, erro: 'sem_signing_link' };
+    return { ok: true, signingLink: link };
+  } catch (e) {
+    return { ok: false, erro: `excecao: ${(e as Error).message}` };
+  }
+}
+
 export async function enviarDocumentoDiaTeste(documentId: string): Promise<{ ok: boolean; signingLink?: string; erro?: string }> {
   const baseUrl = process.env.SIGNPROOF_API_URL;
   const apiKey = process.env.SIGNPROOF_API_KEY;
@@ -396,4 +431,253 @@ function normalizePhoneBR(raw: string): string | null {
   if (d.length === 10) d = d.slice(0, 2) + '9' + d.slice(2);
   if (d.length !== 11) return null;
   return `55${d}`;
+}
+
+// ─── Geração de contrato pra um dia específico do processo ────────────
+//
+// Reaproveitado por:
+//   - POST /recrutamento/processos          (criação inicial caminho A)
+//   - POST /agendamentos/:id/aprovar
+//     (acao='adicionar_dia' — gera contrato NOVO pro novo dia, persiste
+//     em dia_teste_agendamento.documento_assinatura_id, dispara WhatsApp).
+//
+// O contrato é vinculado ao agendamento (não mais ao processo) — assim
+// cada dia de teste tem seu próprio documento assinado e o gate de
+// pagamento valida por agendamento. Ainda assim, gravamos o ID também
+// em processo_seletivo.documento_assinatura_id quando `setarNoProcesso`
+// for true (default), pra manter compatibilidade com listagens legadas
+// que leem o doc do processo.
+
+const EMPRESA_CONTRATO_DIA_TESTE = 11; // Ethos — sempre
+
+export interface GerarContratoResult {
+  ok: boolean;
+  documentId: string | null;
+  signingLink: string | null;
+  signProofErro: string | null;
+  whatsappOk: boolean;
+  whatsappErro: string | null;
+}
+
+export async function gerarEEnviarContratoDiaTeste(args: {
+  processoId: string;
+  agendamentoId: string;
+  data: string;             // YYYY-MM-DD do dia em questão
+  valorDiaria: number;
+  cargaHoraria: number;
+  // 1 = só este dia (default usado em adicionar_dia).
+  // Maior quando criação inicial cobrir 2 dias num único contrato.
+  diasQtdContrato?: number;
+  // Override opcional do template (default: heurística por cargo).
+  templateOverride?: string | null;
+  // Quando true, também grava o doc id em processo_seletivo
+  // (mantém compatibilidade com listagens legadas).
+  setarNoProcesso?: boolean;
+  // Mensagem WhatsApp custom (acoplada ao link). Default: gerada aqui.
+  mensagemWhatsApp?: string;
+}): Promise<GerarContratoResult> {
+  const diasQtdContrato = args.diasQtdContrato ?? 1;
+  const setarNoProcesso = args.setarNoProcesso ?? true;
+
+  // 1. Carrega processo + candidato_id + cargo_id (people).
+  const psRes = await query<{
+    id: string;
+    candidato_recrutamento_id: number | string;
+    candidato_cpf_norm: string;
+    cargo_id: number;
+  }>(
+    `SELECT id::text, candidato_recrutamento_id, candidato_cpf_norm, cargo_id
+       FROM people.processo_seletivo
+      WHERE id = $1::bigint
+      LIMIT 1`,
+    [args.processoId],
+  );
+  const ps = psRes.rows[0];
+  if (!ps) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: 'processo_nao_encontrado',
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+
+  // 2. Busca dados do candidato no banco externo de Recrutamento.
+  const candId = typeof ps.candidato_recrutamento_id === 'string'
+    ? parseInt(ps.candidato_recrutamento_id, 10)
+    : ps.candidato_recrutamento_id;
+  const detRes = await queryRecrutamento<{
+    nome: string | null;
+    cpf: string | null;
+    telefone: string | null;
+    rg_candidato: string | null;
+    cep: string | null;
+    logradouro: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    banco: string | null;
+    chave_pix: string | null;
+    email: string | null;
+    resposavel: string | null;
+  }>(
+    `SELECT nome, cpf, telefone, rg_candidato, cep, logradouro, bairro,
+            cidade, uf, banco, chave_pix, email, resposavel
+       FROM public.candidatos
+      WHERE id = $1
+      LIMIT 1`,
+    [candId],
+  );
+  const det = detRes.rows[0];
+  if (!det) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: 'candidato_nao_encontrado',
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+
+  const cargo = await fetchDadosCargo(ps.cargo_id);
+  if (!cargo) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: `cargo_nao_encontrado_${ps.cargo_id}`,
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+  const empresa = await fetchDadosEmpresa(EMPRESA_CONTRATO_DIA_TESTE);
+  if (!empresa) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: 'empresa_ethos_nao_encontrada',
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+
+  const candidatoSnap: CandidatoSnapshot = {
+    nome: (det.nome ?? '').trim(),
+    cpf: (det.cpf ?? ps.candidato_cpf_norm ?? '').replace(/\D/g, ''),
+    rg: det.rg_candidato ?? null,
+    endereco: {
+      cep: det.cep, logradouro: det.logradouro, bairro: det.bairro,
+      cidade: det.cidade, uf: det.uf,
+    },
+    telefone: (det.telefone ?? '').replace(/\D/g, '') || null,
+    banco: det.banco ?? null,
+    chavePix: det.chave_pix ?? null,
+  };
+
+  if (!candidatoSnap.telefone || candidatoSnap.telefone.length < 10) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: 'telefone_candidato_invalido',
+      whatsappOk: false, whatsappErro: 'sem_telefone',
+    };
+  }
+
+  const templateId = (args.templateOverride && args.templateOverride.trim() !== '')
+    ? args.templateOverride.trim()
+    : escolherTemplate(cargo);
+
+  const variaveis = montarVariaveis(templateId, {
+    candidato: candidatoSnap,
+    cargo,
+    empresa,
+    dt: {
+      diasQtd: diasQtdContrato,
+      valorDiaria: args.valorDiaria,
+      cargaHoraria: args.cargaHoraria,
+      dataPrimeiroDia: args.data,
+    },
+  });
+
+  const externalRef = `DT-${args.processoId}-A${args.agendamentoId}-${args.data.replace(/-/g, '')}`;
+  const primeiroNome = candidatoSnap.nome.split(' ')[0] || 'Candidato';
+  const ultimoNome = candidatoSnap.nome.split(' ').slice(-1)[0] || '';
+  const title = `Dia de Teste — ${primeiroNome} ${ultimoNome}`.trim();
+
+  const criar = await criarDocumentoDiaTeste({
+    templateId,
+    variaveis,
+    signer: {
+      nome: candidatoSnap.nome,
+      cpf: candidatoSnap.cpf,
+      email: det.email,
+      telefone: candidatoSnap.telefone,
+    },
+    externalRef,
+    title,
+  });
+
+  if (!criar.ok) {
+    return {
+      ok: false, documentId: null, signingLink: null,
+      signProofErro: `criar:${criar.erro}`,
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+  const documentId = criar.documentId;
+
+  // Persiste no agendamento (sempre) e opcionalmente no processo.
+  await query(
+    `UPDATE people.dia_teste_agendamento
+        SET documento_assinatura_id = $1, atualizado_em = NOW()
+      WHERE id = $2::bigint`,
+    [documentId, args.agendamentoId],
+  );
+  if (setarNoProcesso) {
+    await query(
+      `UPDATE people.processo_seletivo
+          SET documento_assinatura_id = $1, atualizado_em = NOW()
+        WHERE id = $2::bigint`,
+      [documentId, args.processoId],
+    );
+  }
+
+  // Envia o documento (gera signing link).
+  const env = await enviarDocumentoDiaTeste(documentId);
+  if (!env.ok) {
+    return {
+      ok: false, documentId, signingLink: null,
+      signProofErro: `enviar:${env.erro ?? '?'}`,
+      whatsappOk: false, whatsappErro: null,
+    };
+  }
+  const signingLink = env.signingLink ?? null;
+
+  // WhatsApp pelo recrutador responsável.
+  const numeroWhats = candidatoSnap.telefone;
+  let whatsappOk = false;
+  let whatsappErro: string | null = null;
+
+  if (signingLink && numeroWhats && numeroWhats.length >= 10) {
+    const mensagemBase = args.mensagemWhatsApp?.trim() || [
+      `Olá, ${primeiroNome}! 👋`,
+      '',
+      `Foi agendado um novo dia de teste para você. 🎉`,
+      '',
+      `Para participar, é necessário assinar o contrato deste novo dia. É rápido e 100% digital.`,
+      '',
+      `Após assinar, basta comparecer no horário combinado.`,
+      '',
+      `Qualquer dúvida, estamos à disposição!`,
+    ].join('\n');
+    const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
+    const cfg: EvolutionConfig = getRecrutamentoEvolutionConfigPorResponsavel(det.resposavel);
+    const result = await enviarMensagemWhatsApp(numeroWhats, mensagem, cfg);
+    whatsappOk = result.ok;
+    whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
+  } else if (!numeroWhats || numeroWhats.length < 10) {
+    whatsappErro = 'sem_telefone';
+  } else {
+    whatsappErro = 'sem_signing_link';
+  }
+
+  return {
+    ok: true,
+    documentId,
+    signingLink,
+    signProofErro: null,
+    whatsappOk,
+    whatsappErro,
+  };
 }

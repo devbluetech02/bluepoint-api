@@ -12,7 +12,10 @@ import {
   enviarMensagemWhatsApp,
   getRecrutamentoEvolutionConfig,
 } from '@/lib/evolution-api';
-import { enviarDocumentoDiaTeste } from '@/lib/recrutamento-dia-teste';
+import {
+  enviarDocumentoDiaTeste,
+  obterSigningLinkExistente,
+} from '@/lib/recrutamento-dia-teste';
 
 // POST /api/v1/recrutamento/processos/:id/reenviar-whatsapp
 //
@@ -100,7 +103,14 @@ export async function POST(
             400
           );
         }
-        const env = await enviarDocumentoDiaTeste(proc.documento_assinatura_id);
+        // Reenvio: doc ja foi enviado antes, esta in_progress no SignProof.
+        // /send retorna 409 nesse estado — usar GET signing-links pra
+        // reaproveitar link existente. Fallback /send se nunca enviou
+        // (doc ainda em draft).
+        let env = await obterSigningLinkExistente(proc.documento_assinatura_id);
+        if (!env.ok || !env.signingLink) {
+          env = await enviarDocumentoDiaTeste(proc.documento_assinatura_id);
+        }
         if (!env.ok || !env.signingLink) {
           return errorResponse(
             `Não foi possível obter o link de assinatura: ${env.erro ?? 'sem signing_link'}`,

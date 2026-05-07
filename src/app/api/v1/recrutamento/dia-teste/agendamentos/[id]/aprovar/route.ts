@@ -11,6 +11,7 @@ import {
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { enviarMensagemWhatsApp, getRecrutamentoEvolutionConfigPorResponsavel } from '@/lib/evolution-api';
 import { criarTokenReferencias } from '@/lib/referencias-token';
+import { gerarEEnviarContratoDiaTeste } from '@/lib/recrutamento-dia-teste';
 import {
   loadAgendamento,
   avancarProcessoAposDecisao,
@@ -183,6 +184,14 @@ export async function POST(
       // Decide próximo passo do processo conforme ação escolhida ─────────
       let proximoStatus: string | null = null;
       let novoAgendamento: { id: string; ordem: number; data: string } | null = null;
+      let contratoNovoDia: {
+        ok: boolean;
+        documentId: string | null;
+        signingLink: string | null;
+        signProofErro: string | null;
+        whatsappOk: boolean;
+        whatsappErro: string | null;
+      } | null = null;
 
       if (acao === 'encerrar') {
         // Comportamento original: cancela futuros e move processo pra pré-admissão.
@@ -200,6 +209,34 @@ export async function POST(
         });
         novoAgendamento = { id: novo.id, ordem: novo.ordem, data: parsed.data.dataNovoDia! };
         proximoStatus = 'dia_teste'; // processo permanece
+
+        // Pagamento do novo dia exige assinatura — gera contrato NOVO
+        // pra este agendamento e dispara WhatsApp pro candidato com o
+        // link de assinatura. Best-effort: falhas não revertem aprovação,
+        // ficam registradas em auditoria pra recuperação manual.
+        try {
+          contratoNovoDia = await gerarEEnviarContratoDiaTeste({
+            processoId: ag.processo_seletivo_id,
+            agendamentoId: novo.id,
+            data: parsed.data.dataNovoDia!,
+            valorDiaria: parseFloat(ag.valor_diaria),
+            cargaHoraria: ag.carga_horaria,
+            diasQtdContrato: 1,
+            setarNoProcesso: true,
+          });
+          if (!contratoNovoDia.ok) {
+            console.warn(
+              `[dia-teste/aprovar] gerar contrato novo dia falhou agendamento=${novo.id}: signProof=${contratoNovoDia.signProofErro} whatsapp=${contratoNovoDia.whatsappErro}`,
+            );
+          }
+        } catch (e) {
+          console.warn('[dia-teste/aprovar] excecao ao gerar contrato novo dia:', e);
+          contratoNovoDia = {
+            ok: false, documentId: null, signingLink: null,
+            signProofErro: `excecao: ${(e as Error).message}`,
+            whatsappOk: false, whatsappErro: null,
+          };
+        }
       } else {
         // 'manter' — não toca em outros agendamentos nem no processo.
         proximoStatus = 'dia_teste';
@@ -316,6 +353,7 @@ export async function POST(
             provisorio: provisorioInfo,
             novoAgendamento,
             whatsappReferencias,
+            contratoNovoDia,
           },
         }),
       );
@@ -350,6 +388,7 @@ export async function POST(
         provisorio: provisorioInfo,
         novoAgendamento,
         whatsappReferencias,
+        contratoNovoDia,
       });
     } catch (error) {
       console.error(

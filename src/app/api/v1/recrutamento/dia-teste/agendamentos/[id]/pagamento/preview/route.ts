@@ -113,7 +113,8 @@ export async function POST(
            ps.pix_chave                 AS ps_pix_chave,
            ps.pix_tipo_chave            AS ps_pix_tipo,
            ps.pix_banco                 AS ps_pix_banco,
-           ps.documento_assinatura_id   AS documento_assinatura_id
+           COALESCE(a.documento_assinatura_id, ps.documento_assinatura_id)
+             AS documento_assinatura_id
           FROM people.dia_teste_agendamento a
           JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
           LEFT JOIN people.empresas e ON e.id = ps.empresa_id

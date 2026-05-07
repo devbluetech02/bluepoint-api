@@ -301,7 +301,8 @@ export async function loadAgendamento(
         ps.candidato_recrutamento_id,
         ps.candidato_cpf_norm,
         ps.vaga_snapshot,
-        ps.documento_assinatura_id,
+        COALESCE(a.documento_assinatura_id, ps.documento_assinatura_id)
+                                    AS documento_assinatura_id,
         ps.cargo_id,
         c.nome                      AS cargo_nome,
         ps.empresa_id,

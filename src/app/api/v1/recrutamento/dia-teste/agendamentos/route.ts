@@ -211,7 +211,10 @@ export async function GET(request: NextRequest) {
             ps.candidato_recrutamento_id,
             ps.candidato_cpf_norm,
             ps.vaga_snapshot,
-            ps.documento_assinatura_id,
+            -- Prefere doc do agendamento (post-068); cai pro processo
+            -- pra agendamentos legados sem doc próprio.
+            COALESCE(a.documento_assinatura_id, ps.documento_assinatura_id)
+                                        AS documento_assinatura_id,
             ps.criado_por,
             col_criador.nome            AS criado_por_nome,
             ps.cargo_id,
