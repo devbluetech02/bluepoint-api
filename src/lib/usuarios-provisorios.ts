@@ -101,9 +101,16 @@ export async function criarOuReaproveitarProvisorio(
     [cpfLimpo]
   );
   const provisorio = provisorioExistente.rows[0] ?? null;
+  // Reaproveita se:
+  //  - provisorio existe sem solicitacao alguma (orfao — ex: criado e
+  //    nunca usado, fluxo `coletar_referencias` que apaga e recria), OU
+  //  - ultima solicitacao dele esta em estado terminal de falha
+  //    (cancelado, rejeitado, etc).
   const podeReaproveitar = provisorio != null
-    && provisorio.status_solicitacao != null
-    && STATUS_TERMINAL_FALHA.has(provisorio.status_solicitacao);
+    && (
+      provisorio.status_solicitacao == null
+      || STATUS_TERMINAL_FALHA.has(provisorio.status_solicitacao)
+    );
 
   if (provisorio != null && !podeReaproveitar) {
     return { ok: false, erro: { code: 'processo_em_andamento' } };
