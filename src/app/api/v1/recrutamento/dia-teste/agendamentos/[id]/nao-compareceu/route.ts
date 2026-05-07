@@ -9,6 +9,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
+import { cancelarDocumentoSignProof } from '@/lib/recrutamento-dia-teste';
 import {
   loadAgendamento,
   buildAgendamentoPayload,
@@ -65,6 +66,23 @@ export async function POST(
       // Encerra o processo seletivo (não compareceu = não vira colaborador).
       await avancarProcessoAposDecisao(ag.processo_seletivo_id, 'nao_compareceu', id);
 
+      // Cancela o contrato no SignProof — sem isso o candidato continua
+      // recebendo lembrete de assinatura mesmo sem ter comparecido.
+      // Best-effort: falha não desfaz o "não compareceu".
+      let signProofCancelado: boolean | null = null;
+      let signProofErro: string | null = null;
+      if (ag.documento_assinatura_id) {
+        const r = await cancelarDocumentoSignProof(ag.documento_assinatura_id);
+        signProofCancelado = r.ok;
+        signProofErro = r.ok ? null : r.erro ?? 'desconhecido';
+        if (!r.ok) {
+          console.warn(
+            `[recrutamento/dia-teste/agendamentos/:id/nao-compareceu] SignProof cancel falhou para doc ${ag.documento_assinatura_id}:`,
+            r.erro,
+          );
+        }
+      }
+
       const updated = await loadAgendamento(id);
       if (!updated) return serverErrorResponse('Estado inconsistente após update');
 
@@ -73,7 +91,13 @@ export async function POST(
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
           descricao: `Candidato marcado como AUSENTE no dia de teste #${id}`,
-          dadosNovos: { agendamentoId: id, processoId: ag.processo_seletivo_id },
+          dadosNovos: {
+            agendamentoId: id,
+            processoId: ag.processo_seletivo_id,
+            documentoAssinaturaId: ag.documento_assinatura_id,
+            signProofCancelado,
+            signProofErro,
+          },
         }),
       );
 

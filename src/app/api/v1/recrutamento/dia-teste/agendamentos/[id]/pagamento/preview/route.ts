@@ -99,6 +99,7 @@ export async function POST(
         ps_pix_chave: string | null;
         ps_pix_tipo: string | null;
         ps_pix_banco: string | null;
+        documento_assinatura_id: string | null;
       }>(
         `SELECT
            a.id::text                  AS id,
@@ -111,7 +112,8 @@ export async function POST(
            col.nome                     AS candidato_nome,
            ps.pix_chave                 AS ps_pix_chave,
            ps.pix_tipo_chave            AS ps_pix_tipo,
-           ps.pix_banco                 AS ps_pix_banco
+           ps.pix_banco                 AS ps_pix_banco,
+           ps.documento_assinatura_id   AS documento_assinatura_id
           FROM people.dia_teste_agendamento a
           JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
           LEFT JOIN people.empresas e ON e.id = ps.empresa_id
@@ -135,6 +137,59 @@ export async function POST(
           `Pagamento só é permitido para agendamentos terminais com decisão; status atual: "${ag.status}".`,
           409,
         );
+      }
+
+      // 1b. Bloqueia pagamento se o contrato existe mas ainda não está
+      // assinado (ou foi cancelado). Consulta status no SignProof inline
+      // (mesmo padrão da listagem de agendamentos). Sem
+      // documento_assinatura_id (caminho B / processo legado) libera.
+      if (ag.documento_assinatura_id) {
+        let statusContrato: string | null = null;
+        const baseUrl = process.env.SIGNPROOF_API_URL;
+        const apiKey = process.env.SIGNPROOF_API_KEY;
+        if (baseUrl && apiKey) {
+          try {
+            const spResp = await fetch(
+              `${baseUrl}/api/v1/integration/documents/batch-status`,
+              {
+                method: 'POST',
+                headers: {
+                  'X-API-Key': apiKey,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  document_ids: [ag.documento_assinatura_id],
+                }),
+              },
+            );
+            if (spResp.ok) {
+              const spData = (await spResp.json()) as {
+                data?: { id?: string; status?: string }[];
+              };
+              const found = (spData.data ?? []).find(
+                (d) => d.id === ag.documento_assinatura_id,
+              );
+              statusContrato = found?.status ?? null;
+            }
+          } catch (e) {
+            console.warn(
+              '[pagamento/preview] SignProof batch-status falhou:',
+              e,
+            );
+          }
+        }
+        if (statusContrato !== 'completed') {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                'Pagamento bloqueado: o contrato ainda não foi assinado pelo candidato.',
+              code: 'contrato_nao_assinado',
+              detalhes: { statusContrato: statusContrato ?? 'desconhecido' },
+            },
+            { status: 409 },
+          );
+        }
       }
 
       // 2. Pagamento ja existente (vivo) -> retorna o atual em vez de duplicar.
