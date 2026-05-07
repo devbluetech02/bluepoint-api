@@ -4,6 +4,7 @@ import { createdResponse, errorResponse, serverErrorResponse, validationErrorRes
 import { withAuth } from '@/lib/middleware';
 import { solicitarAjustePontoSchema, validateBody } from '@/lib/validation';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { cacheDelPattern, CACHE_KEYS } from '@/lib/cache';
 
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
@@ -84,6 +85,11 @@ export async function POST(request: NextRequest) {
       );
 
       await client.query('COMMIT');
+
+      // Invalida cache da listagem (gestores precisam ver imediatamente).
+      cacheDelPattern(`${CACHE_KEYS.SOLICITACOES}*`).catch((e) =>
+        console.error('Falha ao invalidar cache de solicitações:', e),
+      );
 
       await registrarAuditoria({
         usuarioId: user.userId,

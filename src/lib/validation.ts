@@ -263,7 +263,7 @@ export const solicitarHoraExtraSchema = z.object({
 });
 
 export const criarSolicitacaoSchema = z.object({
-  tipo: z.enum(['ajuste_ponto', 'ferias', 'atestado', 'ausencia', 'hora_extra', 'atraso', 'outros']),
+  tipo: z.enum(['ajuste_ponto', 'ferias', 'atestado', 'ausencia', 'hora_extra', 'atraso', 'duvida', 'outros']),
   gestorId: z.number().int().positive().optional(),
   dataEvento: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data inválida'),
   dataEventoFim: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data fim inválida').optional(),
