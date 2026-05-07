@@ -219,6 +219,16 @@ export async function POST(
         );
       }
 
+      // Lança no Winthor (ERP) quando Sicoob ja confirmou liquidacao
+      // imediata. Best-effort: erro é gravado em winthor_erro pra cron
+      // retry, nao bloqueia retorno pro mobile.
+      if (statusInterno === 'sucesso') {
+        const { lancarPagamentoPixWinthorPorId } = await import('@/lib/winthor-pagamento');
+        lancarPagamentoPixWinthorPorId(pag.id).catch((err) =>
+          console.error('[pagamento/confirmar] winthor falhou:', err),
+        );
+      }
+
       return successResponse({
         pagamentoId: pag.id,
         endToEndId: pag.end_to_end_id,

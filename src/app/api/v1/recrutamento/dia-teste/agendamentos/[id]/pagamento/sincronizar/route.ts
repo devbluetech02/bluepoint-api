@@ -94,6 +94,17 @@ export async function POST(
           `[pagamento/sincronizar] FALHA — response Sicoob completo (pagamento=${pag.id}): ${JSON.stringify(r.data)}`
         );
       }
+
+      // Quando o sincronizar finaliza o pagamento como sucesso (Sicoob
+      // demorou pra liquidar e só agora confirmou), dispara lancamento
+      // no Winthor. Idempotente — winthor-pagamento checa winthor_recnum.
+      if (changed && novoStatus === 'sucesso') {
+        const { lancarPagamentoPixWinthorPorId } = await import('@/lib/winthor-pagamento');
+        lancarPagamentoPixWinthorPorId(pag.id).catch((err) =>
+          console.error('[pagamento/sincronizar] winthor falhou:', err),
+        );
+      }
+
       return successResponse({
         pagamentoId: pag.id,
         status: novoStatus,

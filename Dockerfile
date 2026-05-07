@@ -33,6 +33,24 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Oracle Instant Client (necessário pra integrar com Winthor via oracledb thick).
+# Alpine usa musl — Instant Client precisa de glibc-compat. Stack:
+#  - libaio: requirement do client
+#  - libc6-compat / gcompat: shim de glibc no Alpine
+#  - libnsl, libstdc++: deps adicionais do client
+RUN apk add --no-cache curl unzip libaio libc6-compat libnsl libstdc++ gcompat
+
+ARG INSTANT_CLIENT_VER=21.10.0.0.0dbru
+RUN mkdir -p /opt/oracle && cd /opt/oracle \
+ && curl -sL -o ic.zip https://download.oracle.com/otn_software/linux/instantclient/2110000/instantclient-basiclite-linux.x64-${INSTANT_CLIENT_VER}.zip \
+ && unzip -q ic.zip \
+ && rm ic.zip \
+ && ln -s /opt/oracle/instantclient_21_10 /opt/oracle/instantclient \
+ && echo "/opt/oracle/instantclient" > /etc/ld-musl-x86_64.path
+
+ENV ORACLE_INSTANT_CLIENT_DIR=/opt/oracle/instantclient
+ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
+
 # Criar usuário não-root para segurança
 RUN addgroup -S -g 1001 nodejs
 RUN adduser -S -u 1001 -G nodejs nextjs
@@ -50,6 +68,8 @@ COPY --from=builder /app/node_modules/pdfkit ./node_modules/pdfkit
 COPY --from=builder /app/node_modules/fontkit ./node_modules/fontkit
 COPY --from=builder /app/node_modules/linebreak ./node_modules/linebreak
 COPY --from=builder /app/node_modules/png-js ./node_modules/png-js
+# oracledb (precisa do binário nativo + Instant Client em runtime)
+COPY --from=builder /app/node_modules/oracledb ./node_modules/oracledb
 
 USER nextjs
 
