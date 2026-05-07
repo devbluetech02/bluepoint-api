@@ -293,6 +293,7 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
   // autoAdmitir tem WHERE status='contrato_assinado' no UPDATE, então
   // disparos duplicados no mesmo ciclo viram no-op.
   try {
+    // (a) presas em contrato_assinado (auto-admit nunca rodou)
     const orfas = await query<{ id: string }>(
       `SELECT id FROM people.solicitacoes_admissao
         WHERE status = 'contrato_assinado'
@@ -306,6 +307,33 @@ export async function executarCicloSignProof(): Promise<ResultadoCiclo> {
     }
     if (orfas.rows.length > 0) {
       console.log(`[SignProof Checker] Backfill: ${orfas.rows.length} solicitação(ões) em contrato_assinado disparadas pra auto-admit`);
+    }
+
+    // (b) admitidas SEM colaborador correspondente — INSERT do colab
+    // falhou no fire-and-forget. Reverte status pra contrato_assinado
+    // pra autoAdmitir ser disparado de novo no proximo ciclo (com fix
+    // de truncate, fallback de email/senha, etc).
+    const presasNoAdmitido = await query<{ id: string }>(
+      `SELECT s.id
+         FROM people.solicitacoes_admissao s
+         JOIN people.usuarios_provisorios up ON up.id = s.usuario_provisorio_id
+         LEFT JOIN people.colaboradores c
+           ON regexp_replace(c.cpf, '\\D', '', 'g') = regexp_replace(up.cpf, '\\D', '', 'g')
+        WHERE s.status = 'admitido'
+          AND s.usuario_provisorio_id IS NOT NULL
+          AND c.id IS NULL
+          AND s.atualizado_em < NOW() - INTERVAL '2 minutes'
+        LIMIT 50`
+    );
+    if (presasNoAdmitido.rows.length > 0) {
+      const ids = presasNoAdmitido.rows.map((r) => r.id);
+      await query(
+        `UPDATE people.solicitacoes_admissao
+            SET status = 'contrato_assinado', atualizado_em = NOW()
+          WHERE id = ANY($1::uuid[]) AND status = 'admitido'`,
+        [ids],
+      );
+      console.log(`[SignProof Checker] Backfill: ${ids.length} solicitação(ões) admitidas sem colaborador → status revertido pra contrato_assinado`);
     }
   } catch (err) {
     console.error('[SignProof Checker] Backfill scan falhou:', err);

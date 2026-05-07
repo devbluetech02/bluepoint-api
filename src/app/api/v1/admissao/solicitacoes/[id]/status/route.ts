@@ -777,9 +777,23 @@ export async function processarTransicaoAdmitido(
     targetColabId = ativoResult.rows[0]?.id ?? null;
   }
   if (!targetColabId) {
-    targetColabId = await criarColaboradorAPartirDeAdmissao(prov, cpf, solicitacaoId);
+    try {
+      targetColabId = await criarColaboradorAPartirDeAdmissao(prov, cpf, solicitacaoId);
+    } catch (err) {
+      console.error(`[admitido] Exception ao criar colaborador (CPF ${cpf}, sol ${solicitacaoId}):`, err);
+      targetColabId = null;
+    }
     if (!targetColabId) {
-      console.warn(`[admitido] Falha ao criar colaborador para CPF ${cpf} — solicitação ${solicitacaoId}`);
+      // Reverte status pra 'contrato_assinado' — checker tenta de novo
+      // no proximo ciclo (5min). Sem isso a solicitacao ficava presa em
+      // 'admitido' sem colaborador, exigindo intervencao manual.
+      console.warn(`[admitido] Falha ao criar colaborador para CPF ${cpf} — revertendo status pra contrato_assinado (solicitação ${solicitacaoId})`);
+      await query(
+        `UPDATE people.solicitacoes_admissao
+            SET status = 'contrato_assinado', atualizado_em = NOW()
+          WHERE id = $1 AND status = 'admitido'`,
+        [solicitacaoId],
+      );
       return;
     }
   }
@@ -834,30 +848,44 @@ async function criarColaboradorAPartirDeAdmissao(
   // 2. Extrai todos os campos pessoais do JSONB
   const ext: CamposExtraidos = await extrairCamposPessoaisParaColaborador(campos, dados);
 
-  // 3. Validações dos campos NOT NULL
+  // 3. Validações dos campos NOT NULL — com fallback pra evitar abort
+  // que deixaria solicitacao presa em 'admitido' sem colaborador.
   if (!prov.nome || !prov.nome.trim()) {
     console.warn(`[admitido] Provisório sem nome — abortando criação (solicitação ${solicitacaoId})`);
     return null;
   }
   if (!ext.email) {
-    console.warn(`[admitido] E-mail não encontrado no formulário — abortando criação (solicitação ${solicitacaoId})`);
-    return null;
+    // Fallback: gera email tecnico baseado no CPF. Candidato troca depois.
+    ext.email = `cpf-${cpf}@noemail.local`;
+    console.warn(`[admitido] E-mail ausente — usando fallback ${ext.email} (solicitação ${solicitacaoId})`);
   }
   if (!ext.senha) {
-    console.warn(`[admitido] Senha não encontrada no formulário — abortando criação (solicitação ${solicitacaoId})`);
-    return null;
+    // Fallback: senha = CPF. Candidato troca no primeiro login.
+    ext.senha = cpf;
+    console.warn(`[admitido] Senha ausente — usando CPF como fallback (solicitação ${solicitacaoId})`);
   }
 
-  // 4. Conflito de e-mail (CPF já foi pré-checado no handler)
+  // 4. Conflito de e-mail. Se bater, gera variante com sufixo do CPF
+  // pra nao bloquear admissao (candidato ajusta depois).
   const emailConflict = await query<{ id: number }>(
     `SELECT id FROM people.colaboradores WHERE email = $1 LIMIT 1`,
     [ext.email]
   );
   if (emailConflict.rows.length > 0) {
+    const novoEmail = `cpf-${cpf}@noemail.local`;
     console.warn(
-      `[admitido] E-mail "${ext.email}" já cadastrado (colaborador ${emailConflict.rows[0].id}) — abortando criação (solicitação ${solicitacaoId})`
+      `[admitido] E-mail "${ext.email}" já em uso (colab ${emailConflict.rows[0].id}) — usando ${novoEmail} (solicitação ${solicitacaoId})`,
     );
-    return null;
+    ext.email = novoEmail;
+    // Se ainda assim conflitar (re-tentativa do mesmo CPF), aborta.
+    const conflict2 = await query<{ id: number }>(
+      `SELECT id FROM people.colaboradores WHERE email = $1 LIMIT 1`,
+      [ext.email]
+    );
+    if (conflict2.rows.length > 0) {
+      console.warn(`[admitido] Fallback de email tambem em uso — abortando (sol ${solicitacaoId})`);
+      return null;
+    }
   }
 
   // 5. Detecta tipo (admin/gestor/colaborador) pelo cargo
