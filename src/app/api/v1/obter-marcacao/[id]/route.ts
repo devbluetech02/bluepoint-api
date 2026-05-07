@@ -32,11 +32,13 @@ export async function GET(request: NextRequest, { params }: Params) {
           j.tolerancia_entrada,
           j.tolerancia_saida,
           aj.id as ajustada_por_id,
-          aj.nome as ajustada_por_nome
+          aj.nome as ajustada_por_nome,
+          bf.foto_referencia_url as biometria_foto_url
         FROM people.marcacoes m
         JOIN people.colaboradores c ON m.colaborador_id = c.id
         LEFT JOIN jornadas j ON c.jornada_id = j.id
         LEFT JOIN people.colaboradores aj ON m.ajustada_por = aj.id
+        LEFT JOIN people.biometria_facial bf ON bf.colaborador_id = c.id
         WHERE m.id = $1`,
         [marcacaoId]
       );
@@ -130,6 +132,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         } : null,
         metodo: row.metodo,
         foto: row.foto_url,
+        biometriaFotoUrl: row.biometria_foto_url ?? null,
         observacao: row.observacao,
         foiAjustada: row.foi_ajustada,
         ajuste: row.foi_ajustada ? {

@@ -126,11 +126,13 @@ export async function GET(request: NextRequest) {
             aj.nome as ajustada_por_nome,
             c.id as colaborador_id,
             c.nome as colaborador_nome,
-            e.nome_fantasia as empresa_nome
+            e.nome_fantasia as empresa_nome,
+            bf.foto_referencia_url as biometria_foto_url
           FROM people.marcacoes m
           JOIN people.colaboradores c ON m.colaborador_id = c.id
           LEFT JOIN people.empresas e ON m.empresa_id = e.id
           LEFT JOIN people.colaboradores aj ON m.ajustada_por = aj.id
+          LEFT JOIN people.biometria_facial bf ON bf.colaborador_id = c.id
           ${whereClause}
           ORDER BY m.data_hora DESC
           LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -150,6 +152,7 @@ export async function GET(request: NextRequest) {
           } : null,
           metodo: row.metodo,
           foto: row.foto_url,
+          biometriaFotoUrl: row.biometria_foto_url ?? null,
           observacao: row.observacao,
           foiAjustada: row.foi_ajustada,
           ajuste: row.foi_ajustada ? {
