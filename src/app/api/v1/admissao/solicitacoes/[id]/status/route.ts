@@ -874,6 +874,22 @@ async function criarColaboradorAPartirDeAdmissao(
 
   const senhaHash = await hashPassword(ext.senha);
 
+  // 6.0 — Trunca campos com limite curto na tabela. Candidato as vezes
+  // preenche endereco inteiro no campo "Nº" (varchar 20) etc — sem isso
+  // o INSERT dispara `value too long for type character varying(20)` e
+  // a auto-admissao falha silenciosamente, deixando o status='admitido'
+  // mas sem colaborador criado.
+  // Schema (varchar lengths):
+  //   2  -> endereco_estado, rg_uf
+  //   10 -> uniforme_tamanho, endereco_cep
+  //   20 -> endereco_numero, telefone, cor_raca, rg, rg_orgao_emissor,
+  //         contato_emergencia_telefone, banco_agencia, pix_tipo
+  //   30 -> banco_tipo_conta, banco_conta
+  const truncar = (v: string | null | undefined, max: number) => {
+    if (v == null) return null;
+    return v.length > max ? v.slice(0, max) : v;
+  };
+
   // 6. INSERT
   const insertRes = await query<{ id: number }>(
     `INSERT INTO people.colaboradores (
@@ -904,10 +920,10 @@ async function criarColaboradorAPartirDeAdmissao(
       ext.email,
       senhaHash,
       cpf,
-      ext.rg ?? null,
-      ext.rg_orgao_emissor ?? null,
-      ext.rg_uf ?? null,
-      ext.telefone ?? null,
+      truncar(ext.rg, 20),
+      truncar(ext.rg_orgao_emissor, 20),
+      truncar(ext.rg_uf, 2),
+      truncar(ext.telefone, 20),
       prov.cargo_id,
       tipoUsuario,
       prov.empresa_id,
@@ -915,30 +931,30 @@ async function criarColaboradorAPartirDeAdmissao(
       prov.jornada_id ?? 13,
       dataAdmissao,
       ext.data_nascimento ?? null,
-      ext.endereco_cep ?? null,
+      truncar(ext.endereco_cep, 10),
       ext.endereco_logradouro ?? null,
-      ext.endereco_numero ?? null,
+      truncar(ext.endereco_numero, 20),
       ext.endereco_complemento ?? null,
       ext.endereco_bairro ?? null,
       ext.endereco_cidade ?? null,
-      ext.endereco_estado ?? null,
+      truncar(ext.endereco_estado, 2),
       ext.estado_civil ?? null,
       ext.formacao ?? null,
-      ext.cor_raca ?? null,
+      truncar(ext.cor_raca, 20),
       ext.banco_nome ?? null,
-      ext.banco_tipo_conta ?? null,
-      ext.banco_agencia ?? null,
-      ext.banco_conta ?? null,
-      ext.pix_tipo ?? null,
+      truncar(ext.banco_tipo_conta, 30),
+      truncar(ext.banco_agencia, 20),
+      truncar(ext.banco_conta, 30),
+      truncar(ext.pix_tipo, 20),
       ext.pix_chave ?? null,
       ext.vale_transporte ?? false,
       ext.vale_alimentacao ?? true,
       ext.auxilio_combustivel ?? false,
-      ext.uniforme_tamanho ?? null,
+      truncar(ext.uniforme_tamanho, 10),
       ext.altura_metros ?? null,
       ext.peso_kg ?? null,
       ext.contato_emergencia_nome ?? null,
-      ext.contato_emergencia_telefone ?? null,
+      truncar(ext.contato_emergencia_telefone, 20),
     ]
   );
 
