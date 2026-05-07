@@ -9,6 +9,7 @@ import {
 } from '@/lib/api-response';
 import { withAdmin } from '@/lib/middleware';
 import { registrarAuditoria, getClientIp, getUserAgent } from '@/lib/audit';
+import { enviarPushNovaVersao } from '@/lib/push-onesignal';
 
 // GET /api/v1/app/versao-atual?plataforma=android|ios
 //
@@ -177,6 +178,12 @@ export async function PUT(request: NextRequest) {
           obrigatorioAcimaDeBuild: r.obrigatorio_acima_de_build,
         },
       });
+
+      // Dispara push pra plataforma atualizada — fire-and-forget.
+      // OneSignal filtra por device_type (0=iOS, 1=Android).
+      enviarPushNovaVersao('people-mobile', versao, r.url, plataforma).catch(
+        (e) => console.error('[app/versao-atual] push nova versao falhou:', e),
+      );
 
       return successResponse({
         plataforma: r.plataforma,

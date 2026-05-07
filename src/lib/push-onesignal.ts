@@ -138,7 +138,17 @@ export async function sendPush(apiKey: string, payload: Record<string, unknown>)
 /** Nomes dos apps que devem receber push de nova versão (apenas BluePoint Mobile). */
 const APPS_COM_PUSH_NOVA_VERSAO = ['mobile', 'people-mobile'];
 
-export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlDownload: string): Promise<void> {
+/**
+ * Envia push de nova versão. Quando `plataforma` é informada, restringe a
+ * entrega aos dispositivos da plataforma usando o filtro `device_type` do
+ * OneSignal (0 = iOS, 1 = Android). Sem `plataforma`, mantém broadcast geral.
+ */
+export async function enviarPushNovaVersao(
+  nomeApp: string,
+  versao: string,
+  urlDownload: string,
+  plataforma?: 'android' | 'ios',
+): Promise<void> {
   if (!APPS_COM_PUSH_NOVA_VERSAO.includes(nomeApp)) {
     return; // Push de nova versão só para BluePoint Mobile; Station não notifica
   }
@@ -160,9 +170,25 @@ export async function enviarPushNovaVersao(nomeApp: string, versao: string, urlD
       contentText: 'Uma nova versao do ' + titulo + ' esta disponivel. Toque para baixar.',
       visual,
       url: urlDownload,
-      data: { tipo: 'nova_versao', app: nomeApp, versao, urlDownload, acao: 'download' },
+      data: {
+        tipo: 'nova_versao',
+        app: nomeApp,
+        versao,
+        urlDownload,
+        acao: 'download',
+        ...(plataforma ? { plataforma } : {}),
+      },
     });
-    payload.included_segments = ['All'];
+
+    if (plataforma === 'android') {
+      // device_type=1 → Android no OneSignal
+      payload.filters = [{ field: 'device_type', relation: '=', value: '1' }];
+    } else if (plataforma === 'ios') {
+      // device_type=0 → iOS no OneSignal
+      payload.filters = [{ field: 'device_type', relation: '=', value: '0' }];
+    } else {
+      payload.included_segments = ['All'];
+    }
 
     const result = await sendPush(apiKey, payload);
     if (!result.ok) {
