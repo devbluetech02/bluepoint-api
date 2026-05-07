@@ -14,7 +14,7 @@ import {
   escolherCandidatoComLLM,
   type TiebreakCandidate,
 } from '@/lib/face-llm-verify';
-import { logFaceEventAsync } from '@/lib/face-log';
+import { logFaceEvent, logFaceEventAsync, updateFaceEvent } from '@/lib/face-log';
 import { generateToken, generateRefreshToken } from '@/lib/auth';
 import { obterPermissoesEfetivasDoCargo } from '@/lib/permissoes-efetivas';
 import { cacheGet, cacheSet, cacheDelPattern, checkRateLimit, invalidateMarcacaoCache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
@@ -44,6 +44,14 @@ const verificarFaceSchema = z.object({
   latitude: z.number().optional(),
   longitude: z.number().optional(),
   origem: z.string().optional(),
+  // Distingue intenção do reconhecimento pra log:
+  //   - 'login'     → grava LOGIN_BY_FACE direto (sem dialog "é você?")
+  //   - 'preview'   → 1ª chamada do fluxo de ponto (dialog "é você?")
+  //   - 'registrar' → 2ª chamada após user confirmar; backend ATUALIZA o
+  //                   log anterior (logIdProposto) em vez de criar novo.
+  // Default 'preview' pra compat com clients antigos que não enviam.
+  acao: z.enum(['login', 'preview', 'registrar']).optional().default('preview'),
+  logIdProposto: z.number().int().positive().optional(),
 });
 
 // Interface para encoding cacheado
@@ -436,6 +444,8 @@ export async function POST(request: NextRequest) {
       latitude,
       longitude,
       origem,
+      acao,
+      logIdProposto,
     } = validation.data;
 
     // Lista normalizada de frames pra consensus (1 ou mais, até 5).
@@ -1827,15 +1837,40 @@ export async function POST(request: NextRequest) {
       }, 422, rateLimitHeaders);
     }
 
-    // Log de sucesso. MATCH_CONFIRMED quando ponto foi registrado;
-    // MATCH_PROPOSED quando só identificou (deveRegistrarPonto=false).
+    // Log de sucesso. Política nova:
+    //   - acao='login'                           → LOGIN_BY_FACE (sem dialog)
+    //   - acao='registrar' + logIdProposto       → ATUALIZA log anterior pra MATCH_CONFIRMED
+    //   - acao='registrar' sem logIdProposto     → INSERT MATCH_CONFIRMED (compat)
+    //   - acao='preview'                         → INSERT MATCH_PROPOSED (default antigo)
     // Pra ambos os casos sobe a foto capturada — em MATCH_CONFIRMED a
     // marcação também tem foto_url, mas mantemos cópia dedicada nos
     // logs pra não acoplar storage de marcação ao histórico de eventos.
-    const eventoSucesso = pontoRegistrado ? 'MATCH_CONFIRMED' : 'MATCH_PROPOSED';
-    (async () => {
-      const fotoUrl = await uploadFotoLog(imagem, eventoSucesso, dispositivoCodigo);
-      logFaceEventAsync({
+    let eventoSucesso: 'MATCH_CONFIRMED' | 'MATCH_PROPOSED' | 'LOGIN_BY_FACE';
+    if (acao === 'login') {
+      eventoSucesso = 'LOGIN_BY_FACE';
+    } else if (pontoRegistrado) {
+      eventoSucesso = 'MATCH_CONFIRMED';
+    } else {
+      eventoSucesso = 'MATCH_PROPOSED';
+    }
+
+    let logIdRetorno: number | null = logIdProposto ?? null;
+    const metadadosLog = {
+      ...(atrasoInfo && { requerAprovacaoAtraso: true }),
+      ...(llmRecoveryUsed && { recoveredFromNearMiss: true }),
+    };
+
+    // Insere/atualiza log de forma SÍNCRONA pra ter logId no payload.
+    // Foto sobe em paralelo (fire-and-forget) e atualiza o mesmo log.
+    if (logIdProposto && eventoSucesso !== 'LOGIN_BY_FACE') {
+      await updateFaceEvent(logIdProposto, {
+        evento: eventoSucesso,
+        colaboradorIdConfirmado: pontoRegistrado ? colaborador.id : null,
+        marcacaoId: pontoRegistrado?.marcacaoId ?? null,
+        metadados: metadadosLog,
+      });
+    } else {
+      logIdRetorno = await logFaceEvent({
         evento: eventoSucesso,
         endpoint: 'verificar-face',
         origem,
@@ -1847,7 +1882,10 @@ export async function POST(request: NextRequest) {
         qualidade,
         thresholdEfetivo,
         colaboradorIdProposto: colaborador.id,
-        colaboradorIdConfirmado: pontoRegistrado ? colaborador.id : null,
+        colaboradorIdConfirmado:
+          eventoSucesso === 'LOGIN_BY_FACE' || pontoRegistrado
+            ? colaborador.id
+            : null,
         distanciaTop1: best.distance,
         distanciaTop2: second?.distance ?? null,
         gapTop12: second ? second.distance - best.distance : null,
@@ -1856,14 +1894,20 @@ export async function POST(request: NextRequest) {
         llmConfirmou: llmRecoveryUsed ? true : null,
         llmConfidence: llmRecoveryUsed ? llmRecoveryConfidence : null,
         llmRazao: llmRecoveryUsed ? llmRecoveryReason : null,
-        fotoUrl,
+        fotoUrl: null,
         duracaoMs: Date.now() - startTime,
-        metadados: {
-          ...(atrasoInfo && { requerAprovacaoAtraso: true }),
-          ...(llmRecoveryUsed && { recoveredFromNearMiss: true }),
-        },
+        metadados: metadadosLog,
       });
-    })().catch((e) => console.error(`[${eventoSucesso} log] falha:`, e));
+    }
+
+    // Upload da foto em background — atualiza o mesmo log com a URL.
+    if (logIdRetorno) {
+      const idPraAtualizar = logIdRetorno;
+      (async () => {
+        const url = await uploadFotoLog(imagem, eventoSucesso, dispositivoCodigo);
+        if (url) await updateFaceEvent(idPraAtualizar, { fotoUrl: url });
+      })().catch((e) => console.error(`[${eventoSucesso} foto upload] falha:`, e));
+    }
     return jsonResponse({
       success: true,
       data: {
@@ -1891,6 +1935,11 @@ export async function POST(request: NextRequest) {
         token,
         refreshToken,
         pontoRegistrado,
+        // logId devolvido pra que a 2ª chamada (após user confirmar)
+        // possa passá-lo de volta como `logIdProposto` e atualizar o
+        // mesmo log em vez de criar um novo. Também usado pelo endpoint
+        // de "Não sou eu" pra marcar como REJECTED.
+        logId: logIdRetorno,
         ...(atrasoInfo && {
           requerAprovacao: atrasoInfo.requerAprovacao,
           tipoMarcacao: atrasoInfo.tipoMarcacao,
