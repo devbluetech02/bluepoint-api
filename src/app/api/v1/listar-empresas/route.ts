@@ -55,6 +55,7 @@ export async function GET(request: NextRequest) {
             banco_pagador,
             agencia_pagadora,
             conta_pagadora,
+            cod_filial_winthor,
             created_at,
             updated_at
           FROM people.empresas
@@ -84,6 +85,7 @@ export async function GET(request: NextRequest) {
           bancoPagador: row.banco_pagador,
           agenciaPagadora: row.agencia_pagadora,
           contaPagadora: row.conta_pagadora,
+          codFilialWinthor: row.cod_filial_winthor,
           criadoEm: row.created_at,
           atualizadoEm: row.updated_at,
         }));

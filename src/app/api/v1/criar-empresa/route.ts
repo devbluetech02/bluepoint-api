@@ -28,6 +28,7 @@ const criarEmpresaSchema = z.object({
   bancoPagador: z.string().max(120).optional().nullable(),
   agenciaPagadora: z.string().max(20).optional().nullable(),
   contaPagadora: z.string().max(30).optional().nullable(),
+  codFilialWinthor: z.string().max(10).optional().nullable(),
 });
 
 export async function POST(request: NextRequest) {
@@ -55,12 +56,16 @@ export async function POST(request: NextRequest) {
         return errorResponse('CNPJ já cadastrado', 400);
       }
 
+      const codFilialNum = data.codFilialWinthor && data.codFilialWinthor.trim() !== ''
+        ? (Number.isNaN(parseInt(data.codFilialWinthor.trim(), 10)) ? null : parseInt(data.codFilialWinthor.trim(), 10))
+        : null;
+
       const result = await query(
         `INSERT INTO people.empresas (
           razao_social, nome_fantasia, cnpj, celular, cep, estado, cidade, bairro, rua, numero,
           cidade_foro, signatario_nome, signatario_cargo,
-          banco_pagador, agencia_pagadora, conta_pagadora
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          banco_pagador, agencia_pagadora, conta_pagadora, cod_filial_winthor
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         RETURNING id, razao_social, nome_fantasia, cnpj`,
         [
           data.razaoSocial,
@@ -79,6 +84,7 @@ export async function POST(request: NextRequest) {
           data.bancoPagador || null,
           data.agenciaPagadora || null,
           data.contaPagadora || null,
+          codFilialNum,
         ]
       );
 

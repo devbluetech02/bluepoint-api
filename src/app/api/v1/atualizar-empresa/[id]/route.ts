@@ -24,6 +24,9 @@ const atualizarEmpresaSchema = z.object({
   bancoPagador: z.string().max(120).optional().nullable(),
   agenciaPagadora: z.string().max(20).optional().nullable(),
   contaPagadora: z.string().max(30).optional().nullable(),
+  // Migration 066 — codigo da filial no Winthor (PCLANC.CODFILIAL).
+  // Aceita string vazia (limpa) ou numero como string.
+  codFilialWinthor: z.string().max(10).optional().nullable(),
 });
 
 export async function PUT(
@@ -95,17 +98,25 @@ export async function PUT(
         bancoPagador: 'banco_pagador',
         agenciaPagadora: 'agencia_pagadora',
         contaPagadora: 'conta_pagadora',
+        codFilialWinthor: 'cod_filial_winthor',
       };
 
       for (const [key, dbColumn] of Object.entries(campos)) {
         if (data[key as keyof typeof data] !== undefined) {
-          let value = data[key as keyof typeof data];
-          
+          let value: unknown = data[key as keyof typeof data];
+
           // Limpar CNPJ se for o campo
           if (key === 'cnpj' && typeof value === 'string') {
-            value = value.replace(/[^\d]/g, '');
+            value = (value as string).replace(/[^\d]/g, '');
           }
-          
+
+          // codFilialWinthor é INTEGER no banco — converte string→int ou
+          // null se vazio.
+          if (key === 'codFilialWinthor') {
+            const s = typeof value === 'string' ? value.trim() : '';
+            value = s === '' ? null : (Number.isNaN(parseInt(s, 10)) ? null : parseInt(s, 10));
+          }
+
           updates.push(`${dbColumn} = $${paramIndex}`);
           values.push(value);
           paramIndex++;
