@@ -17,6 +17,7 @@ export async function GET(request: NextRequest) {
       const dataFim = searchParams.get('dataFim');
       const tipo = searchParams.get('tipo');
       const departamentoId = searchParams.get('filtro[departamentoId]');
+      const busca = searchParams.get('busca')?.trim() || null;
 
       // Resolver escopo do caller — colaborador comum só vê o próprio;
       // gestor vê o escopo (próprio + atribuídos); super admin / API Key
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
         : (colaboradorIdNum != null ? `c${colaboradorIdNum}` : `u${user.userId}`);
 
       const cacheKey = buildListCacheKey(CACHE_KEYS.MARCACOES, {
-        pagina, limite, colaboradorId: colaboradorIdParam, dataInicio, dataFim, tipo, departamentoId, scope: cacheScope,
+        pagina, limite, colaboradorId: colaboradorIdParam, dataInicio, dataFim, tipo, departamentoId, busca, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -91,6 +92,30 @@ export async function GET(request: NextRequest) {
           conditions.push(`c.departamento_id = $${paramIndex}`);
           params.push(parseInt(departamentoId));
           paramIndex++;
+        }
+
+        if (busca) {
+          // Match accent-insensitive no nome do colaborador. Tambem casa
+          // CPF se a busca tiver so digitos (>=3) — eficaz pra buscar
+          // colaboradores especificos sem precisar trocar de filtro.
+          const buscaDigits = busca.replace(/\D/g, '');
+          if (buscaDigits.length >= 3) {
+            conditions.push(`(
+              translate(lower(c.nome),'áàâãäéèêëíìîïóòôõöúùûüçñ','aaaaaeeeeiiiiooooouuuucn')
+                ILIKE translate(lower($${paramIndex}),'áàâãäéèêëíìîïóòôõöúùûüçñ','aaaaaeeeeiiiiooooouuuucn')
+              OR regexp_replace(c.cpf,'\\D','','g') LIKE $${paramIndex + 1}
+            )`);
+            params.push(`%${busca}%`);
+            params.push(`%${buscaDigits}%`);
+            paramIndex += 2;
+          } else {
+            conditions.push(`
+              translate(lower(c.nome),'áàâãäéèêëíìîïóòôõöúùûüçñ','aaaaaeeeeiiiiooooouuuucn')
+                ILIKE translate(lower($${paramIndex}),'áàâãäéèêëíìîïóòôõöúùûüçñ','aaaaaeeeeiiiiooooouuuucn')
+            `);
+            params.push(`%${busca}%`);
+            paramIndex++;
+          }
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
