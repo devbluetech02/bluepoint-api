@@ -102,7 +102,7 @@ export async function GET(request: NextRequest) {
         // Buscar dados
         const dataParams = [...params, limite, offset];
         const result = await query(
-          `SELECT 
+          `SELECT
             s.id,
             s.tipo,
             s.status,
@@ -111,17 +111,28 @@ export async function GET(request: NextRequest) {
             s.descricao,
             s.data_aprovacao,
             s.criado_em,
+            s.resposta,
+            s.respondido_em,
             c.id as colaborador_id,
             c.nome as colaborador_nome,
+            d.id as departamento_id,
+            d.nome as departamento_nome,
+            e.id as empresa_id,
+            e.nome_fantasia as empresa_nome,
             a.id as aprovador_id,
             a.nome as aprovador_nome,
             g.id as gestor_id,
             g.nome as gestor_nome,
+            r.id as respondido_por_id,
+            r.nome as respondido_por_nome,
             COALESCE(anx.total, 0) as anexos
           FROM solicitacoes s
           JOIN people.colaboradores c ON s.colaborador_id = c.id
+          LEFT JOIN people.departamentos d ON c.departamento_id = d.id
+          LEFT JOIN people.empresas e ON c.empresa_id = e.id
           LEFT JOIN people.colaboradores a ON s.aprovador_id = a.id
           LEFT JOIN people.colaboradores g ON s.gestor_id = g.id
+          LEFT JOIN people.colaboradores r ON s.respondido_por = r.id
           LEFT JOIN (
             SELECT solicitacao_id, COUNT(*) as total
             FROM anexos
@@ -135,12 +146,34 @@ export async function GET(request: NextRequest) {
 
         const dados = result.rows.map(row => ({
           id: row.id,
-          colaborador: { id: row.colaborador_id, nome: row.colaborador_nome },
+          colaborador: {
+            id: row.colaborador_id,
+            nome: row.colaborador_nome,
+            // Nested pra UI do site que lê solicitacao.colaborador.departamento.
+            departamento: row.departamento_id
+              ? { id: row.departamento_id, nome: row.departamento_nome }
+              : null,
+            empresa: row.empresa_id
+              ? { id: row.empresa_id, nomeFantasia: row.empresa_nome }
+              : null,
+          },
+          // Top-level também (compat + leitura direta).
+          departamento: row.departamento_id
+            ? { id: row.departamento_id, nome: row.departamento_nome }
+            : null,
+          empresa: row.empresa_id
+            ? { id: row.empresa_id, nomeFantasia: row.empresa_nome }
+            : null,
           tipo: row.tipo,
           status: row.status,
           dataSolicitacao: row.data_solicitacao,
           dataEvento: row.data_evento,
           descricao: row.descricao,
+          resposta: row.resposta,
+          respondidoEm: row.respondido_em,
+          respondidoPor: row.respondido_por_id
+            ? { id: row.respondido_por_id, nome: row.respondido_por_nome }
+            : null,
           gestor: row.gestor_id ? { id: row.gestor_id, nome: row.gestor_nome } : null,
           aprovador: row.aprovador_id ? { id: row.aprovador_id, nome: row.aprovador_nome } : null,
           dataAprovacao: row.data_aprovacao,

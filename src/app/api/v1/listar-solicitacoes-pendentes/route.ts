@@ -106,7 +106,13 @@ export async function GET(request: NextRequest) {
 
       const dados = result.rows.map(row => ({
         id: row.id,
-        colaborador: { id: row.colaborador_id, nome: row.colaborador_nome },
+        colaborador: {
+          id: row.colaborador_id,
+          nome: row.colaborador_nome,
+          departamento: row.departamento_id
+            ? { id: row.departamento_id, nome: row.departamento_nome }
+            : null,
+        },
         departamento: row.departamento_id ? { id: row.departamento_id, nome: row.departamento_nome } : null,
         gestor: row.gestor_id ? { id: row.gestor_id, nome: row.gestor_nome } : null,
         tipo: row.tipo,
