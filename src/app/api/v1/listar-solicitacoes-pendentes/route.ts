@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
         LEFT JOIN departamentos d ON c.departamento_id = d.id
         LEFT JOIN people.colaboradores g ON s.gestor_id = g.id
         ${whereClause}
-        ORDER BY s.data_solicitacao ASC
+        ORDER BY s.data_solicitacao DESC
         LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
         dataParams
       );
