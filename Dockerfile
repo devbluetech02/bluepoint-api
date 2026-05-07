@@ -45,9 +45,14 @@ RUN mkdir -p /opt/oracle && cd /opt/oracle \
  && curl -sL -o ic.zip https://download.oracle.com/otn_software/linux/instantclient/2110000/instantclient-basiclite-linux.x64-${INSTANT_CLIENT_VER}.zip \
  && unzip -q ic.zip \
  && rm ic.zip \
- && ln -s /opt/oracle/instantclient_21_10 /opt/oracle/instantclient \
- && echo "/opt/oracle/instantclient" > /etc/ld-musl-x86_64.path
+ && ln -s /opt/oracle/instantclient_21_10 /opt/oracle/instantclient
 
+# IMPORTANT: NUNCA setar /etc/ld-musl-x86_64.path apontando só pra instantclient
+# — substitui o loader path padrão (/lib:/usr/lib:/usr/local/lib) e quebra o
+# node procurando libstdc++ ("Error relocating /usr/local/bin/node: _ZTV...
+# symbol not found"). LD_LIBRARY_PATH é prepend, mantém /lib e /usr/lib
+# acessíveis. Instant Client basiclite não traz libstdc++ na pasta, então
+# prepend é seguro — só vai achar libclntsh/libnnz21/libclntshcore.
 ENV ORACLE_INSTANT_CLIENT_DIR=/opt/oracle/instantclient
 ENV LD_LIBRARY_PATH=/opt/oracle/instantclient
 
