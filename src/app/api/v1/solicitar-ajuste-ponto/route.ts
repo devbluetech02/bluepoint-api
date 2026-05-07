@@ -19,29 +19,45 @@ export async function POST(request: NextRequest) {
 
       const data = validation.data;
 
-      // Verificar se todas as marcações existem e pertencem ao usuário
-      const marcacaoIds = data.ajustes.map(a => a.marcacaoId);
-      const marcacoesResult = await query(
-        `SELECT id, data_hora FROM people.marcacoes WHERE id = ANY($1) AND colaborador_id = $2`,
-        [marcacaoIds, user.userId]
-      );
+      // Apenas itens que apontam pra marcação existente são verificados.
+      // Itens com marcacaoId null = ajuste por AUSÊNCIA (colaborador não bateu ponto):
+      // exigem `tipo` e ficam só no JSON, sem cross-check.
+      const marcacaoIds = data.ajustes
+        .map((a) => a.marcacaoId)
+        .filter((id): id is number => typeof id === 'number');
 
-      if (marcacoesResult.rows.length !== marcacaoIds.length) {
-        const encontrados = marcacoesResult.rows.map(r => r.id);
-        const naoEncontrados = marcacaoIds.filter(id => !encontrados.includes(id));
-        return errorResponse(`Marcação(ões) não encontrada(s): ${naoEncontrados.join(', ')}`, 404);
+      const marcacoesMap = new Map<number, { id: number; data_hora: Date }>();
+      if (marcacaoIds.length > 0) {
+        const marcacoesResult = await query<{ id: number; data_hora: Date }>(
+          `SELECT id, data_hora FROM people.marcacoes WHERE id = ANY($1) AND colaborador_id = $2`,
+          [marcacaoIds, user.userId]
+        );
+
+        if (marcacoesResult.rows.length !== marcacaoIds.length) {
+          const encontrados = marcacoesResult.rows.map((r) => r.id);
+          const naoEncontrados = marcacaoIds.filter((id) => !encontrados.includes(id));
+          return errorResponse(`Marcação(ões) não encontrada(s): ${naoEncontrados.join(', ')}`, 404);
+        }
+
+        for (const r of marcacoesResult.rows) marcacoesMap.set(r.id, r);
       }
 
-      const marcacoesMap = new Map(marcacoesResult.rows.map(r => [r.id, r]));
-
-      // Montar dados de cada ajuste com horário original
-      const ajustesComOriginal = data.ajustes.map(a => ({
-        marcacaoId: a.marcacaoId,
+      // Montar dados de cada ajuste com horário original (quando aplicável).
+      const ajustesComOriginal = data.ajustes.map((a) => ({
+        marcacaoId: a.marcacaoId ?? null,
+        tipo: a.tipo ?? null,
         dataHoraCorreta: a.dataHoraCorreta,
-        dataHoraOriginal: marcacoesMap.get(a.marcacaoId)?.data_hora,
+        dataHoraOriginal:
+          a.marcacaoId != null ? marcacoesMap.get(a.marcacaoId)?.data_hora ?? null : null,
       }));
 
-      const primeiraData = marcacoesMap.get(marcacaoIds[0])?.data_hora;
+      // data_evento: prioriza data da 1ª marcação existente; cai pra dataHoraCorreta
+      // do 1º item quando todos forem ajustes por ausência.
+      const primeiraComMarcacao = data.ajustes.find((a) => a.marcacaoId != null);
+      const primeiraData =
+        (primeiraComMarcacao?.marcacaoId != null
+          ? marcacoesMap.get(primeiraComMarcacao.marcacaoId)?.data_hora
+          : null) ?? new Date(data.ajustes[0].dataHoraCorreta);
 
       await client.query('BEGIN');
 

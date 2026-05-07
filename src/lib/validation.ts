@@ -307,10 +307,20 @@ export const resolverPendenciaSchema = z.object({
   observacao: z.string().optional(),
 });
 
-const ajustePontoItemSchema = z.object({
-  marcacaoId: z.number().int().positive(),
-  dataHoraCorreta: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data/hora inválida'),
-});
+// Item de ajuste pode ter dois formatos:
+//   1) Correção de marcação existente: { marcacaoId, dataHoraCorreta }
+//   2) Marcação inexistente (colaborador esqueceu de bater ponto):
+//      { tipo, dataHoraCorreta } — sem marcacaoId, com tipo (entrada/saida/almoco/retorno).
+const ajustePontoItemSchema = z
+  .object({
+    marcacaoId: z.number().int().positive().optional().nullable(),
+    tipo: z.enum(['entrada', 'saida', 'almoco', 'retorno']).optional(),
+    dataHoraCorreta: z.string().refine((val) => !isNaN(Date.parse(val)), 'Data/hora inválida'),
+  })
+  .refine(
+    (v) => (v.marcacaoId != null) || !!v.tipo,
+    { message: 'Informe marcacaoId (ajuste de existente) ou tipo (criação por ausência)' },
+  );
 
 export const solicitarAjustePontoSchema = z.object({
   ajustes: z.array(ajustePontoItemSchema).min(1, 'Informe ao menos um ajuste').max(10, 'Máximo de 10 ajustes por solicitação'),
