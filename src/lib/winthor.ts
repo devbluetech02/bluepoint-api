@@ -145,13 +145,15 @@ export async function lancarPagamentoPixNoWinthor(
 
     // 2. INSERT em PCLANC com defaults equivalentes aos lançamentos manuais.
     await conn.execute(
+      // DTMOEDA é VARCHAR2(1) (flag, não data) e fica NULL em todos os
+      // lançamentos recentes — removido do INSERT pra evitar ORA-12899.
       `INSERT INTO WINDOW.PCLANC (
          RECNUM, DTLANC, HISTORICO, DUPLIC, CODFILIAL, INDICE, TIPOLANC,
          TIPOPARCEIRO, NOMEFUNC, TIPOPAGTO, MOEDA, NFSERVICO, ADIANTAMENTO,
          FORMAPGTO, CODROTINACAD, CODROTINAALT, PARCELA, NUMNOTA, CODFORNEC,
          TIPOSERVICO, LACREDIGCONECSOCIAL, OPCAOPAGAMENTOIPVA,
          UTILIZOURATEIOCONTA, PRCRATEIOUTILIZADO, VALOR, CODCONTA,
-         DTVENC, DTEMISSAO, DTCOMPETENCIA, DTAGENDAMENTO, DTMOEDA,
+         DTVENC, DTEMISSAO, DTCOMPETENCIA, DTAGENDAMENTO,
          FORNECEDOR, REINFEVENTOR4040, AGENDAMENTO,
          CHAVEPIX, TIPOCHAVEPIX, CODTIPOCHAVEPIX
        ) VALUES (
@@ -160,7 +162,7 @@ export async function lancarPagamentoPixNoWinthor(
          '45', 'DIA TESTE PEOPLE', 'DIA TESTE PEOPLE', '1', 0, 1045,
          '99', 0, 0,
          'N', 100, :valor, 23124,
-         TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE),
+         TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE),
          'PRESTADOR DE SERVICO', 'N', 'N',
          :chavePix, :tipoChaveLabel, :tipoChaveCod
        )`,
