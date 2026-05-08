@@ -515,6 +515,8 @@ export const parametrosRhSchema = z.object({
   // Migration 053 — Frequência do popup de feedback IA
   popupModo: z.enum(['por_avaliacao', 'por_dias']).optional(),
   popupIntervalo: z.number().int().min(1, 'Mínimo 1').max(365, 'Máximo 365').optional(),
+  // Migration 069 — duracao minima de entrevista (minutos) pra contar nas estatisticas
+  duracaoMinimaEntrevistaMinutos: z.number().int().min(0).max(240).optional(),
 });
 
 // =====================================================

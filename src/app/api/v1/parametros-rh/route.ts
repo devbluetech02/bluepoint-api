@@ -39,6 +39,7 @@ const RETURNING_COLS = `id, telefone_rh, email_rh,
   dias_teste_padrao, carga_horaria_teste_padrao,
   valor_diaria_teste_padrao, percentual_minimo_decisao,
   entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
+  duracao_minima_entrevista_minutos,
   popup_modo, popup_intervalo`;
 
 type Row = {
@@ -60,6 +61,7 @@ type Row = {
   entrevistas_para_avaliar_ia: number | string | null;
   cobertura_minima_entrevista: number | string | null;
   avaliacao_ia_ativa: boolean | null;
+  duracao_minima_entrevista_minutos: number | string | null;
   popup_modo: string | null;
   popup_intervalo: number | string | null;
 };
@@ -83,6 +85,7 @@ function mapRow(row: Row) {
     entrevistasParaAvaliarIa: Number(row.entrevistas_para_avaliar_ia ?? 5),
     coberturaMinimaEntrevista: Number(row.cobertura_minima_entrevista ?? 50),
     avaliacaoIaAtiva: Boolean(row.avaliacao_ia_ativa ?? true),
+    duracaoMinimaEntrevistaMinutos: Number(row.duracao_minima_entrevista_minutos ?? 5),
     popupModo: (row.popup_modo === 'por_dias' ? 'por_dias' : 'por_avaliacao') as
       | 'por_avaliacao'
       | 'por_dias',
@@ -165,9 +168,10 @@ export async function PUT(request: NextRequest) {
                avaliacao_ia_ativa = COALESCE($17, avaliacao_ia_ativa),
                popup_modo = COALESCE($18, popup_modo),
                popup_intervalo = COALESCE($19, popup_intervalo),
+               duracao_minima_entrevista_minutos = COALESCE($20, duracao_minima_entrevista_minutos),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $20
-           WHERE id = $21
+               atualizado_por = $21
+           WHERE id = $22
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
@@ -189,6 +193,7 @@ export async function PUT(request: NextRequest) {
             data.avaliacaoIaAtiva ?? null,
             data.popupModo ?? null,
             data.popupIntervalo ?? null,
+            data.duracaoMinimaEntrevistaMinutos ?? null,
             user.userId,
             parametroId,
           ]
@@ -205,8 +210,9 @@ export async function PUT(request: NextRequest) {
              valor_diaria_teste_padrao, percentual_minimo_decisao,
              entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
              popup_modo, popup_intervalo,
+             duracao_minima_entrevista_minutos,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
@@ -228,6 +234,7 @@ export async function PUT(request: NextRequest) {
             data.avaliacaoIaAtiva ?? true,
             data.popupModo ?? 'por_avaliacao',
             data.popupIntervalo ?? 1,
+            data.duracaoMinimaEntrevistaMinutos ?? 5,
             user.userId,
           ]
         );
