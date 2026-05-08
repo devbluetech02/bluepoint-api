@@ -14,6 +14,7 @@ import {
   enviarMensagemWhatsApp,
   enviarMidiaWhatsApp,
   getRecrutamentoEvolutionConfig,
+  getRecrutamentoEvolutionConfigPorResponsavel,
 } from '@/lib/evolution-api';
 import {
   escolherTemplate,
@@ -139,9 +140,10 @@ async function abrirCaminhoA(args: {
     banco: string | null;
     chave_pix: string | null;
     email: string | null;
+    resposavel: string | null;
   }>(
     `SELECT nome, cpf, telefone, rg_candidato, cep, logradouro, bairro,
-            cidade, uf, banco, chave_pix, email
+            cidade, uf, banco, chave_pix, email, resposavel
        FROM public.candidatos
       WHERE id = $1
       LIMIT 1`,
@@ -319,13 +321,14 @@ async function abrirCaminhoA(args: {
     ].join('\n');
     // Sempre anexa o link de assinatura ao final da mensagem.
     const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
-    // Dia de teste sai pela instância dedicada de recrutamento (RH_ROBSON
-    // em prod) — separa do canal People que cuida de pré-admissão e demais
-    // fluxos. Fallback p/ instância padrão se as envs não estiverem setadas.
+    // Dia de teste sai pela instancia do recrutador RESPONSAVEL pelo
+    // candidato (mapa em EVOLUTION_INSTANCES_RECRUTAMENTO). Fallback
+    // pra instancia default (Robson) quando responsavel nao reconhecido
+    // ou env nao setada.
     const result = await enviarMensagemWhatsApp(
       numeroWhats,
       mensagem,
-      getRecrutamentoEvolutionConfig(),
+      getRecrutamentoEvolutionConfigPorResponsavel(det.resposavel),
     );
     whatsappOk = result.ok;
     whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');

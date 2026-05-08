@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, queryRecrutamento } from '@/lib/db';
 import { errorResponse, notFoundResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
 import { registrarOcorrenciaReadmissao } from '@/lib/ocorrencias-externas';
 import { mapCamposParaApi } from '@/lib/formulario-admissao';
@@ -625,7 +625,7 @@ async function notificarAssinaturaContrato(
     return;
   }
 
-  // Candidato (nome p/ corpo do push, CPF p/ casar signatário)
+  // Candidato (nome p/ corpo, CPF p/ casar signatário, telefone p/ WhatsApp)
   const candidatoResult = await query<{ nome: string; cpf: string | null }>(
     `SELECT nome, cpf FROM people.usuarios_provisorios WHERE id = $1`,
     [usuarioProvisorioId],
@@ -690,6 +690,52 @@ async function notificarAssinaturaContrato(
     },
     subscriptionId,
   );
+
+  // WhatsApp pela instancia PEOPLE (DP) — best-effort. Telefone vem do
+  // candidato no banco de Recrutamento (cross-DB), via processo_seletivo
+  // ligado a esta solicitacao.
+  try {
+    const procRes = await query<{ candidato_recrutamento_id: number | null }>(
+      `SELECT candidato_recrutamento_id
+         FROM people.processo_seletivo
+        WHERE solicitacao_admissao_id = $1::uuid
+        LIMIT 1`,
+      [solicitacaoId],
+    );
+    const candRecrutId = procRes.rows[0]?.candidato_recrutamento_id ?? null;
+    if (candRecrutId == null) {
+      console.warn(`[assinatura_solicitada] Sem candidato_recrutamento_id pra solicitacao ${solicitacaoId} — skip WhatsApp`);
+    } else {
+      const telRes = await queryRecrutamento<{ telefone: string | null }>(
+        `SELECT telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
+        [candRecrutId],
+      );
+      const tel = (telRes.rows[0]?.telefone ?? '').replace(/\D/g, '');
+      if (tel.length < 10) {
+        console.warn(`[assinatura_solicitada] Telefone invalido/ausente pra candidato ${candRecrutId} — skip WhatsApp`);
+      } else {
+        const primeiroNome = (nomeCandidato.split(' ')[0] || nomeCandidato).trim();
+        const linhas: string[] = [
+          `Olá, ${primeiroNome}! 👋`,
+          ``,
+          `Seu *contrato de admissão* está pronto pra assinatura.`,
+        ];
+        if (signingUrl) {
+          linhas.push(``, `📋 *Assinar contrato:*`, signingUrl);
+        } else {
+          linhas.push(``, `Acesse o app *People* → "Pré-admissão" pra abrir o contrato.`);
+        }
+        linhas.push(``, `Qualquer dúvida, estamos à disposição.`);
+        // sem config = instancia PEOPLE (default).
+        const r = await enviarMensagemWhatsApp(tel, linhas.join('\n'));
+        if (!r.ok) {
+          console.warn(`[assinatura_solicitada] WhatsApp PEOPLE falhou: ${r.erro}`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[assinatura_solicitada] erro ao mandar WhatsApp PEOPLE:', e);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

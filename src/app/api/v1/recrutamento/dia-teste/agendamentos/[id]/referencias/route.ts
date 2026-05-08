@@ -10,6 +10,7 @@ import {
 } from '@/lib/api-response';
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import { criarOuReaproveitarProvisorio } from '@/lib/usuarios-provisorios';
+import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
 import { loadAgendamento } from '../_helpers';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/referencias
@@ -130,15 +131,18 @@ export async function POST(
       }
 
       let nomeCandidato = `Candidato ${ag.candidato_cpf_norm}`;
+      let telefoneCandidato: string | null = null;
       try {
-        const nRes = await queryRecrutamento<{ nome: string | null }>(
-          `SELECT nome FROM public.candidatos WHERE id = $1 LIMIT 1`,
+        const nRes = await queryRecrutamento<{ nome: string | null; telefone: string | null }>(
+          `SELECT nome, telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
           [Number(ag.candidato_recrutamento_id)],
         );
         const n = nRes.rows[0]?.nome?.trim();
         if (n) nomeCandidato = n;
+        const tel = (nRes.rows[0]?.telefone ?? '').replace(/\D/g, '');
+        if (tel.length >= 10) telefoneCandidato = tel;
       } catch (e) {
-        console.warn('[dia-teste/referencias] falha ao buscar nome do candidato:', e);
+        console.warn('[dia-teste/referencias] falha ao buscar dados do candidato:', e);
       }
 
       const resProv = await criarOuReaproveitarProvisorio(
@@ -208,6 +212,42 @@ export async function POST(
         ],
       );
 
+      // WhatsApp pre-admissao pela instancia PEOPLE (DP) — best-effort.
+      // Avisa candidato que admissao iniciou e manda link do app.
+      let whatsappPreAdmissaoOk = false;
+      let whatsappPreAdmissaoErro: string | null = null;
+      if (telefoneCandidato) {
+        const primeiroNome = nomeCandidato.split(' ')[0] || nomeCandidato;
+        const msg = [
+          `Olá, ${primeiroNome}! 👋`,
+          ``,
+          `Você foi aprovado(a) e seu processo de admissão começou! 🎉`,
+          ``,
+          `Baixe o app *People* pra acompanhar:`,
+          ``,
+          `📱 iPhone: https://apps.apple.com/br/app/people-by-valeris/id6761028795`,
+          `🤖 Android: https://play.google.com/store/apps/details?id=com.people.valeris`,
+          ``,
+          `No 1º acesso, permita as autorizações, toque em *Área do colaborador → Primeiro acesso* e informe seu *CPF*.`,
+          ``,
+          `Qualquer dúvida, estamos à disposição.`,
+        ].join('\n');
+        try {
+          // sem config = instancia PEOPLE default
+          const r = await enviarMensagemWhatsApp(telefoneCandidato, msg);
+          whatsappPreAdmissaoOk = r.ok;
+          whatsappPreAdmissaoErro = r.ok ? null : (r.erro ?? 'falha_desconhecida');
+          if (!r.ok) {
+            console.warn(`[dia-teste/referencias] WhatsApp pre-admissao PEOPLE falhou: ${r.erro}`);
+          }
+        } catch (e) {
+          whatsappPreAdmissaoErro = `excecao: ${(e as Error).message}`;
+          console.warn('[dia-teste/referencias] erro ao mandar WhatsApp pre-admissao:', e);
+        }
+      } else {
+        whatsappPreAdmissaoErro = 'sem_telefone';
+      }
+
       await registrarAuditoria(
         buildAuditParams(req, user, {
           acao: 'editar',
@@ -225,6 +265,10 @@ export async function POST(
               solicitacaoId: resProv.data.solicitacaoId,
               reutilizado: resProv.data.reutilizado,
               readmissao: resProv.data.readmissao,
+            },
+            whatsappPreAdmissao: {
+              enviado: whatsappPreAdmissaoOk,
+              erro: whatsappPreAdmissaoErro,
             },
           },
         }),
