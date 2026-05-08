@@ -192,14 +192,49 @@ export async function GET(request: NextRequest) {
         params
       );
 
+      // Busca TODOS os documentos vinculados a cada solicitação
+      // (multi-doc: DP pode mandar 2+ contratos). Tabela
+      // solicitacoes_admissao_documentos guarda 1 row por envelope SignProof.
+      // Map: solicitacaoId → [{docId, titulo, ordem, templateId}]
+      const solicitacaoIds = dataResult.rows.map((r) => (r as { id: string }).id);
+      interface SolDocRow {
+        solicitacao_id: string;
+        signproof_doc_id: string;
+        template_id: string | null;
+        titulo: string | null;
+        ordem: number | null;
+      }
+      const docsBySolicitacao = new Map<string, SolDocRow[]>();
+      if (solicitacaoIds.length > 0) {
+        const docsRes = await query<SolDocRow>(
+          `SELECT solicitacao_id::text  AS solicitacao_id,
+                  signproof_doc_id,
+                  template_id::text     AS template_id,
+                  titulo,
+                  ordem
+             FROM people.solicitacoes_admissao_documentos
+            WHERE solicitacao_id = ANY($1::uuid[])
+            ORDER BY ordem ASC NULLS LAST, criado_em ASC`,
+          [solicitacaoIds]
+        );
+        for (const row of docsRes.rows) {
+          const list = docsBySolicitacao.get(row.solicitacao_id) ?? [];
+          list.push(row);
+          docsBySolicitacao.set(row.solicitacao_id, list);
+        }
+      }
+
       // Consulta SignProof em paralelo pra cada doc — devolve progresso
       // detalhado (signed_count, signer_count, signers[]) sem signing_link.
       // Mesmo padrão usado em /dia-teste/agendamentos.
-      const docIds = Array.from(new Set(
-        dataResult.rows
+      const docIds = Array.from(new Set([
+        // Legacy: documento_assinatura_id na linha da solicitação
+        ...dataResult.rows
           .map((r) => (r as { documento_assinatura_id: string | null }).documento_assinatura_id)
-          .filter((v): v is string => v != null && v !== '')
-      ));
+          .filter((v): v is string => v != null && v !== ''),
+        // Multi-doc: todos signproof_doc_id da tabela _documentos
+        ...Array.from(docsBySolicitacao.values()).flat().map((d) => d.signproof_doc_id),
+      ]));
       interface DocProgresso {
         status: string;
         signedCount: number;
@@ -259,6 +294,38 @@ export async function GET(request: NextRequest) {
         const aso = buildAso(row);
         const docId = row.documento_assinatura_id ?? null;
         const progresso = docId ? (docStatusMap.get(docId) ?? null) : null;
+
+        // Multi-doc: lista TODOS documentos vinculados (preferindo a tabela
+        // solicitacoes_admissao_documentos que cobre o fluxo de N envelopes).
+        // Quando vazia, fallback p/ documento_assinatura_id legado.
+        const linkedDocs = docsBySolicitacao.get(row.id) ?? [];
+        const documentos = (linkedDocs.length > 0
+          ? linkedDocs.map((d) => ({
+              docId:      d.signproof_doc_id,
+              templateId: d.template_id,
+              titulo:     d.titulo,
+              ordem:      d.ordem,
+              progresso:  docStatusMap.get(d.signproof_doc_id) ?? null,
+            }))
+          : (docId
+              ? [{
+                  docId,
+                  templateId: null as string | null,
+                  titulo:     null as string | null,
+                  ordem:      0,
+                  progresso,
+                }]
+              : []));
+
+        // Agrega contagem signed/signer somando todos docs (pra display
+        // unificado no chip de status na tabela).
+        const aggSignedCount = documentos.reduce(
+          (s, d) => s + (d.progresso?.signedCount ?? 0), 0,
+        );
+        const aggSignerCount = documentos.reduce(
+          (s, d) => s + (d.progresso?.signerCount ?? 0), 0,
+        );
+
         return {
           id:           row.id,
           formularioId: row.formulario_id,
@@ -282,6 +349,13 @@ export async function GET(request: NextRequest) {
           documentoAssinaturaId: docId,
           documentoAssinaturaStatus: progresso?.status ?? null,
           documentoAssinaturaProgresso: progresso,
+          // Novos campos: lista completa multi-doc + contagem agregada
+          documentos,
+          documentosAssinaturaProgresso: {
+            signedCount: aggSignedCount,
+            signerCount: aggSignerCount,
+            allSigned: aggSignerCount > 0 && aggSignedCount >= aggSignerCount,
+          },
           ...(aso ? { aso } : {}),
         };
       });
