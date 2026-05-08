@@ -209,6 +209,19 @@ export async function GET(request: NextRequest) {
         ? Math.max(0, parseInt(duracaoMinSegOverride, 10))
         : duracaoMinMin * 60;
 
+      // Cache de resposta inteira por combinacao de filtros — 60s.
+      // Dashboard nao e tempo-real (entrevistas chegam em rajada e precisam
+      // recarga manual pra ver mudancas mesmo). Multiplos gestores na
+      // mesma view (sem filtro) compartilham cache; cada filtro distinto
+      // gera sua propria chave.
+      const cacheKey = `recrutamento:relatorio:dashboard:v1:${[
+        recrutadorFiltro ?? '*',
+        vagaFiltro ?? '*',
+        departamentoId ?? '*',
+        duracaoMinSeg,
+      ].join('|')}`;
+
+      const dashboard = await cacheAside(cacheKey, async () => {
       // 2. Filtro departamento → lista de vagas
       let vagasDoDept: string[] | null = null;
       if (departamentoId != null) {
@@ -508,7 +521,7 @@ export async function GET(request: NextRequest) {
         CACHE_TTL.MEDIUM,
       );
 
-      return successResponse({
+      return {
         parametros: {
           duracaoMinimaMinutos: duracaoMinMin,
           duracaoMinSegEfetivo: duracaoMinSeg,
@@ -527,7 +540,10 @@ export async function GET(request: NextRequest) {
           // recrutador no People.
           recrutadores: opcoes.recrutadores.filter((nome) => recrutadorAtivo(nome)),
         },
-      });
+      };
+      }, CACHE_TTL.SHORT);
+
+      return successResponse(dashboard);
     } catch (error) {
       console.error('[recrutamento/relatorio/dashboard] erro:', error);
       return serverErrorResponse('Erro ao gerar dashboard');
