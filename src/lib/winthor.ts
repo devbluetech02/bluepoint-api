@@ -186,14 +186,21 @@ export async function lancarPagamentoPixNoWinthor(
       `PAGAMENTO REF.DIA DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
 
-    // 1. Anti-dup defensivo: olha pra PCLANC nos últimos 30 dias procurando
-    //    um lançamento idêntico (mesmo HISTORICO + CHAVEPIX + VALOR). Se
+    // 1. Anti-dup defensivo: olha pra PCLANC procurando um lançamento
+    //    idêntico no MESMO DIA (mesmo HISTORICO + CHAVEPIX + VALOR). Se
     //    achar, devolve o RECNUM existente sem inserir de novo.
+    //
+    //    Janela de 1 dia (TRUNC(DTLANC) = TRUNC(SYSDATE)) porque "mesmo
+    //    candidato + mesmo cargo + mesmo valor + mesma data" é o mesmo
+    //    evento de pagamento. Em datas diferentes (ex.: dois dias de
+    //    teste em semanas distintas com mesma pessoa), são lançamentos
+    //    legítimos separados que devem ser inseridos individualmente.
     //
     //    Cobre 2 cenários que a guarda do `pagamento_pix.winthor_recnum`
     //    no Postgres não pega:
     //      - INSERT manual via /admin/winthor-test-lancamento (sem
-    //        atualizar Postgres) seguido de pagamento normal pelo app.
+    //        atualizar Postgres) seguido de pagamento normal pelo app
+    //        no mesmo dia.
     //      - Race condition (dois cron retries em paralelo no mesmo
     //        pagamento — pouco provável, mas barato proteger).
     const dupCheck = await conn.execute<{ RECNUM: number }>(
@@ -201,7 +208,7 @@ export async function lancarPagamentoPixNoWinthor(
         WHERE HISTORICO = :h
           AND CHAVEPIX  = :c
           AND VALOR     = :v
-          AND DTLANC    > SYSDATE - 30
+          AND TRUNC(DTLANC) = TRUNC(SYSDATE)
         FETCH FIRST 1 ROWS ONLY`,
       { h: historico, c: chave, v: args.valor },
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
@@ -210,7 +217,7 @@ export async function lancarPagamentoPixNoWinthor(
     if (dupRecnum) {
       console.log(
         `[winthor] anti-dup: já existe RECNUM=${dupRecnum} (HISTORICO+CHAVEPIX+VALOR ` +
-        `mesma últimos 30d); pulando INSERT.`,
+        `mesmo dia); pulando INSERT.`,
       );
       return { recnum: Number(dupRecnum), codigoCentroCusto };
     }
