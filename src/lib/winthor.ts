@@ -186,7 +186,36 @@ export async function lancarPagamentoPixNoWinthor(
       `PAGAMENTO REF.DIA DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
 
-    // 1. Reserva RECNUM — fallback derivando direto de PCLANC porque a
+    // 1. Anti-dup defensivo: olha pra PCLANC nos últimos 30 dias procurando
+    //    um lançamento idêntico (mesmo HISTORICO + CHAVEPIX + VALOR). Se
+    //    achar, devolve o RECNUM existente sem inserir de novo.
+    //
+    //    Cobre 2 cenários que a guarda do `pagamento_pix.winthor_recnum`
+    //    no Postgres não pega:
+    //      - INSERT manual via /admin/winthor-test-lancamento (sem
+    //        atualizar Postgres) seguido de pagamento normal pelo app.
+    //      - Race condition (dois cron retries em paralelo no mesmo
+    //        pagamento — pouco provável, mas barato proteger).
+    const dupCheck = await conn.execute<{ RECNUM: number }>(
+      `SELECT RECNUM FROM WINDOW.PCLANC
+        WHERE HISTORICO = :h
+          AND CHAVEPIX  = :c
+          AND VALOR     = :v
+          AND DTLANC    > SYSDATE - 30
+        FETCH FIRST 1 ROWS ONLY`,
+      { h: historico, c: chave, v: args.valor },
+      { outFormat: oracledb.OUT_FORMAT_OBJECT },
+    );
+    const dupRecnum = dupCheck.rows?.[0]?.RECNUM;
+    if (dupRecnum) {
+      console.log(
+        `[winthor] anti-dup: já existe RECNUM=${dupRecnum} (HISTORICO+CHAVEPIX+VALOR ` +
+        `mesma últimos 30d); pulando INSERT.`,
+      );
+      return { recnum: Number(dupRecnum), codigoCentroCusto };
+    }
+
+    // 2. Reserva RECNUM — fallback derivando direto de PCLANC porque a
     //    function FERRAMENTAS.F_PROX_RECNUM não está acessível pelo
     //    usuário CHRISTOFER (ORA-00904 "identificador inválido"). Como
     //    PCLANC.RECNUM tem PK, qualquer race condition vira erro de
@@ -199,7 +228,7 @@ export async function lancarPagamentoPixNoWinthor(
     const recnum = (r0.rows?.[0]?.N as number) ?? 0;
     if (!recnum) throw new Error('Winthor: MAX(RECNUM)+1 retornou 0');
 
-    // 2. INSERT em PCLANC com defaults equivalentes aos lançamentos manuais.
+    // 3. INSERT em PCLANC com defaults equivalentes aos lançamentos manuais.
     //    CODFILIAL='17' é fixo pra todos os pagamentos PIX do dia de teste
     //    (regra do financeiro — independe da empresa do candidato).
     //    DTMOEDA é VARCHAR2(1) (flag, NULL em 100% dos casos) — fora do INSERT.
@@ -235,7 +264,7 @@ export async function lancarPagamentoPixNoWinthor(
       },
     );
 
-    // 3. INSERT do rateio em PCRATEIOCENTROCUSTO — 1 linha com 100% no CC
+    // 4. INSERT do rateio em PCRATEIOCENTROCUSTO — 1 linha com 100% no CC
     //    derivado do cargo. Sem isso o lançamento entra na PCLANC mas o
     //    contábil não consegue alocar por departamento (gera relatório
     //    quebrado e o financeiro tem que rateirar manualmente).

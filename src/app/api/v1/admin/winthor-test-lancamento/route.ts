@@ -18,15 +18,16 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
       cargo?: string; valor?: number; nomeCandidato?: string; hashtag?: string;
+      chavePix?: string; tipoChave?: string; nomeFunc?: string;
     };
     const res = await lancarPagamentoPixNoWinthor({
       nomeCandidato: body.nomeCandidato || 'TESTE INTEGRACAO API',
       cargo: body.cargo || 'VENDEDOR INTERNO',
       hashtag: body.hashtag || 'TEST',
       valor: typeof body.valor === 'number' ? body.valor : 0.01,
-      chavePix: '00000000000',
-      tipoChave: 'cpf',
-      nomeFunc: 'PEOPLEAPI',
+      chavePix: body.chavePix || '00000000000',
+      tipoChave: body.tipoChave || 'cpf',
+      nomeFunc: body.nomeFunc || 'PEOPLEAPI',
     });
     return successResponse(res);
   } catch (e) {
