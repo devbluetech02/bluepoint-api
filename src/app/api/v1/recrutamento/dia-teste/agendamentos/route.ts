@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
 import { withGestor } from '@/lib/middleware';
 import { successResponse, serverErrorResponse } from '@/lib/api-response';
+import { cacheAside, CACHE_TTL } from '@/lib/cache';
 import { isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
 import { obterEscopoGestor } from '@/lib/escopo-gestor';
 import { NIVEL_ADMIN, NIVEL_GESTOR } from '@/lib/niveis';
@@ -91,6 +92,20 @@ export async function GET(request: NextRequest) {
       const empresaId = searchParams.get('empresaId');
       const todos = searchParams.get('todos') === 'true';
 
+      // Cache 30s por (usuario × filtros). SignProof status pode ficar
+      // 30s defasado — aceitavel; cargas hoje/amanha sao agressivamente
+      // re-disparadas pela UI e o custo SQL+SignProof+Recrutamento DB era
+      // o gargalo. Chave inclui userId pra respeitar escopo gestor.
+      const cacheKey = `recrutamento:dia-teste:agendamentos:v1:u${user.userId}:${[
+        data ?? '*',
+        de ?? '*',
+        ate ?? '*',
+        status ?? '*',
+        empresaId ?? '*',
+        todos ? '1' : '0',
+      ].join('|')}`;
+
+      const payload = await cacheAside(cacheKey, async () => {
       // Escopo: admin/superadmin/API key vê tudo. Gestor (nível 2)
       // só vê processos cujo departamento OU empresa está na lista
       // que ele gerencia (gestor_departamentos / gestor_empresas).
@@ -115,7 +130,7 @@ export async function GET(request: NextRequest) {
         const empIds = escopo.empresaIds;
         // Sem nada no escopo → não enxerga nenhum agendamento.
         if (deptIds.length === 0 && empIds.length === 0) {
-          return successResponse([]);
+          return [];
         }
         const partes: string[] = [];
         if (deptIds.length > 0) {
@@ -129,7 +144,7 @@ export async function GET(request: NextRequest) {
         filtros.push(`(${partes.join(' OR ')})`);
       } else if (!escopoGlobal) {
         // Nível 1 ou desconhecido → não vê agendamentos.
-        return successResponse([]);
+        return [];
       }
 
       if (data) {
@@ -508,6 +523,9 @@ export async function GET(request: NextRequest) {
           pagamentoPixStatus: r.pagamento_pix_status ?? null,
         };
       });
+
+      return payload;
+      }, CACHE_TTL.SHORT);
 
       return successResponse(payload);
     } catch (error) {
