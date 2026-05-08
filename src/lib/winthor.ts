@@ -130,14 +130,18 @@ export async function lancarPagamentoPixNoWinthor(
       `PAGAMENTO REF.DIA DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
 
-    // 1. Reserva RECNUM
+    // 1. Reserva RECNUM — fallback derivando direto de PCLANC porque a
+    //    function FERRAMENTAS.F_PROX_RECNUM não está acessível pelo
+    //    usuário CHRISTOFER (ORA-00904 "identificador inválido"). Como
+    //    PCLANC.RECNUM tem PK, qualquer race condition vira erro de
+    //    constraint e o cron retry pega no próximo ciclo.
     const r0 = await conn.execute<{ N: number }>(
-      `SELECT FERRAMENTAS.F_PROX_RECNUM AS N FROM DUAL`,
+      `SELECT NVL(MAX(RECNUM), 0) + 1 AS N FROM WINDOW.PCLANC`,
       {},
       { outFormat: oracledb.OUT_FORMAT_OBJECT },
     );
     const recnum = (r0.rows?.[0]?.N as number) ?? 0;
-    if (!recnum) throw new Error('Winthor: F_PROX_RECNUM retornou 0');
+    if (!recnum) throw new Error('Winthor: MAX(RECNUM)+1 retornou 0');
 
     // 2. INSERT em PCLANC com defaults equivalentes aos lançamentos manuais.
     await conn.execute(
