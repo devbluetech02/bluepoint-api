@@ -18,9 +18,11 @@ import {
 //  - dataInicio (YYYY-MM-DD)  default: hoje - 30
 //  - dataFim    (YYYY-MM-DD)  default: hoje
 //  - recrutador (string)      filtra por recrutador
+//  - vaga       (string)      filtra por vaga (ILIKE)
+//  - departamentoId (int)     filtra por departamento (resolvido via
+//                             JOIN public.vagas → opcoes; aplica em
+//                             entrevista WHERE vaga = ANY(vagas_dept))
 //  - duracaoMinSeg (int)      override do parametro global
-//
-// Aderencia IA fica pra fase 2 (depende de LLM).
 
 export async function GET(request: NextRequest) {
   return withGestor(request, async (req) => {
@@ -29,6 +31,11 @@ export async function GET(request: NextRequest) {
       const dataInicio = searchParams.get('dataInicio');
       const dataFim = searchParams.get('dataFim');
       const recrutadorFiltro = searchParams.get('recrutador')?.trim() || null;
+      const vagaFiltro = searchParams.get('vaga')?.trim() || null;
+      const departamentoIdRaw = searchParams.get('departamentoId');
+      const departamentoId = departamentoIdRaw && /^\d+$/.test(departamentoIdRaw)
+        ? parseInt(departamentoIdRaw, 10)
+        : null;
       const duracaoMinSegOverride = searchParams.get('duracaoMinSeg');
 
       // 1. Le parametro global pra duracao minima
@@ -40,6 +47,20 @@ export async function GET(request: NextRequest) {
       const duracaoMinSeg = duracaoMinSegOverride
         ? Math.max(0, parseInt(duracaoMinSegOverride, 10))
         : duracaoMinMin * 60;
+
+      // 1b. Resolve filtro de departamento → lista de nomes de vagas.
+      // public.vagas tem nome_vaga + departamento_id; entrevistas_agendadas
+      // tem so o texto da vaga, entao casamos por nome.
+      let vagasDoDept: string[] | null = null;
+      if (departamentoId != null) {
+        const vRes = await queryRecrutamento<{ nome_vaga: string }>(
+          `SELECT DISTINCT nome_vaga FROM public.vagas WHERE departamento_id = $1`,
+          [departamentoId],
+        );
+        vagasDoDept = vRes.rows.map((r) => r.nome_vaga.trim()).filter(Boolean);
+        // Se nao tem vaga cadastrada nesse dept, retorna vazio direto.
+        if (vagasDoDept.length === 0) vagasDoDept = ['__NENHUMA__'];
+      }
 
       // 2. Periodo (default ultimos 30 dias)
       const hoje = new Date();
@@ -56,6 +77,19 @@ export async function GET(request: NextRequest) {
         params.push(recrutadorFiltro);
         where += ` AND recrutador = $${params.length}`;
       }
+      if (vagaFiltro) {
+        params.push(`%${vagaFiltro}%`);
+        where += ` AND vaga ILIKE $${params.length}`;
+      }
+      if (vagasDoDept) {
+        params.push(vagasDoDept);
+        where += ` AND vaga = ANY($${params.length}::text[])`;
+      }
+      // Filtros que afetam tambem os totais hoje/7d/30d
+      const filtrosExtra: { sql: string; valor: unknown }[] = [];
+      if (recrutadorFiltro) filtrosExtra.push({ sql: 'recrutador = ', valor: recrutadorFiltro });
+      if (vagaFiltro) filtrosExtra.push({ sql: 'vaga ILIKE ', valor: `%${vagaFiltro}%` });
+      if (vagasDoDept) filtrosExtra.push({ sql: 'vaga = ANY(', valor: vagasDoDept });
 
       // 3. Snapshot bruto: tudo do periodo (com duracao_seg quando tiver)
       const linhas = await queryRecrutamento<{
@@ -82,24 +116,28 @@ export async function GET(request: NextRequest) {
       const base7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const base30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      const totaisQuery = recrutadorFiltro
-        ? `SELECT
-             SUM(CASE WHEN data_entrevista >= $1 THEN 1 ELSE 0 END)::int AS hoje,
-             SUM(CASE WHEN data_entrevista >= $2 THEN 1 ELSE 0 END)::int AS sete,
-             SUM(CASE WHEN data_entrevista >= $3 THEN 1 ELSE 0 END)::int AS trinta
-           FROM public.entrevistas_agendadas
-           WHERE recrutador = $4`
-        : `SELECT
-             SUM(CASE WHEN data_entrevista >= $1 THEN 1 ELSE 0 END)::int AS hoje,
-             SUM(CASE WHEN data_entrevista >= $2 THEN 1 ELSE 0 END)::int AS sete,
-             SUM(CASE WHEN data_entrevista >= $3 THEN 1 ELSE 0 END)::int AS trinta
-           FROM public.entrevistas_agendadas`;
       const totParams: unknown[] = [
         baseHojeIni.toISOString(),
         base7d.toISOString(),
         base30d.toISOString(),
       ];
-      if (recrutadorFiltro) totParams.push(recrutadorFiltro);
+      const totWhereExtra: string[] = [];
+      for (const f of filtrosExtra) {
+        totParams.push(f.valor);
+        if (f.sql === 'recrutador = ') {
+          totWhereExtra.push(`recrutador = $${totParams.length}`);
+        } else if (f.sql === 'vaga ILIKE ') {
+          totWhereExtra.push(`vaga ILIKE $${totParams.length}`);
+        } else if (f.sql === 'vaga = ANY(') {
+          totWhereExtra.push(`vaga = ANY($${totParams.length}::text[])`);
+        }
+      }
+      const totWhere = totWhereExtra.length > 0 ? ` WHERE ${totWhereExtra.join(' AND ')}` : '';
+      const totaisQuery = `SELECT
+             SUM(CASE WHEN data_entrevista >= $1 THEN 1 ELSE 0 END)::int AS hoje,
+             SUM(CASE WHEN data_entrevista >= $2 THEN 1 ELSE 0 END)::int AS sete,
+             SUM(CASE WHEN data_entrevista >= $3 THEN 1 ELSE 0 END)::int AS trinta
+           FROM public.entrevistas_agendadas${totWhere}`;
       const totaisRes = await queryRecrutamento<{
         hoje: number;
         sete: number;
@@ -217,13 +255,29 @@ export async function GET(request: NextRequest) {
       });
       const semDuracao = linhas.rows.filter((r) => r.duracao_seg == null).length;
 
-      // 7. Lista de recrutadores distintos (pra dropdown de filtro)
-      const recrutadoresDistintosRes = await queryRecrutamento<{ recrutador: string }>(
-        `SELECT DISTINCT recrutador
-           FROM public.entrevistas_agendadas
-          WHERE recrutador IS NOT NULL AND recrutador <> ''
-          ORDER BY recrutador`,
-      );
+      // 7. Listas pra dropdowns de filtro: recrutadores, vagas, departamentos
+      const [recrutadoresDistintosRes, vagasDistintasRes, departamentosRes] =
+        await Promise.all([
+          queryRecrutamento<{ recrutador: string }>(
+            `SELECT DISTINCT recrutador
+               FROM public.entrevistas_agendadas
+              WHERE recrutador IS NOT NULL AND recrutador <> ''
+              ORDER BY recrutador`,
+          ),
+          queryRecrutamento<{ vaga: string }>(
+            `SELECT DISTINCT vaga
+               FROM public.entrevistas_agendadas
+              WHERE vaga IS NOT NULL AND vaga <> ''
+              ORDER BY vaga`,
+          ),
+          queryRecrutamento<{ id: number; valor: string }>(
+            `SELECT DISTINCT o.id, o.valor
+               FROM public.vagas v
+               JOIN public.opcoes o ON o.id = v.departamento_id
+              WHERE o.valor IS NOT NULL AND o.valor <> ''
+              ORDER BY o.valor`,
+          ),
+        ]);
 
       return successResponse({
         periodo: {
@@ -247,6 +301,11 @@ export async function GET(request: NextRequest) {
         },
         opcoes: {
           recrutadores: recrutadoresDistintosRes.rows.map((r) => r.recrutador),
+          vagas: vagasDistintasRes.rows.map((r) => r.vaga),
+          departamentos: departamentosRes.rows.map((r) => ({
+            id: r.id,
+            nome: r.valor,
+          })),
         },
       });
     } catch (error) {
