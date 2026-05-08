@@ -6,6 +6,10 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { cacheAside, CACHE_TTL } from '@/lib/cache';
+import {
+  lerInsightsCacheado,
+  dispararGeracaoEmBackground,
+} from '@/lib/recrutador-insights';
 
 // GET /api/v1/recrutamento/relatorio/dashboard
 //
@@ -372,7 +376,7 @@ export async function GET(request: NextRequest) {
       const volumeMax = Math.max(1, ...totaisRecs);
       const duracaoAlvoSeg = duracaoMinSeg * 1.5;
 
-      const recrutadores = Array.from(accs.entries()).map(([nome, b]) => {
+      const recrutadoresPromises = Array.from(accs.entries()).map(async ([nome, b]) => {
         const c = {
           hoje: consolidar(b.hoje, duracaoMinSeg),
           sete: consolidar(b.sete, duracaoMinSeg),
@@ -394,14 +398,33 @@ export async function GET(request: NextRequest) {
         const nota =
           Math.round((criterios.reduce((s, x) => s + x, 0) / criterios.length) * 10) / 10;
 
-        const insights = gerarInsights(c.hoje, c.sete, c.trinta, duracaoMinSeg, equipe.trinta);
+        // Insights: tenta cache LLM. Sem cache, usa rule-based agora e
+        // dispara LLM em background pra preencher cache pra proxima carga.
+        const insightsArgs = {
+          nome,
+          hoje: c.hoje,
+          sete: c.sete,
+          trinta: c.trinta,
+          equipe: equipe.trinta,
+          duracaoMinMin,
+        };
+        let insights: string[];
+        let insightsFonte: 'ia' | 'regra' = 'regra';
+        const cachedIA = await lerInsightsCacheado(insightsArgs);
+        if (cachedIA && cachedIA.length > 0) {
+          insights = cachedIA;
+          insightsFonte = 'ia';
+        } else {
+          insights = gerarInsights(c.hoje, c.sete, c.trinta, duracaoMinSeg, equipe.trinta);
+          dispararGeracaoEmBackground(insightsArgs);
+        }
 
         return {
           recrutador: nome,
           periodos: c,
           nota,
           insights,
-          // Componentes da nota (transparencia)
+          insightsFonte,
           notaCriterios: {
             volume: Math.round(nVolume * 10) / 10,
             validas: Math.round(nValidas * 10) / 10,
@@ -410,6 +433,7 @@ export async function GET(request: NextRequest) {
           },
         };
       });
+      const recrutadores = await Promise.all(recrutadoresPromises);
       recrutadores.sort((a, b) => b.nota - a.nota);
 
       // 6. Serie diaria 30d (preenche dias vazios com 0)
