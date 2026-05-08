@@ -217,10 +217,11 @@ export async function GET(request: NextRequest) {
       }
 
       // 2b. Carrega recrutadores ATIVOS do People (cargo recrutador).
-      // Entrevistas cujo recrutador (texto livre em entrevistas_agendadas)
-      // nao casa com algum desses sao IGNORADAS — relatorio so conta
-      // gente que tem usuario ativo no People.
-      // Match: primeiro nome normalizado (lower + sem acento).
+      // Filtro DUPLO obrigatorio: status='ativo' AND cargo recrutador.
+      // Match com texto livre de entrevistas_agendadas.recrutador:
+      //  - 1o tenta nome completo normalizado (lower + sem acento)
+      //  - fallback: primeiro nome SE for unico entre recrutadores ativos
+      //    (evita ambiguidade — "Joao" matchando 2 Joao recrutadores)
       const recrutadoresAtivosRes = await query<{ nome: string }>(
         `SELECT c.nome
            FROM people.colaboradores c
@@ -228,18 +229,29 @@ export async function GET(request: NextRequest) {
           WHERE c.status = 'ativo'
             AND cg.nome ILIKE '%recrut%'`,
       );
-      const norm = (s: string) =>
-        s
-          .normalize('NFD')
-          .replace(/[̀-ͯ]/g, '')
-          .toLowerCase()
-          .trim()
-          .split(/\s+/)[0] ?? '';
-      const recrutadoresAtivosFirstName = new Set(
-        recrutadoresAtivosRes.rows
-          .map((r) => norm(r.nome ?? ''))
-          .filter((s) => s.length > 0),
-      );
+      const stripAcc = (s: string) =>
+        s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+      const firstName = (s: string) => {
+        const parts = stripAcc(s).split(/\s+/).filter(Boolean);
+        return parts.length > 0 ? parts[0] : '';
+      };
+      const fullNamesAtivos = new Set<string>();
+      const firstNameCount = new Map<string, number>();
+      for (const r of recrutadoresAtivosRes.rows) {
+        const full = stripAcc(r.nome ?? '');
+        if (!full) continue;
+        fullNamesAtivos.add(full);
+        const fn = firstName(r.nome ?? '');
+        firstNameCount.set(fn, (firstNameCount.get(fn) ?? 0) + 1);
+      }
+      const recrutadorAtivo = (nome: string): boolean => {
+        const full = stripAcc(nome);
+        if (fullNamesAtivos.has(full)) return true;
+        const fn = firstName(nome);
+        if (!fn) return false;
+        // Primeiro nome unico → match seguro. Ambiguo → recusa.
+        return firstNameCount.get(fn) === 1;
+      };
 
       // 3. Sempre carrega 30d (engloba 7d + hoje). Filtra na memoria.
       const trinta = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -286,14 +298,9 @@ export async function GET(request: NextRequest) {
 
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
-        // Filtro: ignora entrevistas de recrutadores sem usuario ativo no People
-        const primeiroNome = norm(k);
-        if (
-          !primeiroNome ||
-          !recrutadoresAtivosFirstName.has(primeiroNome)
-        ) {
-          continue;
-        }
+        // Filtro: ignora entrevistas de recrutadores sem usuario ativo
+        // cargo recrutador no People.
+        if (!recrutadorAtivo(k)) continue;
         const dt = new Date(r.data_entrevista);
         const dia = dt.toISOString().slice(0, 10);
 
@@ -492,11 +499,9 @@ export async function GET(request: NextRequest) {
         },
         opcoes: {
           ...opcoes,
-          // Filtra dropdown: so recrutadores com usuario ativo no People
-          recrutadores: opcoes.recrutadores.filter((nome) => {
-            const fn = norm(nome);
-            return fn && recrutadoresAtivosFirstName.has(fn);
-          }),
+          // Filtra dropdown: so recrutadores com usuario ativo cargo
+          // recrutador no People.
+          recrutadores: opcoes.recrutadores.filter((nome) => recrutadorAtivo(nome)),
         },
       });
     } catch (error) {
