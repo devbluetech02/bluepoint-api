@@ -10,5 +10,10 @@ export async function register() {
     const { iniciarSignProofStatusChecker } = await import('@/lib/signproof-status-checker');
     iniciarSignProofStatusChecker();
     console.log('[Instrumentation] SignProof status checker iniciado.');
+
+    console.log('[Instrumentation] Iniciando Entrevistas duracao checker...');
+    const { iniciarEntrevistasDuracaoChecker } = await import('@/lib/entrevistas-duracao-checker');
+    iniciarEntrevistasDuracaoChecker();
+    console.log('[Instrumentation] Entrevistas duracao checker iniciado.');
   }
 }
