@@ -76,9 +76,7 @@ export async function lancarPagamentoPixWinthorPorId(
   if (row.status !== 'sucesso') {
     return { ok: false, pulado: true, motivo: 'status_diferente_de_sucesso' };
   }
-  if (!row.cod_filial_winthor) {
-    return { ok: false, pulado: true, motivo: 'empresa_sem_cod_filial_winthor' };
-  }
+  // CODFILIAL é fixa em 17 pra dia de teste — não depende mais da empresa.
   if (!row.chave_pix || !row.tipo_chave) {
     return { ok: false, pulado: true, motivo: 'chave_pix_ausente' };
   }
@@ -121,7 +119,6 @@ export async function lancarPagamentoPixWinthorPorId(
       cargo: (row.cargo_nome || 'PRESTADOR DE SERVICO'),
       hashtag,
       valor: parseFloat(row.valor),
-      codFilial: row.cod_filial_winthor,
       chavePix: row.chave_pix,
       tipoChave: row.tipo_chave,
       nomeFunc,
@@ -139,7 +136,8 @@ export async function lancarPagamentoPixWinthorPorId(
 
     console.log(
       `[winthor] pagamento=${pagamentoId} lancado em PCLANC RECNUM=${res.recnum} ` +
-      `(filial=${row.cod_filial_winthor} valor=${row.valor} candidato="${nomeCandidato}" gestor="${nomeFunc}")`
+      `(cc=${res.codigoCentroCusto} valor=${row.valor} cargo="${row.cargo_nome}" ` +
+      `candidato="${nomeCandidato}" gestor="${nomeFunc}")`
     );
     return { ok: true, recnum: res.recnum };
   } catch (e) {

@@ -66,14 +66,12 @@ async function getPool(): Promise<OraPool> {
 interface LancarPagamentoArgs {
   /** Nome completo do candidato (ex.: "JOÃO DA SILVA") */
   nomeCandidato: string;
-  /** Cargo da vaga (ex.: "MOTOBOY") */
+  /** Cargo da vaga (ex.: "MOTOBOY") — usado pra mapear o centro de custo. */
   cargo: string;
   /** UF/sigla pra hashtag no histórico (ex.: "GO", "SP", "CSC", "CTBA") */
   hashtag: string;
   /** Valor em reais (number) */
   valor: number;
-  /** Código da filial Winthor (PCLANC.CODFILIAL) — empresas.cod_filial_winthor */
-  codFilial: number;
   /** Chave PIX já normalizada (sem +55 no telefone — só dígitos crus) */
   chavePix: string;
   /** Tipo da chave: 'telefone' | 'cpf' | 'cnpj' | 'email' | 'aleatoria' */
@@ -84,6 +82,63 @@ interface LancarPagamentoArgs {
 
 interface LancarResultado {
   recnum: number;
+  codigoCentroCusto: string;
+}
+
+/** CODFILIAL fixa pros pagamentos PIX do dia de teste (regra do financeiro). */
+const COD_FILIAL_FIXA = '17';
+
+/** CODIGOCENTROCUSTO default quando o cargo não bate em nenhuma chave conhecida. */
+const CC_DEFAULT = '1.1'; // ADMINISTRATIVO GERAL
+
+/**
+ * Tira acentos / normaliza pra match case-insensitive contra a tabela.
+ * Ex.: "VENDEDOR INTERNO" === normalize("vendedor interno  ").
+ */
+function normCargo(c: string): string {
+  return c
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Mapeia cargo do nosso domínio → CODIGOCENTROCUSTO em WINDOW.PCCENTROCUSTO.
+ * Mapping aprovado pelo financeiro em 2026-05-08. Cargos novos caem no default.
+ */
+const CARGO_TO_CC: Record<string, string> = {
+  'ANALISTA DE DP': '5.1.2',                       // DEPARTAMENTO PESSOAL
+  'ANALISTA DE FATURAMENTO': '1.1.5',              // FINANCEIRO
+  'ANALISTA DE SUPORTE': '4.1.1',                  // ESTRUTURA DE T.I
+  'ASSISTENTE DE RECURSOS HUMANOS': '5.1',         // RH GERAL
+  'ASSISTENTE DE RELACIONAMENTO': '2.1.2',         // SAC
+  'ATENDENTE DE SAC': '2.1.2',                     // SAC
+  'AUXILIAR DE OPERACOES': '3.1',                  // OPERACIONAL GERAL
+  'AUXILIAR DE SERVICOS GERAIS': '1.1',            // ADMINISTRATIVO GERAL
+  'COORDENADOR DE OPERACOES': '3.1',
+  'DESENVOLVEDOR': '4.1.7',                        // DESENVOLVIMENTO EM TI
+  'ESTOQUISTA': '3.1.1',                           // ESTOQUE / ALMOXARIFADO
+  'GERENTE DE OPERACOES': '3.1',
+  'LIDER DE ENTREGADOR': '3.1.2',                  // LOGÍSTICA EXTERNA
+  'LIDER DE ESTOQUE': '3.1.1',
+  'MOTOBOY': '3.1.2',
+  'MOTORISTA DE CAMINHAO': '3.1.2',
+  'OPERADOR DE EMPILHADEIRA': '3.1.3',             // LOGÍSTICA INTERNA
+  'OWNER': '6.1',                                  // DIRETORIA E SÓCIOS GERAL
+  'RECEPCIONISTA': '1.1',                          // ADMINISTRATIVO GERAL
+  'RECRUTADOR': '5.1.3',                           // RECRUTAMENTO E SELEÇÃO
+  'SUPERVISOR A DE RELACIONAMENTOS': '2.1.2',      // SAC — norm troca "(A)" → " A "
+  'SUPERVISOR COMERCIAL': '2.1',
+  'SUPERVISOR DE OPERACOES': '3.1',
+  'VENDEDOR EXTERNO': '2.1.5',                     // COMERCIAL VENDAS EXTERNAS
+  'VENDEDOR INTERNO': '2.1.6',                     // COMERCIAL VENDAS INTERNAS
+};
+
+function resolverCentroCusto(cargo: string): string {
+  return CARGO_TO_CC[normCargo(cargo)] || CC_DEFAULT;
 }
 
 /** Mapeia tipo de chave do nosso domínio pra (label, código) do Winthor. */
@@ -126,6 +181,7 @@ export async function lancarPagamentoPixNoWinthor(
     const hashtag = (args.hashtag || '').replace(/^#/, '').toUpperCase().slice(0, 8);
     const nome = args.nomeCandidato.trim().toUpperCase().slice(0, 80);
     const cargo = args.cargo.trim().toUpperCase().slice(0, 40);
+    const codigoCentroCusto = resolverCentroCusto(args.cargo);
     const historico =
       `PAGAMENTO REF.DIA DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
@@ -144,9 +200,10 @@ export async function lancarPagamentoPixNoWinthor(
     if (!recnum) throw new Error('Winthor: MAX(RECNUM)+1 retornou 0');
 
     // 2. INSERT em PCLANC com defaults equivalentes aos lançamentos manuais.
+    //    CODFILIAL='17' é fixo pra todos os pagamentos PIX do dia de teste
+    //    (regra do financeiro — independe da empresa do candidato).
+    //    DTMOEDA é VARCHAR2(1) (flag, NULL em 100% dos casos) — fora do INSERT.
     await conn.execute(
-      // DTMOEDA é VARCHAR2(1) (flag, não data) e fica NULL em todos os
-      // lançamentos recentes — removido do INSERT pra evitar ORA-12899.
       `INSERT INTO WINDOW.PCLANC (
          RECNUM, DTLANC, HISTORICO, DUPLIC, CODFILIAL, INDICE, TIPOLANC,
          TIPOPARCEIRO, NOMEFUNC, TIPOPAGTO, MOEDA, NFSERVICO, ADIANTAMENTO,
@@ -161,7 +218,7 @@ export async function lancarPagamentoPixNoWinthor(
          'F', :nomeFunc, NULL, 'R', 'N', NULL,
          '45', 'DIA TESTE PEOPLE', 'DIA TESTE PEOPLE', '1', 0, 1045,
          '99', 0, 0,
-         'N', 100, :valor, 23124,
+         'S', 100, :valor, 23124,
          TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE),
          'PRESTADOR DE SERVICO', 'N', 'N',
          :chavePix, :tipoChaveLabel, :tipoChaveCod
@@ -169,7 +226,7 @@ export async function lancarPagamentoPixNoWinthor(
       {
         recnum,
         historico,
-        codFilial: args.codFilial,
+        codFilial: COD_FILIAL_FIXA,
         nomeFunc: (args.nomeFunc || '').toUpperCase().replace(/\s+/g, '').slice(0, 20),
         valor: args.valor,
         chavePix: chave,
@@ -178,8 +235,30 @@ export async function lancarPagamentoPixNoWinthor(
       },
     );
 
+    // 3. INSERT do rateio em PCRATEIOCENTROCUSTO — 1 linha com 100% no CC
+    //    derivado do cargo. Sem isso o lançamento entra na PCLANC mas o
+    //    contábil não consegue alocar por departamento (gera relatório
+    //    quebrado e o financeiro tem que rateirar manualmente).
+    //    UTILIZOURATEIOCONTA='S' acima sinaliza pro Winthor que o rateio
+    //    veio populado pela rotina externa.
+    await conn.execute(
+      `INSERT INTO WINDOW.PCRATEIOCENTROCUSTO (
+         RECNUM, CODCONTA, VALOR, PERCRATEIO, DTLANC, CODFILIAL,
+         CODIGOCENTROCUSTO, ROTINAINSERT, CONTRAPARTIDA
+       ) VALUES (
+         :recnum, 23124, :valor, 100, SYSDATE, :codFilial,
+         :cc, 'DIA TESTE PEOPLE', 'N'
+       )`,
+      {
+        recnum,
+        valor: args.valor,
+        codFilial: COD_FILIAL_FIXA,
+        cc: codigoCentroCusto,
+      },
+    );
+
     await conn.commit();
-    return { recnum };
+    return { recnum, codigoCentroCusto };
   } finally {
     try { await conn.close(); } catch { /* noop */ }
   }
