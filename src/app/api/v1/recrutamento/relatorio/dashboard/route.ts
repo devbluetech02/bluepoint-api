@@ -65,9 +65,11 @@ export async function GET(request: NextRequest) {
         duracao_seg: number | null;
         houve_entrevista_ia: boolean | null;
         nota_entrevistador_ia: string | null;
+        aderencia_ia_pct: string | null;
       }>(
         `SELECT id, recrutador, data_entrevista, duracao_seg,
-                houve_entrevista_ia, nota_entrevistador_ia
+                houve_entrevista_ia, nota_entrevistador_ia,
+                aderencia_ia_pct
            FROM public.entrevistas_agendadas
           WHERE ${where}`,
         params,
@@ -112,13 +114,23 @@ export async function GET(request: NextRequest) {
         comDuracao: number;
         validas: number;
         diasUnicos: Set<string>;
+        somaAderencia: number;
+        comAderencia: number;
       };
       const acc = new Map<string, Acc>();
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
         let a = acc.get(k);
         if (!a) {
-          a = { total: 0, somaDuracao: 0, comDuracao: 0, validas: 0, diasUnicos: new Set() };
+          a = {
+            total: 0,
+            somaDuracao: 0,
+            comDuracao: 0,
+            validas: 0,
+            diasUnicos: new Set(),
+            somaAderencia: 0,
+            comAderencia: 0,
+          };
           acc.set(k, a);
         }
         a.total += 1;
@@ -127,6 +139,13 @@ export async function GET(request: NextRequest) {
           a.somaDuracao += r.duracao_seg;
           a.comDuracao += 1;
           if (r.duracao_seg >= duracaoMinSeg) a.validas += 1;
+        }
+        if (r.aderencia_ia_pct != null) {
+          const pct = Number(r.aderencia_ia_pct);
+          if (Number.isFinite(pct)) {
+            a.somaAderencia += pct;
+            a.comAderencia += 1;
+          }
         }
       }
 
@@ -142,21 +161,30 @@ export async function GET(request: NextRequest) {
         const taxaValidas = a.comDuracao > 0 ? a.validas / a.comDuracao : 0;
         const dias = a.diasUnicos.size || 1;
         const mediaPorDia = a.total / dias;
+        const mediaAderencia =
+          a.comAderencia > 0
+            ? Math.round((a.somaAderencia / a.comAderencia) * 10) / 10
+            : null;
 
-        // Nota composta 0-10 (3 critérios — IA fica pra fase 2 com peso 0)
-        // - 33% volume relativo ao top
-        // - 33% taxa_validas
-        // - 33% proximidade da duracao alvo
+        // Nota composta 0-10 — 4 critérios (25% cada quando todos disponiveis):
+        //   - volume relativo ao top
+        //   - taxa de validas
+        //   - proximidade da duracao alvo
+        //   - aderencia IA media (so entra quando ha entrevistas avaliadas)
         const nVolume = (a.total / volumeMax) * 10;
         const nValidas = taxaValidas * 10;
         let nDuracao = 0;
         if (mediaDuracaoSeg > 0 && duracaoAlvoSeg > 0) {
-          // Pico em duracaoAlvoSeg; cai linearmente quando se afasta.
           const dist = Math.abs(mediaDuracaoSeg - duracaoAlvoSeg);
-          const escala = duracaoAlvoSeg; // 0% quando dist >= alvo
+          const escala = duracaoAlvoSeg;
           nDuracao = Math.max(0, 10 - (dist / escala) * 10);
         }
-        const nota = Math.round(((nVolume + nValidas + nDuracao) / 3) * 10) / 10;
+        const nAderencia = mediaAderencia != null ? mediaAderencia / 10 : null;
+
+        const criterios = [nVolume, nValidas, nDuracao];
+        if (nAderencia != null) criterios.push(nAderencia);
+        const nota =
+          Math.round((criterios.reduce((s, x) => s + x, 0) / criterios.length) * 10) / 10;
 
         return {
           recrutador: nome,
@@ -166,6 +194,8 @@ export async function GET(request: NextRequest) {
           mediaEntrevistasPorDia: Math.round(mediaPorDia * 10) / 10,
           totalValidas: a.validas,
           taxaValidasPct: Math.round(taxaValidas * 1000) / 10,
+          mediaAderenciaPct: mediaAderencia,
+          totalComAderencia: a.comAderencia,
           nota,
         };
       });

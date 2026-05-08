@@ -15,5 +15,10 @@ export async function register() {
     const { iniciarEntrevistasDuracaoChecker } = await import('@/lib/entrevistas-duracao-checker');
     iniciarEntrevistasDuracaoChecker();
     console.log('[Instrumentation] Entrevistas duracao checker iniciado.');
+
+    console.log('[Instrumentation] Iniciando Entrevistas aderencia checker...');
+    const { iniciarEntrevistasAderenciaChecker } = await import('@/lib/entrevistas-aderencia-checker');
+    iniciarEntrevistasAderenciaChecker();
+    console.log('[Instrumentation] Entrevistas aderencia checker iniciado.');
   }
 }
