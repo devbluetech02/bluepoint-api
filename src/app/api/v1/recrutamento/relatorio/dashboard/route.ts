@@ -5,6 +5,7 @@ import {
   successResponse,
   serverErrorResponse,
 } from '@/lib/api-response';
+import { cacheAside, CACHE_TTL } from '@/lib/cache';
 
 // GET /api/v1/recrutamento/relatorio/dashboard
 //
@@ -215,6 +216,31 @@ export async function GET(request: NextRequest) {
         if (vagasDoDept.length === 0) vagasDoDept = ['__NENHUMA__'];
       }
 
+      // 2b. Carrega recrutadores ATIVOS do People (cargo recrutador).
+      // Entrevistas cujo recrutador (texto livre em entrevistas_agendadas)
+      // nao casa com algum desses sao IGNORADAS — relatorio so conta
+      // gente que tem usuario ativo no People.
+      // Match: primeiro nome normalizado (lower + sem acento).
+      const recrutadoresAtivosRes = await query<{ nome: string }>(
+        `SELECT c.nome
+           FROM people.colaboradores c
+           JOIN people.cargos cg ON cg.id = c.cargo_id
+          WHERE c.status = 'ativo'
+            AND cg.nome ILIKE '%recrut%'`,
+      );
+      const norm = (s: string) =>
+        s
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase()
+          .trim()
+          .split(/\s+/)[0] ?? '';
+      const recrutadoresAtivosFirstName = new Set(
+        recrutadoresAtivosRes.rows
+          .map((r) => norm(r.nome ?? ''))
+          .filter((s) => s.length > 0),
+      );
+
       // 3. Sempre carrega 30d (engloba 7d + hoje). Filtra na memoria.
       const trinta = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       trinta.setHours(0, 0, 0, 0);
@@ -260,6 +286,14 @@ export async function GET(request: NextRequest) {
 
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
+        // Filtro: ignora entrevistas de recrutadores sem usuario ativo no People
+        const primeiroNome = norm(k);
+        if (
+          !primeiroNome ||
+          !recrutadoresAtivosFirstName.has(primeiroNome)
+        ) {
+          continue;
+        }
         const dt = new Date(r.data_entrevista);
         const dia = dt.toISOString().slice(0, 10);
 
@@ -406,29 +440,42 @@ export async function GET(request: NextRequest) {
       });
       const semDuracao = linhas.rows.filter((r) => r.duracao_seg == null).length;
 
-      // 8. Opcoes
-      const [recrutadoresDistintosRes, vagasDistintasRes, departamentosRes] =
-        await Promise.all([
-          queryRecrutamento<{ recrutador: string }>(
-            `SELECT DISTINCT recrutador
-               FROM public.entrevistas_agendadas
-              WHERE recrutador IS NOT NULL AND recrutador <> ''
-              ORDER BY recrutador`,
-          ),
-          queryRecrutamento<{ vaga: string }>(
-            `SELECT DISTINCT vaga
-               FROM public.entrevistas_agendadas
-              WHERE vaga IS NOT NULL AND vaga <> ''
-              ORDER BY vaga`,
-          ),
-          queryRecrutamento<{ id: number; valor: string }>(
-            `SELECT DISTINCT o.id, o.valor
-               FROM public.vagas v
-               JOIN public.opcoes o ON o.id = v.departamento_id
-              WHERE o.valor IS NOT NULL AND o.valor <> ''
-              ORDER BY o.valor`,
-          ),
-        ]);
+      // 8. Opcoes (cacheado 5min — listas mudam raro)
+      const opcoes = await cacheAside(
+        'recrutamento:relatorio:opcoes:v1',
+        async () => {
+          const [recsRes, vagasRes, deptsRes] = await Promise.all([
+            queryRecrutamento<{ recrutador: string }>(
+              `SELECT DISTINCT recrutador
+                 FROM public.entrevistas_agendadas
+                WHERE recrutador IS NOT NULL AND recrutador <> ''
+                ORDER BY recrutador`,
+            ),
+            queryRecrutamento<{ vaga: string }>(
+              `SELECT DISTINCT vaga
+                 FROM public.entrevistas_agendadas
+                WHERE vaga IS NOT NULL AND vaga <> ''
+                ORDER BY vaga`,
+            ),
+            queryRecrutamento<{ id: number; valor: string }>(
+              `SELECT DISTINCT o.id, o.valor
+                 FROM public.vagas v
+                 JOIN public.opcoes o ON o.id = v.departamento_id
+                WHERE o.valor IS NOT NULL AND o.valor <> ''
+                ORDER BY o.valor`,
+            ),
+          ]);
+          return {
+            recrutadores: recsRes.rows.map((r) => r.recrutador),
+            vagas: vagasRes.rows.map((r) => r.vaga),
+            departamentos: deptsRes.rows.map((r) => ({
+              id: r.id,
+              nome: r.valor,
+            })),
+          };
+        },
+        CACHE_TTL.MEDIUM,
+      );
 
       return successResponse({
         parametros: {
@@ -444,12 +491,12 @@ export async function GET(request: NextRequest) {
           semDuracaoRegistrada: semDuracao,
         },
         opcoes: {
-          recrutadores: recrutadoresDistintosRes.rows.map((r) => r.recrutador),
-          vagas: vagasDistintasRes.rows.map((r) => r.vaga),
-          departamentos: departamentosRes.rows.map((r) => ({
-            id: r.id,
-            nome: r.valor,
-          })),
+          ...opcoes,
+          // Filtra dropdown: so recrutadores com usuario ativo no People
+          recrutadores: opcoes.recrutadores.filter((nome) => {
+            const fn = norm(nome);
+            return fn && recrutadoresAtivosFirstName.has(fn);
+          }),
         },
       });
     } catch (error) {
