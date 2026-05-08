@@ -695,14 +695,20 @@ async function notificarAssinaturaContrato(
   // candidato no banco de Recrutamento (cross-DB), via processo_seletivo
   // ligado a esta solicitacao.
   try {
-    const procRes = await query<{ candidato_recrutamento_id: number | null }>(
-      `SELECT candidato_recrutamento_id
-         FROM people.processo_seletivo
-        WHERE solicitacao_admissao_id = $1::uuid
+    const procRes = await query<{
+      candidato_recrutamento_id: number | null;
+      data_admissao: string | null;
+    }>(
+      `SELECT ps.candidato_recrutamento_id,
+              s.data_admissao
+         FROM people.processo_seletivo ps
+         JOIN people.solicitacoes_admissao s ON s.id = ps.solicitacao_admissao_id
+        WHERE ps.solicitacao_admissao_id = $1::uuid
         LIMIT 1`,
       [solicitacaoId],
     );
     const candRecrutId = procRes.rows[0]?.candidato_recrutamento_id ?? null;
+    const dataAdmissaoIso = procRes.rows[0]?.data_admissao ?? null;
     if (candRecrutId == null) {
       console.warn(`[assinatura_solicitada] Sem candidato_recrutamento_id pra solicitacao ${solicitacaoId} — skip WhatsApp`);
     } else {
@@ -714,12 +720,34 @@ async function notificarAssinaturaContrato(
       if (tel.length < 10) {
         console.warn(`[assinatura_solicitada] Telefone invalido/ausente pra candidato ${candRecrutId} — skip WhatsApp`);
       } else {
+        // Formata data_admissao como dd/mm/yyyy (PT-BR). DIAS_SEMANA por
+        // extenso ajuda candidato a se planejar.
+        let dataAdmissaoFmt: string | null = null;
+        if (dataAdmissaoIso) {
+          const m = dataAdmissaoIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (m) {
+            const [, y, mm, dd] = m;
+            const dt = new Date(Date.UTC(Number(y), Number(mm) - 1, Number(dd)));
+            const diasSemana = [
+              'domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
+              'quinta-feira', 'sexta-feira', 'sábado',
+            ];
+            dataAdmissaoFmt = `${diasSemana[dt.getUTCDay()]}, ${dd}/${mm}/${y}`;
+          }
+        }
+
         const primeiroNome = (nomeCandidato.split(' ')[0] || nomeCandidato).trim();
         const linhas: string[] = [
           `Olá, ${primeiroNome}! 👋`,
           ``,
           `Seu *contrato de admissão* está pronto pra assinatura.`,
         ];
+        if (dataAdmissaoFmt) {
+          linhas.push(
+            ``,
+            `📅 *Primeiro dia de trabalho:* ${dataAdmissaoFmt}`,
+          );
+        }
         if (signingUrl) {
           linhas.push(``, `📋 *Assinar contrato:*`, signingUrl);
         } else {
