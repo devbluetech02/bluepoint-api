@@ -58,36 +58,34 @@ export async function GET(request: NextRequest) {
       const limit  = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '20')));
       const offset = (page - 1) * limit;
 
-      const conditions: string[] = [];
+      // Filtros divididos em dois grupos pra fluxo de dedup correto:
+      //
+      //   - dedupConditions  → escopo do provisório + busca por nome/CPF.
+      //                        Aplicados DENTRO do CTE, junto com o ROW_NUMBER.
+      //                        Estreitam o universo do dedup, mas não escondem
+      //                        solicitações mais recentes do mesmo provisório.
+      //
+      //   - statusCondition  → filtro de fase (status). Aplicado APÓS o dedup,
+      //                        no SELECT final. Garante que a "fase" reflete
+      //                        a última solicitação real do provisório — não
+      //                        uma anterior que casa com o status escolhido.
+      //
+      // Bug anterior: status entrava no CTE, então a CTE excluía a solicitação
+      // mais recente quando ela não casava com o filtro, e o ROW_NUMBER promovia
+      // a anterior — mostrando o mesmo provisório em DUAS fases distintas. Ex:
+      // "LEONARDO" tinha last=aguardando_rh + anterior=admitido → aparecia em
+      // ambos os filtros.
+      const dedupConditions: string[] = [];
       const params: unknown[] = [];
 
-      if (statusesRaw) {
-        const lista = statusesRaw
-          .split(',')
-          .map((s) => s.trim())
-          .filter((s) => s && STATUS_VALIDOS.includes(s));
-        if (lista.length === 0) {
-          return successResponse({ solicitacoes: [], total: 0, page, limit });
-        }
-        params.push(lista);
-        conditions.push(`s.status = ANY($${params.length}::text[])`);
-      } else if (status) {
-        if (!STATUS_VALIDOS.includes(status)) {
-          return successResponse({ solicitacoes: [], total: 0, page, limit });
-        }
-        params.push(status);
-        conditions.push(`s.status = $${params.length}`);
-      }
-
-      // Usuário provisório só vê as próprias solicitações
+      // Usuário provisório só vê as próprias solicitações (escopo, não filtro).
       if (user.tipo === 'provisorio') {
         params.push(user.userId);
-        conditions.push(`s.usuario_provisorio_id = $${params.length}`);
+        dedupConditions.push(`s.usuario_provisorio_id = $${params.length}`);
       }
 
-      // Busca livre por nome ou CPF do usuario_provisorio (toolbar da aba
-      // Pré-admitidos). Casa em LIKE no nome (case-insensitive) e nos dígitos
-      // do CPF — assim o usuário pode digitar com ou sem máscara.
+      // Busca livre por nome ou CPF — entra no dedup pra alinhar com a UX
+      // (provisório que casa com a busca aparece na sua última solicitação).
       const busca = searchParams.get('busca')?.trim();
       if (busca) {
         const buscaConds: string[] = [];
@@ -100,16 +98,32 @@ export async function GET(request: NextRequest) {
             `REGEXP_REPLACE(COALESCE(up.cpf, ''), '[^0-9]', '', 'g') LIKE $${params.length}`,
           );
         }
-        conditions.push(`(${buscaConds.join(' OR ')})`);
+        dedupConditions.push(`(${buscaConds.join(' OR ')})`);
       }
 
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      // Filtro de status — aplicado DEPOIS do dedup.
+      let statusCondition = '';
+      if (statusesRaw) {
+        const lista = statusesRaw
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s && STATUS_VALIDOS.includes(s));
+        if (lista.length === 0) {
+          return successResponse({ solicitacoes: [], total: 0, page, limit });
+        }
+        params.push(lista);
+        statusCondition = `AND s.status = ANY($${params.length}::text[])`;
+      } else if (status) {
+        if (!STATUS_VALIDOS.includes(status)) {
+          return successResponse({ solicitacoes: [], total: 0, page, limit });
+        }
+        params.push(status);
+        statusCondition = `AND s.status = $${params.length}`;
+      }
 
-      // Dedup por provisório: só a solicitação mais recente por usuario_provisorio_id entra no feed.
-      // Solicitações sem vínculo (legado) não são agrupadas — caem pelo id próprio.
-      // Filtros (status, usuario_provisorio_id para token provisório, busca) aplicam ANTES do
-      // ranking, garantindo que cada provisório aparece na sua última solicitação dentro do filtro.
-      // O JOIN com usuarios_provisorios entra aqui (não só na query final) porque a busca usa up.nome/up.cpf.
+      const dedupWhere =
+        dedupConditions.length > 0 ? `WHERE ${dedupConditions.join(' AND ')}` : '';
+
       const latestFilteredCTE = `
         WITH filtradas AS (
           SELECT s.*,
@@ -119,13 +133,16 @@ export async function GET(request: NextRequest) {
                  ) AS rn
           FROM people.solicitacoes_admissao s
           LEFT JOIN people.usuarios_provisorios up ON up.id = s.usuario_provisorio_id
-          ${where}
+          ${dedupWhere}
         )
       `;
 
       const countResult = await query(
         `${latestFilteredCTE}
-         SELECT COUNT(*) as total FROM filtradas WHERE rn = 1`,
+         SELECT COUNT(*) as total
+           FROM filtradas s
+          WHERE s.rn = 1
+            ${statusCondition}`,
         params
       );
       const total = parseInt(countResult.rows[0].total);
@@ -169,6 +186,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN people.empresas e ON e.id = up.empresa_id
          LEFT JOIN people.clinicas cl ON cl.id = s.clinica_id
          WHERE s.rn = 1
+           ${statusCondition}
          ORDER BY s.criado_em DESC
          LIMIT $${params.length - 1} OFFSET $${params.length}`,
         params
