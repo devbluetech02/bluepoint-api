@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { generateProvisionalToken } from '@/lib/auth';
 import { successResponse, errorResponse, serverErrorResponse } from '@/lib/api-response';
@@ -32,6 +32,22 @@ export async function POST(request: NextRequest) {
     );
 
     if (result.rows.length === 0) {
+      // CPF não está em usuarios_provisorios. Pode já ser colaborador ativo —
+      // nesse caso, instrui mobile a redirecionar para login com email/senha.
+      const colab = await query(
+        `SELECT 1 FROM people.colaboradores WHERE cpf = $1 AND status = 'ativo' LIMIT 1`,
+        [cpfLimpo]
+      );
+      if (colab.rows.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Você já é colaborador ativo. Faça login com email e senha.',
+            code: 'COLABORADOR_ATIVO',
+          },
+          { status: 409 }
+        );
+      }
       return errorResponse('CPF não encontrado', 401);
     }
 
