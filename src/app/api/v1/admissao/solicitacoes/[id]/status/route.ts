@@ -251,6 +251,27 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // documento_assinatura_id) pra back-compat.
       const docsArray = Array.isArray(body.documentos) ? body.documentos : null;
       if (docsArray && docsArray.length > 0) {
+        // Coleta docIds novos primeiro pra DELETE residuais anteriores
+        // dessa solicitacao. Antes acumulava: cada re-envio gerava docIds
+        // novos no SignProof e o ON CONFLICT nunca batia, deixando os
+        // velhos linkados eternamente.
+        const novosDocIds = (docsArray as unknown[])
+          .map((rawDoc): string | null => {
+            if (!rawDoc || typeof rawDoc !== 'object') return null;
+            const doc = rawDoc as Record<string, unknown>;
+            return typeof doc.signproofDocId === 'string' ? doc.signproofDocId.trim() : '';
+          })
+          .filter((v): v is string => v !== null && v !== '');
+
+        if (novosDocIds.length > 0) {
+          await query(
+            `DELETE FROM people.solicitacoes_admissao_documentos
+              WHERE solicitacao_id = $1
+                AND signproof_doc_id <> ALL($2::text[])`,
+            [id, novosDocIds],
+          );
+        }
+
         for (const rawDoc of docsArray) {
           if (!rawDoc || typeof rawDoc !== 'object') continue;
           const doc = rawDoc as Record<string, unknown>;
