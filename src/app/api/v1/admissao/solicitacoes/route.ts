@@ -298,7 +298,15 @@ export async function GET(request: NextRequest) {
         // Multi-doc: lista TODOS documentos vinculados (preferindo a tabela
         // solicitacoes_admissao_documentos que cobre o fluxo de N envelopes).
         // Quando vazia, fallback p/ documento_assinatura_id legado.
-        const linkedDocs = docsBySolicitacao.get(row.id) ?? [];
+        // Filtra residuais: doc sem titulo E sem progresso vivo do
+        // SignProof (signProof retornou 404 -> docStatusMap nao tem). Esses
+        // sao phantoms acumulados antes do dedup no PATCH /status. Frontend
+        // ja filtra mas backend filtrar tambem evita ruido.
+        const linkedDocs = (docsBySolicitacao.get(row.id) ?? []).filter((d) => {
+          const temTitulo = (d.titulo ?? '').trim().length > 0;
+          const temProgresso = docStatusMap.has(d.signproof_doc_id);
+          return temTitulo || temProgresso;
+        });
         const documentos = (linkedDocs.length > 0
           ? linkedDocs.map((d) => ({
               docId:      d.signproof_doc_id,
