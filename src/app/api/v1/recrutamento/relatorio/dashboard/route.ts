@@ -86,6 +86,7 @@ interface LinhaEntrevista {
   data_entrevista: Date;
   duracao_seg: number | null;
   aderencia_ia_pct: string | null;
+  houve_entrevista_ia: boolean | null;
   video_created_at: Date | null;
 }
 
@@ -288,7 +289,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v11:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v12:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -370,7 +371,7 @@ export async function GET(request: NextRequest) {
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
         `SELECT id, recrutador, vaga, telefone, data_entrevista, duracao_seg,
-                aderencia_ia_pct, video_created_at
+                aderencia_ia_pct, houve_entrevista_ia, video_created_at
            FROM public.entrevistas_agendadas
           WHERE ${where}`,
         params,
@@ -992,17 +993,27 @@ export async function GET(request: NextRequest) {
       // 3. Acumuladores por recrutador. "_todos" agrega total geral.
       interface FunilBucket {
         entrevistas: number;
+        naoIniciaram: number;
+        reprovIa: number;
+        entrevistasAvaliadas: number;
         processos: number;
         testesAgendados: number;
         compareceu: number;
+        reprovTeste: number;
+        desistencias: number;
         aprovados: number;
         admitidos: number;
       }
       const novoFunil = (): FunilBucket => ({
         entrevistas: 0,
+        naoIniciaram: 0,
+        reprovIa: 0,
+        entrevistasAvaliadas: 0,
         processos: 0,
         testesAgendados: 0,
         compareceu: 0,
+        reprovTeste: 0,
+        desistencias: 0,
         aprovados: 0,
         admitidos: 0,
       });
@@ -1016,11 +1027,24 @@ export async function GET(request: NextRequest) {
         if (rec && funilAcc.has(rec)) funilAcc.get(rec)![key]++;
       };
 
-      // Estágio 1: entrevistas (já temos linhasTrintaFunil).
+      // Estágio 1: entrevistas + dropoffs IA por entrevista.
       for (const r of linhasTrintaFunil) {
         const k = (r.recrutador ?? '').trim();
         if (!k || !recrutadorAtivo(k)) continue;
         bumpFunil(k, 'entrevistas');
+        // "Não iniciaram": entrevista marcada no Drive sem IA processada
+        // OU sem duracao_seg (vídeo nunca subiu).
+        if (r.houve_entrevista_ia === false || r.duracao_seg == null) {
+          bumpFunil(k, 'naoIniciaram');
+        }
+        // IA avaliou? Conta separadamente o universo de avaliadas.
+        if (r.aderencia_ia_pct != null) {
+          bumpFunil(k, 'entrevistasAvaliadas');
+          const aderencia = Number(r.aderencia_ia_pct);
+          if (Number.isFinite(aderencia) && aderencia < 50) {
+            bumpFunil(k, 'reprovIa');
+          }
+        }
       }
 
       // Estágio 2-6: processos seletivos + testes + admissões.
@@ -1079,18 +1103,29 @@ export async function GET(request: NextRequest) {
             [procIds],
           );
           // Pra evitar double-counting quando processo tem múltiplos dias,
-          // marcamos por processo o estágio mais avançado atingido.
+          // marcamos por processo o estágio mais avançado atingido E o
+          // motivo terminal (reprov/desistencia/no-show).
           interface ProcEstagio {
             agendou: boolean;
             compareceu: boolean;
             aprovado: boolean;
+            reprovado: boolean;
+            desistencia: boolean;
+            naoCompareceu: boolean;
           }
           const procEstagios = new Map<string, ProcEstagio>();
           for (const a of dtFunilRes.rows) {
             const pid = a.processo_seletivo_id;
             let est = procEstagios.get(pid);
             if (!est) {
-              est = { agendou: false, compareceu: false, aprovado: false };
+              est = {
+                agendou: false,
+                compareceu: false,
+                aprovado: false,
+                reprovado: false,
+                desistencia: false,
+                naoCompareceu: false,
+              };
               procEstagios.set(pid, est);
             }
             est.agendou = true;
@@ -1098,21 +1133,52 @@ export async function GET(request: NextRequest) {
               est.compareceu = true;
             }
             if (a.status === 'aprovado') est.aprovado = true;
+            if (a.status === 'reprovado') est.reprovado = true;
+            if (a.status === 'desistencia') est.desistencia = true;
+            if (a.status === 'nao_compareceu') est.naoCompareceu = true;
           }
           for (const [pid, est] of procEstagios.entries()) {
             const rec = procToRec.get(pid) ?? null;
             if (est.agendou) bumpFunil(rec, 'testesAgendados');
             if (est.compareceu) bumpFunil(rec, 'compareceu');
             if (est.aprovado) bumpFunil(rec, 'aprovados');
+            if (est.reprovado) bumpFunil(rec, 'reprovTeste');
+            if (est.desistencia || est.naoCompareceu) {
+              bumpFunil(rec, 'desistencias');
+            }
           }
         }
       } catch (e) {
         console.warn('[funil] busca processos/testes falhou:', e);
       }
 
+      // Stats globais (sempre baseados em "_todos", não muda com dropdown).
+      const todosBucket = funilAcc.get('_todos')!;
+      const vagasDistintas = new Set<string>();
+      for (const r of linhasTrintaFunil) {
+        if (r.vaga && r.vaga.trim().length > 0) {
+          vagasDistintas.add(r.vaga.trim());
+        }
+      }
+      const custoPorContratacaoCents = todosBucket.admitidos > 0
+        ? Math.round(dtAcc.trinta.totalCents / todosBucket.admitidos)
+        : null;
+      const candidatosPorVaga = vagasDistintas.size > 0
+        ? Math.round((todosBucket.entrevistas / vagasDistintas.size) * 10) / 10
+        : null;
+      const pctReprovIa = todosBucket.entrevistasAvaliadas > 0
+        ? Math.round((todosBucket.reprovIa / todosBucket.entrevistasAvaliadas) * 1000) / 10
+        : null;
+
       const funilRecrutamento = {
         recrutadores: recrutadoresAtivosLista.sort(),
         buckets: Object.fromEntries(funilAcc.entries()),
+        stats: {
+          custoPorContratacaoCents,
+          candidatosPorVaga,
+          pctReprovIa,
+          vagasDistintas: vagasDistintas.size,
+        },
       };
 
       const diasTesteOps = {
