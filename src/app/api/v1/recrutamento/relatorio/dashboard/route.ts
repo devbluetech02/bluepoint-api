@@ -1,9 +1,13 @@
 import { NextRequest } from 'next/server';
 import { query, queryRecrutamento } from '@/lib/db';
-import { withGestor } from '@/lib/middleware';
+import { withAuth } from '@/lib/middleware';
+import { isSuperAdmin, resolveNivelFromColaborador, resolveCargoFromColaborador } from '@/lib/auth';
+import { TIPOS_GESTAO } from '@/types';
+import { colaboradorTemPermissao } from '@/lib/permissoes-efetivas';
 import {
   successResponse,
   serverErrorResponse,
+  forbiddenResponse,
 } from '@/lib/api-response';
 import { cacheAside, CACHE_TTL } from '@/lib/cache';
 import {
@@ -251,10 +255,61 @@ function gerarInsights(
 }
 
 export async function GET(request: NextRequest) {
-  return withGestor(request, async (req) => {
+  // Auth custom: gestor (nivel>=2 / TIPOS_GESTAO / superadmin) acessa
+  // tudo sem filtro. Não-gestor com permissão granular
+  // `recrutamento:relatorio:ver_proprio` acessa com filtro forçado ao
+  // nome do próprio colaborador. Sem nenhum dos dois → 403.
+  return withAuth(request, async (req, user) => {
+    let escopoProprio = false;
+    let nomeProprio: string | null = null;
+    if (isSuperAdmin(user)) {
+      // god mode — sem filtro
+    } else {
+      const jwtNivel = typeof user.nivelId === 'number' ? user.nivelId : null;
+      const nivelId =
+        jwtNivel ?? (user.userId > 0 ? await resolveNivelFromColaborador(user.userId) : null);
+      const ehGestor =
+        (nivelId !== null && nivelId >= 2) ||
+        (TIPOS_GESTAO as readonly string[]).includes(user.tipo);
+      if (!ehGestor) {
+        // Tenta permissão granular ver_proprio.
+        const jwtCargo = typeof user.cargoId === 'number' ? user.cargoId : null;
+        const cargoId =
+          jwtCargo ??
+          (user.userId > 0
+            ? (await resolveCargoFromColaborador(user.userId)).cargoId
+            : null);
+        const ok =
+          (cargoId !== null || nivelId !== null) &&
+          (await colaboradorTemPermissao(
+            user.userId,
+            cargoId,
+            nivelId,
+            'recrutamento:relatorio:ver_proprio',
+          ));
+        if (!ok) {
+          return forbiddenResponse('Você não tem permissão para ver relatórios de recrutamento');
+        }
+        // Resolve nome do colaborador pra forçar filtro.
+        const nomeRes = await query<{ nome: string }>(
+          `SELECT nome FROM people.colaboradores WHERE id = $1 LIMIT 1`,
+          [user.userId],
+        );
+        const nome = nomeRes.rows[0]?.nome?.trim();
+        if (!nome) {
+          return forbiddenResponse('Colaborador sem nome cadastrado — não é possível filtrar');
+        }
+        escopoProprio = true;
+        nomeProprio = nome;
+      }
+    }
     try {
       const { searchParams } = new URL(req.url);
-      const recrutadorFiltro = searchParams.get('recrutador')?.trim() || null;
+      // Em escopo próprio, ignora qualquer 'recrutador' enviado pelo
+      // cliente e força o nome do colaborador logado.
+      const recrutadorFiltro = escopoProprio
+        ? nomeProprio
+        : (searchParams.get('recrutador')?.trim() || null);
       const vagaFiltro = searchParams.get('vaga')?.trim() || null;
       const departamentoIdRaw = searchParams.get('departamentoId');
       const departamentoId =
@@ -289,7 +344,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v15:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v16:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -846,21 +901,32 @@ export async function GET(request: NextRequest) {
       // Helper consolida cada período de dias de teste em formato comum:
       // total (cents), count, mediaPorDia (cents/dia útil), anterior + variacaoPct.
       function consolidarDT(
-        atual: { totalCents: number; count: number },
-        anterior: { totalCents: number; count: number },
+        atual: DTBucket,
+        anterior: DTBucket,
         bd: number,
         bdAnt: number,
       ) {
         const mediaPorDia = bd > 0 ? atual.totalCents / bd : 0;
         const mediaAnt = bdAnt > 0 ? anterior.totalCents / bdAnt : 0;
+        // Custo por aprovação no período: total gasto ÷ aprovados.
+        // Null quando ninguém foi aprovado.
+        const custoPorAprovCents = atual.aprovados > 0
+          ? Math.round(atual.totalCents / atual.aprovados)
+          : null;
+        const custoPorAprovAntCents = anterior.aprovados > 0
+          ? Math.round(anterior.totalCents / anterior.aprovados)
+          : null;
         return {
           totalCents: atual.totalCents,
           count: atual.count,
           mediaPorDiaCents: Math.round(mediaPorDia),
+          custoPorAprovacaoCents: custoPorAprovCents,
+          aprovados: atual.aprovados,
           anterior: {
             totalCents: anterior.totalCents,
             count: anterior.count,
             mediaPorDiaCents: Math.round(mediaAnt),
+            custoPorAprovacaoCents: custoPorAprovAntCents,
           },
           variacaoPct: calcVariacaoPct(mediaPorDia, mediaAnt),
         };
