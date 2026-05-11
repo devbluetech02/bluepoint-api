@@ -56,6 +56,15 @@ function isBusinessDay(dt: Date): boolean {
   return !FERIADOS_NACIONAIS.has(iso);
 }
 
+function previousBusinessDay(from: Date): Date {
+  const d = new Date(from);
+  d.setHours(0, 0, 0, 0);
+  do {
+    d.setDate(d.getDate() - 1);
+  } while (!isBusinessDay(d));
+  return d;
+}
+
 function countBusinessDays(startIncl: Date, endIncl: Date): number {
   let n = 0;
   const cur = new Date(startIncl);
@@ -265,7 +274,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v3:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v4:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -352,27 +361,40 @@ export async function GET(request: NextRequest) {
 
       const hojeIni = new Date();
       hojeIni.setHours(0, 0, 0, 0);
-      const ontemIni = new Date(hojeIni.getTime() - 1 * 24 * 60 * 60 * 1000);
+      // Ultimo dia util (anterior a hoje). Comparativo de "hoje" usa
+      // este dia em vez de ontem cronologico — pula fds/feriados.
+      const uduIni = previousBusinessDay(hojeIni);
+      const uduFim = new Date(uduIni.getTime() + 24 * 60 * 60 * 1000);
+      const uduAntIni = previousBusinessDay(uduIni);
+      const uduAntFim = new Date(uduAntIni.getTime() + 24 * 60 * 60 * 1000);
       const seteIni = new Date(hojeIni.getTime() - 7 * 24 * 60 * 60 * 1000);
       const seteAntIni = new Date(hojeIni.getTime() - 14 * 24 * 60 * 60 * 1000);
+      const quinzeIni = new Date(hojeIni.getTime() - 15 * 24 * 60 * 60 * 1000);
+      const quinzeAntIni = new Date(hojeIni.getTime() - 30 * 24 * 60 * 60 * 1000);
 
       // 4. Agrega por recrutador × periodo (3 janelas).
-      // No nivel equipe agrega tambem janelas anteriores (ontem / 7d ant /
-      // 30d ant) pra calcular variacao percentual nos KPIs do topo.
+      // No nivel equipe agrega 5 janelas atuais (hoje / ultimo dia util /
+      // 7d / 15d / 30d) + suas janelas anteriores pra variacao percentual.
       type ChavePer = 'hoje' | 'sete' | 'trinta';
       type ChavePerEquipe =
         | 'hoje'
-        | 'ontem'
+        | 'udu'
+        | 'uduAnt'
         | 'sete'
         | 'seteAnt'
+        | 'quinze'
+        | 'quinzeAnt'
         | 'trinta'
         | 'trintaAnt';
       const accs = new Map<string, Record<ChavePer, AccPeriodo>>();
       const accsEquipe: Record<ChavePerEquipe, AccPeriodo> = {
         hoje: novoAcc(),
-        ontem: novoAcc(),
+        udu: novoAcc(),
+        uduAnt: novoAcc(),
         sete: novoAcc(),
         seteAnt: novoAcc(),
+        quinze: novoAcc(),
+        quinzeAnt: novoAcc(),
         trinta: novoAcc(),
         trintaAnt: novoAcc(),
       };
@@ -424,13 +446,16 @@ export async function GET(request: NextRequest) {
         if (inSete) aplicarAcc(bucket.sete);
         if (inHoje) aplicarAcc(bucket.hoje);
 
-        // Equipe: janelas atuais + anteriores pra variacao percentual.
+        // Equipe: 5 janelas atuais + suas anteriores pra variacao percentual.
         if (inTrinta) aplicarAcc(accsEquipe.trinta);
         else aplicarAcc(accsEquipe.trintaAnt);
+        if (dt >= quinzeIni) aplicarAcc(accsEquipe.quinze);
+        else if (dt >= quinzeAntIni) aplicarAcc(accsEquipe.quinzeAnt);
         if (inSete) aplicarAcc(accsEquipe.sete);
         else if (dt >= seteAntIni) aplicarAcc(accsEquipe.seteAnt);
+        if (dt >= uduIni && dt < uduFim) aplicarAcc(accsEquipe.udu);
+        else if (dt >= uduAntIni && dt < uduAntFim) aplicarAcc(accsEquipe.uduAnt);
         if (inHoje) aplicarAcc(accsEquipe.hoje);
-        else if (dt >= ontemIni) aplicarAcc(accsEquipe.ontem);
 
         // Serie diaria 30d: pula registros mais antigos
         if (!inTrinta) continue;
@@ -447,20 +472,28 @@ export async function GET(request: NextRequest) {
       }
 
       // Dias úteis em cada janela — denominador do mediaPorDia.
-      // hoje/ontem = 0 ou 1; demais somam seg-sex sem feriados.
+      // hoje/udu/uduAnt = sempre 1 (udu/uduAnt sao dias uteis por definicao;
+      // hoje pode ser 0 se for fds/feriado).
       const bdHoje = isBusinessDay(hojeIni) ? 1 : 0;
-      const bdOntem = isBusinessDay(ontemIni) ? 1 : 0;
+      const bdUdu = 1;
+      const bdUduAnt = 1;
       const bdSete = countBusinessDays(seteIni, hojeIni);
       const seteAntFim = new Date(seteIni.getTime() - 24 * 60 * 60 * 1000);
       const bdSeteAnt = countBusinessDays(seteAntIni, seteAntFim);
+      const bdQuinze = countBusinessDays(quinzeIni, hojeIni);
+      const quinzeAntFim = new Date(quinzeIni.getTime() - 24 * 60 * 60 * 1000);
+      const bdQuinzeAnt = countBusinessDays(quinzeAntIni, quinzeAntFim);
       const bdTrinta = countBusinessDays(trintaInicio, hojeIni);
       const trintaAntFim = new Date(trintaInicio.getTime() - 24 * 60 * 60 * 1000);
       const bdTrintaAnt = countBusinessDays(sessenta, trintaAntFim);
 
       const equipeHoje = consolidar(accsEquipe.hoje, duracaoMinSeg, bdHoje);
-      const equipeOntem = consolidar(accsEquipe.ontem, duracaoMinSeg, bdOntem);
+      const equipeUdu = consolidar(accsEquipe.udu, duracaoMinSeg, bdUdu);
+      const equipeUduAnt = consolidar(accsEquipe.uduAnt, duracaoMinSeg, bdUduAnt);
       const equipeSete = consolidar(accsEquipe.sete, duracaoMinSeg, bdSete);
       const equipeSeteAnt = consolidar(accsEquipe.seteAnt, duracaoMinSeg, bdSeteAnt);
+      const equipeQuinze = consolidar(accsEquipe.quinze, duracaoMinSeg, bdQuinze);
+      const equipeQuinzeAnt = consolidar(accsEquipe.quinzeAnt, duracaoMinSeg, bdQuinzeAnt);
       const equipeTrinta = consolidar(accsEquipe.trinta, duracaoMinSeg, bdTrinta);
       const equipeTrintaAnt = consolidar(accsEquipe.trintaAnt, duracaoMinSeg, bdTrintaAnt);
 
@@ -471,14 +504,25 @@ export async function GET(request: NextRequest) {
         return Math.round(((atual - anterior) / anterior) * 1000) / 10;
       };
 
+      // Compara hoje contra UDU (ultimo dia util) — pula fds/feriados.
       const equipe = {
         hoje: {
           ...equipeHoje,
           anterior: {
-            total: equipeOntem.total,
-            mediaPorDia: equipeOntem.mediaPorDia,
+            total: equipeUdu.total,
+            mediaPorDia: equipeUdu.mediaPorDia,
           },
-          variacaoPct: calcVariacaoPct(equipeHoje.mediaPorDia, equipeOntem.mediaPorDia),
+          variacaoPct: calcVariacaoPct(equipeHoje.total, equipeUdu.total),
+        },
+        ultimoDiaUtil: {
+          ...equipeUdu,
+          dataReferencia: uduIni.toISOString().slice(0, 10),
+          anterior: {
+            total: equipeUduAnt.total,
+            mediaPorDia: equipeUduAnt.mediaPorDia,
+            dataReferencia: uduAntIni.toISOString().slice(0, 10),
+          },
+          variacaoPct: calcVariacaoPct(equipeUdu.total, equipeUduAnt.total),
         },
         sete: {
           ...equipeSete,
@@ -487,6 +531,14 @@ export async function GET(request: NextRequest) {
             mediaPorDia: equipeSeteAnt.mediaPorDia,
           },
           variacaoPct: calcVariacaoPct(equipeSete.mediaPorDia, equipeSeteAnt.mediaPorDia),
+        },
+        quinze: {
+          ...equipeQuinze,
+          anterior: {
+            total: equipeQuinzeAnt.total,
+            mediaPorDia: equipeQuinzeAnt.mediaPorDia,
+          },
+          variacaoPct: calcVariacaoPct(equipeQuinze.mediaPorDia, equipeQuinzeAnt.mediaPorDia),
         },
         trinta: {
           ...equipeTrinta,
@@ -649,12 +701,17 @@ export async function GET(request: NextRequest) {
           duracaoAlvoSeg,
           diasUteis: {
             hoje: bdHoje,
-            ontem: bdOntem,
+            udu: bdUdu,
+            uduAnt: bdUduAnt,
             sete: bdSete,
             seteAnt: bdSeteAnt,
+            quinze: bdQuinze,
+            quinzeAnt: bdQuinzeAnt,
             trinta: bdTrinta,
             trintaAnt: bdTrintaAnt,
           },
+          ultimoDiaUtil: uduIni.toISOString().slice(0, 10),
+          ultimoDiaUtilAnterior: uduAntIni.toISOString().slice(0, 10),
         },
         equipe,
         recrutadores,
