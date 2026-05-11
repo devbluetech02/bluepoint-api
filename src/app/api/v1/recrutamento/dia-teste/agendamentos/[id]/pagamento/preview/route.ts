@@ -347,13 +347,35 @@ export async function POST(
       );
       const pagamentoId = insRes.rows[0].id;
 
-      // 5. Chama API Sicoob iniciar.
+      // 5. Detecta repetição: Sicoob bloqueia /iniciar quando ja existe
+      // pagamento recente pra mesma chave+valor+cnpj sem a flag
+      // ("lancamento com mesmo valor e destino foi encontrado"). Caso real:
+      // candidato com 2 dias de teste e mesmo valor pagos no mesmo dia.
+      // Mesma logica usada no /confirmar — espelhada aqui pro iniciar nao
+      // falhar antes da gente conseguir confirmar.
       const cnpjPagadorDigits = PIX_CNPJ_DEFAULT;
+      const repIniRes = await query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+           FROM people.pagamento_pix
+          WHERE agendamento_id <> $1::bigint
+            AND status = 'sucesso'
+            AND chave_pix = $2
+            AND valor = $3::numeric
+            AND COALESCE(cnpj_pagador, '') = COALESCE($4, '')`,
+        [id, chavePix, valor.toString(), cnpjPagadorDigits],
+      );
+      const repeticaoIni = (parseInt(repIniRes.rows[0].count, 10) || 0) > 0;
+      console.log(
+        `[pagamento/preview] repeticao=${repeticaoIni} chave=${chavePix} valor=${valor} agendamento=${id}`
+      );
+
+      // 6. Chama API Sicoob iniciar.
       const r = await iniciarPagamentoPix({
         chave: chavePix,
         tipoChave: tipoChaveDet, // garante normalizacao (+55, lowercase, etc)
         cnpj: cnpjPagadorDigits,
         idempotencyKey,
+        repeticao: repeticaoIni,
       });
       console.log(
         `[pagamento/preview] iniciar agendamento=${id} pagamento=${pagamentoId} chave=${chavePix} tipo=${tipoChaveDet} ok=${r.ok}` +

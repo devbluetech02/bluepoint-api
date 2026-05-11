@@ -19,6 +19,13 @@ export interface IniciarPagamentoArgs {
   cnpj?: string;
   dataAgendamento?: string; // YYYY-MM-DD; vazio = imediato
   idempotencyKey: string;
+  /**
+   * Sicoob bloqueia o /iniciar quando ja existe pagamento recente pra mesma
+   * chave+valor sem essa flag ("lancamento com mesmo valor e destino foi
+   * encontrado"). Setar true autoriza a repeticao explicitamente. Mesma
+   * semantica do campo em /confirmar.
+   */
+  repeticao?: boolean;
 }
 
 export interface ProprietarioBeneficiario {
@@ -318,6 +325,8 @@ export async function iniciarPagamentoPix(
   const body: Record<string, unknown> = { chave };
   if (args.cnpj) body.cnpj = args.cnpj;
   if (args.dataAgendamento) body.dataAgendamento = args.dataAgendamento;
+  // Só envia repeticao quando true (mantem body limpo pros casos normais).
+  if (args.repeticao === true) body.repeticao = true;
   return postJson<PagamentoIniciado>(
     '/pix-pagamentos/v2/iniciar',
     body,
@@ -355,6 +364,10 @@ export function traduzirErroPix(erroBruto: string): string {
   }
   if (e.includes('idempotency') || e.includes('idempotência')) {
     return 'Chave de idempotência conflitante. Tenta de novo em alguns segundos.';
+  }
+  if ((e.includes('mesmo valor') && e.includes('destino')) ||
+      e.includes('lançamento com mesmo') || e.includes('lancamento com mesmo')) {
+    return 'Sicoob detectou pagamento recente pra mesma chave+valor. Aguarda alguns minutos e tenta de novo — se persistir, reporta ao financeiro.';
   }
   if (e.startsWith('http_5') || e.includes('timeout') || e.includes('econnreset')) {
     return 'Sicoob fora do ar ou indisponível. Tenta de novo em alguns minutos.';
