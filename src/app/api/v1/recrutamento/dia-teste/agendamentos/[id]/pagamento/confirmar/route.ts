@@ -88,15 +88,17 @@ export async function POST(
       // antes? Sicoob exige flag `repeticao: true` na confirmação dessa
       // segunda+ tentativa pra mesmo destino/valor; sem isso responde
       // EM_PROCESSAMENTO inicialmente e marca NAO_REALIZADO/REJEITADO no GET.
+      // Sem filtro por cnpj_pagador — INSERT grava CNPJ da empresa do
+      // candidato, mas o débito sai do PIX_CNPJ_DEFAULT. Filtrar dava
+      // false-negative na detecção de repetição.
       const repRes = await query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
            FROM people.pagamento_pix
           WHERE id <> $1::bigint
             AND status = 'sucesso'
             AND chave_pix = $2
-            AND valor = $3::numeric
-            AND COALESCE(cnpj_pagador, '') = COALESCE($4, '')`,
-        [pag.id, pag.chave_pix, pag.valor, PIX_CNPJ_DEFAULT],
+            AND valor = $3::numeric`,
+        [pag.id, pag.chave_pix, pag.valor],
       );
       const repeticao = (parseInt(repRes.rows[0].count, 10) || 0) > 0;
       console.log(

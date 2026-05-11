@@ -354,15 +354,19 @@ export async function POST(
       // Mesma logica usada no /confirmar — espelhada aqui pro iniciar nao
       // falhar antes da gente conseguir confirmar.
       const cnpjPagadorDigits = PIX_CNPJ_DEFAULT;
+      // Não filtra por cnpj_pagador: o INSERT do preview grava o CNPJ da
+      // empresa do candidato em `cnpj_pagador`, mas o débito real sempre
+      // sai do PIX_CNPJ_DEFAULT (Ethos). Comparar contra Ethos aqui dava
+      // false-negative — repeticao virava false mesmo com pagamento prévio
+      // de sucesso na mesma chave+valor.
       const repIniRes = await query<{ count: string }>(
         `SELECT COUNT(*)::text AS count
            FROM people.pagamento_pix
           WHERE agendamento_id <> $1::bigint
             AND status = 'sucesso'
             AND chave_pix = $2
-            AND valor = $3::numeric
-            AND COALESCE(cnpj_pagador, '') = COALESCE($4, '')`,
-        [id, chavePix, valor.toString(), cnpjPagadorDigits],
+            AND valor = $3::numeric`,
+        [id, chavePix, valor.toString()],
       );
       const repeticaoIni = (parseInt(repIniRes.rows[0].count, 10) || 0) > 0;
       console.log(
