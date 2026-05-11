@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v14:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v15:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -1017,32 +1017,57 @@ export async function GET(request: NextRequest) {
         aprovados: 0,
         admitidos: 0,
       });
-      const funilAcc = new Map<string, FunilBucket>();
-      funilAcc.set('_todos', novoFunil());
-      for (const r of recrutadoresAtivosLista) {
-        funilAcc.set(r, novoFunil());
+      // 3 janelas independentes (sete / quinze / trinta) com mesmo
+      // formato — frontend filtra qual usar via dropdown.
+      type JanelaFunil = 'sete' | 'quinze' | 'trinta';
+      const accJanelas: Record<JanelaFunil, Map<string, FunilBucket>> = {
+        sete: new Map(),
+        quinze: new Map(),
+        trinta: new Map(),
+      };
+      for (const j of ['sete', 'quinze', 'trinta'] as JanelaFunil[]) {
+        accJanelas[j].set('_todos', novoFunil());
+        for (const r of recrutadoresAtivosLista) {
+          accJanelas[j].set(r, novoFunil());
+        }
       }
-      const bumpFunil = (rec: string | null, key: keyof FunilBucket) => {
-        funilAcc.get('_todos')![key]++;
-        if (rec && funilAcc.has(rec)) funilAcc.get(rec)![key]++;
+      const janelasParaData = (dt: Date): JanelaFunil[] => {
+        const out: JanelaFunil[] = [];
+        if (dt >= trintaInicio) out.push('trinta');
+        if (dt >= quinzeIni) out.push('quinze');
+        if (dt >= seteIni) out.push('sete');
+        return out;
+      };
+      const bumpFunil = (
+        janelas: JanelaFunil[],
+        rec: string | null,
+        key: keyof FunilBucket,
+      ) => {
+        for (const j of janelas) {
+          const acc = accJanelas[j];
+          acc.get('_todos')![key]++;
+          if (rec && acc.has(rec)) acc.get(rec)![key]++;
+        }
       };
 
       // Estágio 1: entrevistas + dropoffs IA por entrevista.
       for (const r of linhasTrintaFunil) {
         const k = (r.recrutador ?? '').trim();
         if (!k || !recrutadorAtivo(k)) continue;
-        bumpFunil(k, 'entrevistas');
+        const dt = new Date(r.data_entrevista);
+        const jans = janelasParaData(dt);
+        bumpFunil(jans, k, 'entrevistas');
         // "Não iniciaram": entrevista marcada no Drive sem IA processada
         // OU sem duracao_seg (vídeo nunca subiu).
         if (r.houve_entrevista_ia === false || r.duracao_seg == null) {
-          bumpFunil(k, 'naoIniciaram');
+          bumpFunil(jans, k, 'naoIniciaram');
         }
         // IA avaliou? Conta separadamente o universo de avaliadas.
         if (r.aderencia_ia_pct != null) {
-          bumpFunil(k, 'entrevistasAvaliadas');
+          bumpFunil(jans, k, 'entrevistasAvaliadas');
           const aderencia = Number(r.aderencia_ia_pct);
           if (Number.isFinite(aderencia) && aderencia < 50) {
-            bumpFunil(k, 'reprovIa');
+            bumpFunil(jans, k, 'reprovIa');
           }
         }
       }
@@ -1077,23 +1102,25 @@ export async function GET(request: NextRequest) {
           [trintaInicio.toISOString()],
         );
 
-        // Map<processo_id, recrutador_atribuido> — usa primeiro recrutador
-        // se candidato passou por entrevistas com múltiplos.
-        const procToRec = new Map<string, string | null>();
+        // Map<processo_id, { rec, janelas }> — usa primeiro recrutador se
+        // candidato passou por entrevistas com múltiplos; janelas inferidas
+        // pela data de criação do processo (mesmo critério das entrevistas).
+        const procToInfo = new Map<
+          string,
+          { rec: string | null; janelas: JanelaFunil[] }
+        >();
         for (const p of procRes.rows) {
-          if (!p.candidato_recrutamento_id) {
-            procToRec.set(p.id, null);
-            continue;
-          }
-          const recs = candIdToRec.get(p.candidato_recrutamento_id);
-          const rec = recs && recs.length > 0 ? recs[0] : null;
-          procToRec.set(p.id, rec);
-          bumpFunil(rec, 'processos');
+          const jans = janelasParaData(new Date(p.criado_em));
+          const rec = p.candidato_recrutamento_id
+            ? (candIdToRec.get(p.candidato_recrutamento_id)?.[0] ?? null)
+            : null;
+          procToInfo.set(p.id, { rec, janelas: jans });
+          bumpFunil(jans, rec, 'processos');
           // Admitido = solicitação de admissão associada (via cpf) com
           // status='admitido'. processo_seletivo não tem status 'admitido'
           // próprio — fluxo passa por solicitacoes_admissao + usuarios_provisorios.
           if (p.foi_admitido) {
-            bumpFunil(rec, 'admitidos');
+            bumpFunil(jans, rec, 'admitidos');
           }
         }
 
@@ -1101,7 +1128,7 @@ export async function GET(request: NextRequest) {
         // Agendado = "testesAgendados". Compareceu/aprovado/reprovado =
         // "compareceu" (presença confirmada). Apenas aprovado conta
         // também em "aprovados".
-        const procIds = Array.from(procToRec.keys());
+        const procIds = Array.from(procToInfo.keys());
         if (procIds.length > 0) {
           const dtFunilRes = await query<{
             processo_seletivo_id: string;
@@ -1149,13 +1176,15 @@ export async function GET(request: NextRequest) {
             if (a.status === 'nao_compareceu') est.naoCompareceu = true;
           }
           for (const [pid, est] of procEstagios.entries()) {
-            const rec = procToRec.get(pid) ?? null;
-            if (est.agendou) bumpFunil(rec, 'testesAgendados');
-            if (est.compareceu) bumpFunil(rec, 'compareceu');
-            if (est.aprovado) bumpFunil(rec, 'aprovados');
-            if (est.reprovado) bumpFunil(rec, 'reprovTeste');
+            const info = procToInfo.get(pid);
+            if (!info) continue;
+            const { rec, janelas } = info;
+            if (est.agendou) bumpFunil(janelas, rec, 'testesAgendados');
+            if (est.compareceu) bumpFunil(janelas, rec, 'compareceu');
+            if (est.aprovado) bumpFunil(janelas, rec, 'aprovados');
+            if (est.reprovado) bumpFunil(janelas, rec, 'reprovTeste');
             if (est.desistencia || est.naoCompareceu) {
-              bumpFunil(rec, 'desistencias');
+              bumpFunil(janelas, rec, 'desistencias');
             }
           }
         }
@@ -1226,33 +1255,50 @@ export async function GET(request: NextRequest) {
         proximos30: montaProjecao(30),
       };
 
-      // Stats globais (sempre baseados em "_todos", não muda com dropdown).
-      const todosBucket = funilAcc.get('_todos')!;
-      const vagasDistintas = new Set<string>();
-      for (const r of linhasTrintaFunil) {
-        if (r.vaga && r.vaga.trim().length > 0) {
-          vagasDistintas.add(r.vaga.trim());
+      // Stats globais por janela (cada uma usa seu próprio "_todos" e
+      // seu próprio universo de vagas/gasto).
+      function statsParaJanela(
+        j: JanelaFunil,
+        janelaIni: Date,
+        gastoCentsJanela: number,
+      ) {
+        const todosBucket = accJanelas[j].get('_todos')!;
+        const vagasJ = new Set<string>();
+        for (const r of linhasTrintaFunil) {
+          const dt = new Date(r.data_entrevista);
+          if (dt < janelaIni) continue;
+          if (r.vaga && r.vaga.trim().length > 0) vagasJ.add(r.vaga.trim());
         }
+        return {
+          custoPorContratacaoCents: todosBucket.admitidos > 0
+            ? Math.round(gastoCentsJanela / todosBucket.admitidos)
+            : null,
+          candidatosPorVaga: vagasJ.size > 0
+            ? Math.round((todosBucket.entrevistas / vagasJ.size) * 10) / 10
+            : null,
+          pctReprovIa: todosBucket.entrevistasAvaliadas > 0
+            ? Math.round((todosBucket.reprovIa / todosBucket.entrevistasAvaliadas) * 1000) / 10
+            : null,
+          vagasDistintas: vagasJ.size,
+        };
       }
-      const custoPorContratacaoCents = todosBucket.admitidos > 0
-        ? Math.round(dtAcc.trinta.totalCents / todosBucket.admitidos)
-        : null;
-      const candidatosPorVaga = vagasDistintas.size > 0
-        ? Math.round((todosBucket.entrevistas / vagasDistintas.size) * 10) / 10
-        : null;
-      const pctReprovIa = todosBucket.entrevistasAvaliadas > 0
-        ? Math.round((todosBucket.reprovIa / todosBucket.entrevistasAvaliadas) * 1000) / 10
-        : null;
+
+      function buildJanela(
+        j: JanelaFunil,
+        janelaIni: Date,
+        gastoCentsJanela: number,
+      ) {
+        return {
+          recrutadores: recrutadoresAtivosLista.sort(),
+          buckets: Object.fromEntries(accJanelas[j].entries()),
+          stats: statsParaJanela(j, janelaIni, gastoCentsJanela),
+        };
+      }
 
       const funilRecrutamento = {
-        recrutadores: recrutadoresAtivosLista.sort(),
-        buckets: Object.fromEntries(funilAcc.entries()),
-        stats: {
-          custoPorContratacaoCents,
-          candidatosPorVaga,
-          pctReprovIa,
-          vagasDistintas: vagasDistintas.size,
-        },
+        sete: buildJanela('sete', seteIni, dtAcc.sete.totalCents),
+        quinze: buildJanela('quinze', quinzeIni, dtAcc.quinze.totalCents),
+        trinta: buildJanela('trinta', trintaInicio, dtAcc.trinta.totalCents),
       };
 
       const diasTesteOps = {
