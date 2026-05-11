@@ -16,7 +16,14 @@ export async function GET(request: NextRequest) {
       const dataInicio = searchParams.get('dataInicio');
       const dataFim = searchParams.get('dataFim');
       const tipo = searchParams.get('tipo');
-      const departamentoId = searchParams.get('filtro[departamentoId]');
+      // Aceita ambas as chaves: legada `filtro[departamentoId]` (qs encoded)
+      // e direta `departamentoId` (Flutter manda assim hoje). Bug histórico:
+      // backend só lia a legada e o filtro silenciosamente sumia.
+      const departamentoId =
+        searchParams.get('departamentoId') ??
+        searchParams.get('filtro[departamentoId]');
+      const empresaId = searchParams.get('empresaId');
+      const metodo = searchParams.get('metodo');
       const busca = searchParams.get('busca')?.trim() || null;
 
       // Resolver escopo do caller — colaborador comum só vê o próprio;
@@ -50,7 +57,7 @@ export async function GET(request: NextRequest) {
         : (colaboradorIdNum != null ? `c${colaboradorIdNum}` : `u${user.userId}`);
 
       const cacheKey = buildListCacheKey(CACHE_KEYS.MARCACOES, {
-        pagina, limite, colaboradorId: colaboradorIdParam, dataInicio, dataFim, tipo, departamentoId, busca, scope: cacheScope,
+        pagina, limite, colaboradorId: colaboradorIdParam, dataInicio, dataFim, tipo, departamentoId, empresaId, metodo, busca, scope: cacheScope,
       });
 
       const resultado = await cacheAside(cacheKey, async () => {
@@ -91,6 +98,21 @@ export async function GET(request: NextRequest) {
         if (departamentoId) {
           conditions.push(`c.departamento_id = $${paramIndex}`);
           params.push(parseInt(departamentoId));
+          paramIndex++;
+        }
+
+        if (empresaId) {
+          const eid = parseInt(empresaId, 10);
+          if (!Number.isNaN(eid)) {
+            conditions.push(`m.empresa_id = $${paramIndex}`);
+            params.push(eid);
+            paramIndex++;
+          }
+        }
+
+        if (metodo) {
+          conditions.push(`m.metodo = $${paramIndex}`);
+          params.push(metodo);
           paramIndex++;
         }
 
