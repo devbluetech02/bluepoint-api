@@ -287,7 +287,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v9:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v10:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -415,10 +415,6 @@ export async function GET(request: NextRequest) {
         trintaAnt: novoAcc(),
       };
 
-      // Pra serie diaria 30d (visao geral)
-      const serieMap = new Map<string, { total: number; somaDur: number; comDur: number }>();
-
-
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
         // Filtro 1: ignora entrevistas de recrutadores sem usuario ativo
@@ -473,19 +469,6 @@ export async function GET(request: NextRequest) {
         if (dt >= uduIni && dt < uduFim) aplicarAcc(accsEquipe.udu);
         else if (dt >= uduAntIni && dt < uduAntFim) aplicarAcc(accsEquipe.uduAnt);
         if (inHoje) aplicarAcc(accsEquipe.hoje);
-
-        // Serie diaria 30d: pula registros mais antigos
-        if (!inTrinta) continue;
-        let s = serieMap.get(dia);
-        if (!s) {
-          s = { total: 0, somaDur: 0, comDur: 0 };
-          serieMap.set(dia, s);
-        }
-        s.total++;
-        if (r.duracao_seg != null) {
-          s.somaDur += r.duracao_seg;
-          s.comDur++;
-        }
       }
 
       // Dias úteis em cada janela — denominador do mediaPorDia.
@@ -732,50 +715,8 @@ export async function GET(request: NextRequest) {
       const recrutadores = await Promise.all(recrutadoresPromises);
       recrutadores.sort((a, b) => b.nota - a.nota);
 
-      // 6. Serie diaria 30d (só dias úteis — fds/feriados são omitidos
-      // do eixo X pra evitar gaps de zero que distorcem visualmente).
-      const serieDiaria30d: { data: string; total: number; mediaDuracaoSeg: number }[] = [];
-      const cur = new Date(trintaInicio);
-      const fim = new Date();
-      fim.setHours(0, 0, 0, 0);
-      while (cur <= fim) {
-        if (isBusinessDay(cur)) {
-          const k = cur.toISOString().slice(0, 10);
-          const s = serieMap.get(k);
-          serieDiaria30d.push({
-            data: k,
-            total: s?.total ?? 0,
-            mediaDuracaoSeg: s && s.comDur > 0 ? Math.round(s.somaDur / s.comDur) : 0,
-          });
-        }
-        cur.setDate(cur.getDate() + 1);
-      }
-
-      // 7. Distribuicao por bucket de duracao (30d, apenas dias úteis).
-      const linhasTrinta = linhas.rows.filter((r) => {
-        const dt = new Date(r.data_entrevista);
-        return dt >= trintaInicio && isBusinessDay(dt);
-      });
-      const buckets = [
-        { label: '< 5min', min: 0, max: 5 * 60 },
-        { label: '5–10', min: 5 * 60, max: 10 * 60 },
-        { label: '10–15', min: 10 * 60, max: 15 * 60 },
-        { label: '15–30', min: 15 * 60, max: 30 * 60 },
-        { label: '30+', min: 30 * 60, max: Number.POSITIVE_INFINITY },
-      ];
-      const distribuicao = buckets.map((b) => {
-        const qty = linhasTrinta.filter(
-          (r) =>
-            r.duracao_seg != null &&
-            r.duracao_seg >= b.min &&
-            r.duracao_seg < b.max,
-        ).length;
-        return { label: b.label, total: qty };
-      });
-      const semDuracao = linhasTrinta.filter((r) => r.duracao_seg == null).length;
-
       // ───────────────────────────────────────────────────────────────
-      // 7b. KPIs de Dias de Teste — gasto por período
+      // 6. KPIs de Dias de Teste — gasto por período
       // ───────────────────────────────────────────────────────────────
       // Query agendamentos com data >= 60d atras (mesma janela das
       // entrevistas), JOIN com processo pra filtrar vaga/dept, soma de
@@ -1052,14 +993,6 @@ export async function GET(request: NextRequest) {
         },
         equipe,
         recrutadores,
-        serieDiaria30d,
-        distribuicaoDuracao: {
-          buckets: distribuicao,
-          semDuracaoRegistrada: semDuracao,
-        },
-        // Contagem de entrevistas por vaga × periodo. Ordenado por
-        // total de 30d desc. Frontend renderiza grafico de barras
-        // agrupadas (4 barras por vaga: UDU, hoje, 7d, 30d).
         diasTeste,
         diasTesteOps,
         opcoes: {
