@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query, queryRecrutamento } from '@/lib/db';
+import { query } from '@/lib/db';
 import { errorResponse, notFoundResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
 import { registrarOcorrenciaReadmissao } from '@/lib/ocorrencias-externas';
 import { mapCamposParaApi } from '@/lib/formulario-admissao';
@@ -740,92 +740,11 @@ async function notificarAssinaturaContrato(
     subscriptionId,
   );
 
-  // WhatsApp pela instancia PEOPLE (DP) — best-effort. Telefone vem do
-  // candidato no banco de Recrutamento (cross-DB), via processo_seletivo
-  // ligado a esta solicitacao.
-  try {
-    const procRes = await query<{
-      candidato_recrutamento_id: number | null;
-      data_admissao: string | null;
-    }>(
-      `SELECT ps.candidato_recrutamento_id,
-              s.data_admissao
-         FROM people.processo_seletivo ps
-         JOIN people.solicitacoes_admissao s ON s.id = ps.solicitacao_admissao_id
-        WHERE ps.solicitacao_admissao_id = $1::uuid
-        LIMIT 1`,
-      [solicitacaoId],
-    );
-    const candRecrutId = procRes.rows[0]?.candidato_recrutamento_id ?? null;
-    const dataAdmissaoIso = procRes.rows[0]?.data_admissao ?? null;
-    if (candRecrutId == null) {
-      console.warn(`[assinatura_solicitada] Sem candidato_recrutamento_id pra solicitacao ${solicitacaoId} — skip WhatsApp`);
-    } else {
-      const telRes = await queryRecrutamento<{ telefone: string | null }>(
-        `SELECT telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
-        [candRecrutId],
-      );
-      const tel = (telRes.rows[0]?.telefone ?? '').replace(/\D/g, '');
-      if (tel.length < 10) {
-        console.warn(`[assinatura_solicitada] Telefone invalido/ausente pra candidato ${candRecrutId} — skip WhatsApp`);
-      } else {
-        // Formata data_admissao como dd/mm/yyyy (PT-BR). DIAS_SEMANA por
-        // extenso ajuda candidato a se planejar.
-        let dataAdmissaoFmt: string | null = null;
-        if (dataAdmissaoIso) {
-          const m = dataAdmissaoIso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (m) {
-            const [, y, mm, dd] = m;
-            const dt = new Date(Date.UTC(Number(y), Number(mm) - 1, Number(dd)));
-            const diasSemana = [
-              'domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
-              'quinta-feira', 'sexta-feira', 'sábado',
-            ];
-            dataAdmissaoFmt = `${diasSemana[dt.getUTCDay()]}, ${dd}/${mm}/${y}`;
-          }
-        }
-
-        const primeiroNome = (nomeCandidato.split(' ')[0] || nomeCandidato).trim();
-        const linksValidos = docLinks.filter((l) => !!l.signingUrl);
-        const totalDocs = docLinks.length;
-        const cabecalho = totalDocs > 1
-          ? `Seus *${totalDocs} documentos de admissão* estão prontos pra assinatura.`
-          : `Seu *contrato de admissão* está pronto pra assinatura.`;
-        const linhas: string[] = [
-          `Olá, ${primeiroNome}! 👋`,
-          ``,
-          cabecalho,
-        ];
-        if (dataAdmissaoFmt) {
-          linhas.push(
-            ``,
-            `📅 *Primeiro dia de trabalho:* ${dataAdmissaoFmt}`,
-          );
-        }
-        if (linksValidos.length > 0) {
-          if (linksValidos.length === 1) {
-            linhas.push(``, `📋 *Assinar contrato:*`, linksValidos[0].signingUrl!);
-          } else {
-            linhas.push(``, `📋 *Links para assinatura:*`);
-            linksValidos.forEach((l, i) => {
-              const numero = i + 1;
-              linhas.push(``, `${numero}. *${l.titulo}*`, l.signingUrl!);
-            });
-          }
-        } else {
-          linhas.push(``, `Acesse o app *People* → "Pré-admissão" pra abrir os contratos.`);
-        }
-        linhas.push(``, `Qualquer dúvida, estamos à disposição.`);
-        // sem config = instancia PEOPLE (default).
-        const r = await enviarMensagemWhatsApp(tel, linhas.join('\n'));
-        if (!r.ok) {
-          console.warn(`[assinatura_solicitada] WhatsApp PEOPLE falhou: ${r.erro}`);
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[assinatura_solicitada] erro ao mandar WhatsApp PEOPLE:', e);
-  }
+  // NOTA: o envio do WhatsApp ao candidato com os links de assinatura é
+  // feito pelo frontend (admissao_pre_admitidos_tab.dart) durante o fluxo
+  // de envio do contrato — DP edita/revisa a mensagem antes de mandar. O
+  // backend NÃO envia WhatsApp aqui pra evitar duplicação (candidato
+  // receberia 2 mensagens). Push do app continua disparando acima.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

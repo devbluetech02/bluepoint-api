@@ -24,6 +24,51 @@ import {
 //                             entrevista WHERE vaga = ANY(vagas_dept))
 //  - duracaoMinSeg (int)      override do parametro global
 
+// Feriados nacionais brasileiros (UTC ISO yyyy-mm-dd). Cobre 2024-2028.
+// Inclui dias movidos pela Páscoa (carnaval seg+ter, sexta santa, corpus).
+const FERIADOS_NACIONAIS = new Set<string>([
+  // 2024
+  '2024-01-01','2024-02-12','2024-02-13','2024-03-29','2024-04-21',
+  '2024-05-01','2024-05-30','2024-09-07','2024-10-12','2024-11-02',
+  '2024-11-15','2024-11-20','2024-12-25',
+  // 2025
+  '2025-01-01','2025-03-03','2025-03-04','2025-04-18','2025-04-21',
+  '2025-05-01','2025-06-19','2025-09-07','2025-10-12','2025-11-02',
+  '2025-11-15','2025-11-20','2025-12-25',
+  // 2026
+  '2026-01-01','2026-02-16','2026-02-17','2026-04-03','2026-04-21',
+  '2026-05-01','2026-06-04','2026-09-07','2026-10-12','2026-11-02',
+  '2026-11-15','2026-11-20','2026-12-25',
+  // 2027
+  '2027-01-01','2027-02-08','2027-02-09','2027-03-26','2027-04-21',
+  '2027-05-01','2027-05-27','2027-09-07','2027-10-12','2027-11-02',
+  '2027-11-15','2027-11-20','2027-12-25',
+  // 2028
+  '2028-01-01','2028-02-28','2028-02-29','2028-04-14','2028-04-21',
+  '2028-05-01','2028-06-15','2028-09-07','2028-10-12','2028-11-02',
+  '2028-11-15','2028-11-20','2028-12-25',
+]);
+
+function isBusinessDay(dt: Date): boolean {
+  const dow = dt.getDay(); // 0=dom, 6=sab
+  if (dow === 0 || dow === 6) return false;
+  const iso = dt.toISOString().slice(0, 10);
+  return !FERIADOS_NACIONAIS.has(iso);
+}
+
+function countBusinessDays(startIncl: Date, endIncl: Date): number {
+  let n = 0;
+  const cur = new Date(startIncl);
+  cur.setHours(0, 0, 0, 0);
+  const end = new Date(endIncl);
+  end.setHours(0, 0, 0, 0);
+  while (cur.getTime() <= end.getTime()) {
+    if (isBusinessDay(cur)) n++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return n;
+}
+
 interface LinhaEntrevista {
   id: number;
   recrutador: string | null;
@@ -57,12 +102,18 @@ function novoAcc(): AccPeriodo {
   };
 }
 
-function consolidar(acc: AccPeriodo, duracaoMinSeg: number) {
+function consolidar(
+  acc: AccPeriodo,
+  duracaoMinSeg: number,
+  diasUteisPeriodo: number,
+) {
   const mediaDuracaoSeg =
     acc.comDuracao > 0 ? Math.round(acc.somaDuracao / acc.comDuracao) : 0;
   const taxaValidas = acc.comDuracao > 0 ? acc.validas / acc.comDuracao : 0;
   const dias = acc.diasUnicos.size || 0;
-  const mediaPorDia = dias > 0 ? acc.total / dias : 0;
+  // mediaPorDia divide pelo total de dias úteis no período (seg-sex sem
+  // feriados nacionais). Entrevistas em fds/feriado são filtradas antes.
+  const mediaPorDia = diasUteisPeriodo > 0 ? acc.total / diasUteisPeriodo : 0;
   const mediaAderencia =
     acc.comAderencia > 0 ? acc.somaAderencia / acc.comAderencia : null;
   // Tempo entre entrevistas: média dos gaps entre datas ordenadas (mesmo dia ou cross-dia).
@@ -214,7 +265,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v2:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v3:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -331,10 +382,14 @@ export async function GET(request: NextRequest) {
 
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
-        // Filtro: ignora entrevistas de recrutadores sem usuario ativo
+        // Filtro 1: ignora entrevistas de recrutadores sem usuario ativo
         // cargo recrutador no People.
         if (!recrutadorAtivo(k)) continue;
         const dt = new Date(r.data_entrevista);
+        // Filtro 2: dashboard contabiliza só dias úteis (seg-sex, sem
+        // feriados nacionais). Entrevistas em fds/feriado ficam de fora
+        // de todos os KPIs, séries, distribuição e nota dos recrutadores.
+        if (!isBusinessDay(dt)) continue;
         const dia = dt.toISOString().slice(0, 10);
 
         let bucket = accs.get(k);
@@ -391,12 +446,23 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      const equipeHoje = consolidar(accsEquipe.hoje, duracaoMinSeg);
-      const equipeOntem = consolidar(accsEquipe.ontem, duracaoMinSeg);
-      const equipeSete = consolidar(accsEquipe.sete, duracaoMinSeg);
-      const equipeSeteAnt = consolidar(accsEquipe.seteAnt, duracaoMinSeg);
-      const equipeTrinta = consolidar(accsEquipe.trinta, duracaoMinSeg);
-      const equipeTrintaAnt = consolidar(accsEquipe.trintaAnt, duracaoMinSeg);
+      // Dias úteis em cada janela — denominador do mediaPorDia.
+      // hoje/ontem = 0 ou 1; demais somam seg-sex sem feriados.
+      const bdHoje = isBusinessDay(hojeIni) ? 1 : 0;
+      const bdOntem = isBusinessDay(ontemIni) ? 1 : 0;
+      const bdSete = countBusinessDays(seteIni, hojeIni);
+      const seteAntFim = new Date(seteIni.getTime() - 24 * 60 * 60 * 1000);
+      const bdSeteAnt = countBusinessDays(seteAntIni, seteAntFim);
+      const bdTrinta = countBusinessDays(trintaInicio, hojeIni);
+      const trintaAntFim = new Date(trintaInicio.getTime() - 24 * 60 * 60 * 1000);
+      const bdTrintaAnt = countBusinessDays(sessenta, trintaAntFim);
+
+      const equipeHoje = consolidar(accsEquipe.hoje, duracaoMinSeg, bdHoje);
+      const equipeOntem = consolidar(accsEquipe.ontem, duracaoMinSeg, bdOntem);
+      const equipeSete = consolidar(accsEquipe.sete, duracaoMinSeg, bdSete);
+      const equipeSeteAnt = consolidar(accsEquipe.seteAnt, duracaoMinSeg, bdSeteAnt);
+      const equipeTrinta = consolidar(accsEquipe.trinta, duracaoMinSeg, bdTrinta);
+      const equipeTrintaAnt = consolidar(accsEquipe.trintaAnt, duracaoMinSeg, bdTrintaAnt);
 
       // Variacao percentual atual vs anterior na metrica principal (media/dia).
       // Retorna null quando nao ha base de comparacao (anterior = 0).
@@ -439,9 +505,9 @@ export async function GET(request: NextRequest) {
 
       const recrutadoresPromises = Array.from(accs.entries()).map(async ([nome, b]) => {
         const c = {
-          hoje: consolidar(b.hoje, duracaoMinSeg),
-          sete: consolidar(b.sete, duracaoMinSeg),
-          trinta: consolidar(b.trinta, duracaoMinSeg),
+          hoje: consolidar(b.hoje, duracaoMinSeg, bdHoje),
+          sete: consolidar(b.sete, duracaoMinSeg, bdSete),
+          trinta: consolidar(b.trinta, duracaoMinSeg, bdTrinta),
         };
 
         const trinta = c.trinta;
@@ -497,27 +563,30 @@ export async function GET(request: NextRequest) {
       const recrutadores = await Promise.all(recrutadoresPromises);
       recrutadores.sort((a, b) => b.nota - a.nota);
 
-      // 6. Serie diaria 30d (preenche dias vazios com 0)
+      // 6. Serie diaria 30d (só dias úteis — fds/feriados são omitidos
+      // do eixo X pra evitar gaps de zero que distorcem visualmente).
       const serieDiaria30d: { data: string; total: number; mediaDuracaoSeg: number }[] = [];
       const cur = new Date(trintaInicio);
       const fim = new Date();
       fim.setHours(0, 0, 0, 0);
       while (cur <= fim) {
-        const k = cur.toISOString().slice(0, 10);
-        const s = serieMap.get(k);
-        serieDiaria30d.push({
-          data: k,
-          total: s?.total ?? 0,
-          mediaDuracaoSeg: s && s.comDur > 0 ? Math.round(s.somaDur / s.comDur) : 0,
-        });
+        if (isBusinessDay(cur)) {
+          const k = cur.toISOString().slice(0, 10);
+          const s = serieMap.get(k);
+          serieDiaria30d.push({
+            data: k,
+            total: s?.total ?? 0,
+            mediaDuracaoSeg: s && s.comDur > 0 ? Math.round(s.somaDur / s.comDur) : 0,
+          });
+        }
         cur.setDate(cur.getDate() + 1);
       }
 
-      // 7. Distribuicao por bucket de duracao (30d).
-      // Filtra para janela atual de 30d (query traz 60d pra comparativo).
-      const linhasTrinta = linhas.rows.filter(
-        (r) => new Date(r.data_entrevista) >= trintaInicio,
-      );
+      // 7. Distribuicao por bucket de duracao (30d, apenas dias úteis).
+      const linhasTrinta = linhas.rows.filter((r) => {
+        const dt = new Date(r.data_entrevista);
+        return dt >= trintaInicio && isBusinessDay(dt);
+      });
       const buckets = [
         { label: '< 5min', min: 0, max: 5 * 60 },
         { label: '5–10', min: 5 * 60, max: 10 * 60 },
@@ -578,6 +647,14 @@ export async function GET(request: NextRequest) {
           duracaoMinimaMinutos: duracaoMinMin,
           duracaoMinSegEfetivo: duracaoMinSeg,
           duracaoAlvoSeg,
+          diasUteis: {
+            hoje: bdHoje,
+            ontem: bdOntem,
+            sete: bdSete,
+            seteAnt: bdSeteAnt,
+            trinta: bdTrinta,
+            trintaAnt: bdTrintaAnt,
+          },
         },
         equipe,
         recrutadores,
