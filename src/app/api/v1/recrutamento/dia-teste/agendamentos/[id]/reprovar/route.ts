@@ -28,11 +28,16 @@ import {
 
 const schema = z.object({
   motivo: z.string().min(1, 'Motivo é obrigatório').max(2000),
+  // Nota é opcional: o app mobile na versão 4.9.0+ envia, mas versões
+  // anteriores reprovam sem nota. Mantemos o campo para retrocompatibilidade
+  // enquanto a Play Store não distribui a build com star-rating.
   nota: z
-    .number({ message: 'Nota é obrigatória' })
+    .number()
     .int('Nota deve ser inteiro')
     .min(1, 'Nota mínima é 1')
-    .max(5, 'Nota máxima é 5'),
+    .max(5, 'Nota máxima é 5')
+    .optional()
+    .nullable(),
 });
 
 export async function POST(
@@ -107,7 +112,7 @@ export async function POST(
           total.valorAgendamentoAtual,
           total.percentualAtual,
           parsed.data.motivo,
-          parsed.data.nota,
+          parsed.data.nota ?? null,
           id,
         ],
       );
@@ -122,7 +127,7 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato REPROVADO no dia de teste #${id} com nota ${parsed.data.nota}/5 (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje)`,
+          descricao: `Candidato REPROVADO no dia de teste #${id}${parsed.data.nota != null ? ` com nota ${parsed.data.nota}/5` : ' (sem nota)'} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje)`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
@@ -132,7 +137,7 @@ export async function POST(
             valorDiasAnteriores: total.valorDiasAnteriores,
             valorTotal: total.valorTotal,
             motivo: parsed.data.motivo,
-            notaReprovacao: parsed.data.nota,
+            notaReprovacao: parsed.data.nota ?? null,
           },
         }),
       );
