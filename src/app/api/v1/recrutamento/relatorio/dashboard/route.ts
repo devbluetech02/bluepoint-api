@@ -260,6 +260,17 @@ export async function GET(request: NextRequest) {
           ? parseInt(departamentoIdRaw, 10)
           : null;
       const duracaoMinSegOverride = searchParams.get('duracaoMinSeg');
+      // Filtros de custo (R$) — aplicam aos KPIs de "dias de teste".
+      const custoMinRaw = searchParams.get('custoMin');
+      const custoMaxRaw = searchParams.get('custoMax');
+      const custoMin =
+        custoMinRaw && /^-?\d+(\.\d+)?$/.test(custoMinRaw)
+          ? parseFloat(custoMinRaw)
+          : null;
+      const custoMax =
+        custoMaxRaw && /^-?\d+(\.\d+)?$/.test(custoMaxRaw)
+          ? parseFloat(custoMaxRaw)
+          : null;
 
       // 1. Parametro global
       const paramRes = await query<{ duracao_minima_entrevista_minutos: number }>(
@@ -276,11 +287,13 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v7:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v8:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
         duracaoMinSeg,
+        custoMin ?? '*',
+        custoMax ?? '*',
       ].join('|')}`;
 
       const dashboard = await cacheAside(cacheKey, async () => {
@@ -783,6 +796,124 @@ export async function GET(request: NextRequest) {
       });
       const semDuracao = linhasTrinta.filter((r) => r.duracao_seg == null).length;
 
+      // ───────────────────────────────────────────────────────────────
+      // 7b. KPIs de Dias de Teste — gasto por período
+      // ───────────────────────────────────────────────────────────────
+      // Query agendamentos com data >= 60d atras (mesma janela das
+      // entrevistas), JOIN com processo pra filtrar vaga/dept, soma de
+      // valor_a_pagar quando NOT NULL (decisao final tomada). Aplica
+      // filtros de custo (custoMin/custoMax) na propria query.
+      const dtParams: unknown[] = [sessenta.toISOString().slice(0, 10)];
+      let dtWhere = `a.data >= $1 AND a.status != 'cancelado'`;
+      if (vagaFiltro) {
+        dtParams.push(`%${vagaFiltro}%`);
+        dtWhere += ` AND ps.vaga_snapshot ILIKE $${dtParams.length}`;
+      }
+      if (departamentoId != null) {
+        dtParams.push(departamentoId);
+        dtWhere += ` AND ps.departamento_id = $${dtParams.length}`;
+      }
+      if (custoMin != null) {
+        dtParams.push(custoMin);
+        dtWhere += ` AND COALESCE(a.valor_a_pagar, a.valor_diaria) >= $${dtParams.length}`;
+      }
+      if (custoMax != null) {
+        dtParams.push(custoMax);
+        dtWhere += ` AND COALESCE(a.valor_a_pagar, a.valor_diaria) <= $${dtParams.length}`;
+      }
+      const diasTesteRows = await query<{
+        data: string;
+        valor: string;
+        vaga: string | null;
+        departamento_id: number | null;
+      }>(
+        `SELECT a.data::text AS data,
+                COALESCE(a.valor_a_pagar, a.valor_diaria)::text AS valor,
+                ps.vaga_snapshot AS vaga,
+                ps.departamento_id
+           FROM people.dia_teste_agendamento a
+           JOIN people.processo_seletivo ps ON ps.id = a.processo_seletivo_id
+          WHERE ${dtWhere}`,
+        dtParams,
+      );
+
+      type ChavePerDT = 'hoje' | 'udu' | 'uduAnt' | 'sete' | 'seteAnt' | 'quinze' | 'quinzeAnt' | 'trinta' | 'trintaAnt';
+      const dtAcc: Record<ChavePerDT, { totalCents: number; count: number }> = {
+        hoje: { totalCents: 0, count: 0 },
+        udu: { totalCents: 0, count: 0 },
+        uduAnt: { totalCents: 0, count: 0 },
+        sete: { totalCents: 0, count: 0 },
+        seteAnt: { totalCents: 0, count: 0 },
+        quinze: { totalCents: 0, count: 0 },
+        quinzeAnt: { totalCents: 0, count: 0 },
+        trinta: { totalCents: 0, count: 0 },
+        trintaAnt: { totalCents: 0, count: 0 },
+      };
+      const bumpDT = (p: ChavePerDT, valorCents: number) => {
+        dtAcc[p].totalCents += valorCents;
+        dtAcc[p].count++;
+      };
+      for (const row of diasTesteRows.rows) {
+        // data é yyyy-mm-dd. Constrói Date em local TZ midnight pra
+        // bater com hojeIni/uduIni etc (que também são midnight local).
+        const [y, m, d] = row.data.split('-').map((x) => parseInt(x, 10));
+        const dt = new Date(y, m - 1, d);
+        if (!isBusinessDay(dt)) continue;
+        const valorCents = Math.round(parseFloat(row.valor || '0') * 100);
+        if (!Number.isFinite(valorCents) || valorCents < 0) continue;
+
+        const dtT = dt.getTime();
+        const inTrinta = dtT >= trintaInicio.getTime();
+        const inSete = dtT >= seteIni.getTime();
+        const inHoje = dtT >= hojeIni.getTime();
+
+        if (inTrinta) bumpDT('trinta', valorCents);
+        else bumpDT('trintaAnt', valorCents);
+        if (dtT >= quinzeIni.getTime()) bumpDT('quinze', valorCents);
+        else if (dtT >= quinzeAntIni.getTime()) bumpDT('quinzeAnt', valorCents);
+        if (inSete) bumpDT('sete', valorCents);
+        else if (dtT >= seteAntIni.getTime()) bumpDT('seteAnt', valorCents);
+        if (dtT >= uduIni.getTime() && dtT < uduFim.getTime()) bumpDT('udu', valorCents);
+        else if (dtT >= uduAntIni.getTime() && dtT < uduAntFim.getTime()) bumpDT('uduAnt', valorCents);
+        if (inHoje) bumpDT('hoje', valorCents);
+      }
+
+      // Helper consolida cada período de dias de teste em formato comum:
+      // total (cents), count, mediaPorDia (cents/dia útil), anterior + variacaoPct.
+      function consolidarDT(
+        atual: { totalCents: number; count: number },
+        anterior: { totalCents: number; count: number },
+        bd: number,
+        bdAnt: number,
+      ) {
+        const mediaPorDia = bd > 0 ? atual.totalCents / bd : 0;
+        const mediaAnt = bdAnt > 0 ? anterior.totalCents / bdAnt : 0;
+        return {
+          totalCents: atual.totalCents,
+          count: atual.count,
+          mediaPorDiaCents: Math.round(mediaPorDia),
+          anterior: {
+            totalCents: anterior.totalCents,
+            count: anterior.count,
+            mediaPorDiaCents: Math.round(mediaAnt),
+          },
+          variacaoPct: calcVariacaoPct(mediaPorDia, mediaAnt),
+        };
+      }
+
+      const diasTeste = {
+        ultimoDiaUtil: {
+          ...consolidarDT(dtAcc.udu, dtAcc.uduAnt, bdUdu, bdUduAnt),
+          dataReferencia: uduIni.toISOString().slice(0, 10),
+        },
+        hoje: {
+          ...consolidarDT(dtAcc.hoje, dtAcc.udu, bdHoje, bdUdu),
+        },
+        sete: consolidarDT(dtAcc.sete, dtAcc.seteAnt, bdSete, bdSeteAnt),
+        quinze: consolidarDT(dtAcc.quinze, dtAcc.quinzeAnt, bdQuinze, bdQuinzeAnt),
+        trinta: consolidarDT(dtAcc.trinta, dtAcc.trintaAnt, bdTrinta, bdTrintaAnt),
+      };
+
       // 8. Opcoes (cacheado 5min — listas mudam raro)
       const opcoes = await cacheAside(
         'recrutamento:relatorio:opcoes:v1',
@@ -852,6 +983,7 @@ export async function GET(request: NextRequest) {
         entrevistasPorVaga: Array.from(vagaCounts.entries())
           .map(([vaga, c]) => ({ vaga, ...c }))
           .sort((a, b) => b.trinta - a.trinta),
+        diasTeste,
         opcoes: {
           ...opcoes,
           // Filtra dropdown: so recrutadores com usuario ativo cargo
