@@ -42,6 +42,7 @@ interface Row {
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   observacao_decisao: string | null;
+  nota_reprovacao: number | null;
   // Soma de valor_diaria dos dias do mesmo processo com ordem < esta
   // e status='compareceu' (cumpridos sem decisão). Usado pra calcular
   // o valor TOTAL cumulativo do processo a pagar.
@@ -203,6 +204,7 @@ export async function GET(request: NextRequest) {
             a.percentual_concluido,
             a.valor_a_pagar::text       AS valor_a_pagar,
             a.observacao_decisao,
+            a.nota_reprovacao,
             COALESCE((
               SELECT SUM(a2.valor_diaria)
                 FROM people.dia_teste_agendamento a2
@@ -472,6 +474,7 @@ export async function GET(request: NextRequest) {
           status: r.status,
           decididoPor: r.decidido_por != null ? String(r.decidido_por) : null,
           observacaoDecisao: r.observacao_decisao,
+          notaReprovacao: r.nota_reprovacao,
           decididoEm: r.decidido_em,
           comparecimentoEm: r.comparecimento_em,
           podeDecidir: podeDecidir.podeDecidir,

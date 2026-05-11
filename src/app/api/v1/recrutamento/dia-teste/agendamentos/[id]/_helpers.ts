@@ -27,6 +27,7 @@ export interface AgendamentoRow {
   percentual_concluido: number | null;
   valor_a_pagar: string | null;
   observacao_decisao: string | null;
+  nota_reprovacao: number | null;
   criado_em: Date | string;
   candidato_recrutamento_id: string | number;
   candidato_cpf_norm: string;
@@ -297,6 +298,7 @@ export async function loadAgendamento(
         a.percentual_concluido,
         a.valor_a_pagar::text       AS valor_a_pagar,
         a.observacao_decisao,
+        a.nota_reprovacao,
         a.criado_em,
         ps.candidato_recrutamento_id,
         ps.candidato_cpf_norm,
@@ -410,6 +412,7 @@ export async function buildAgendamentoPayload(row: AgendamentoRow) {
     decididoPor: row.decidido_por?.toString(),
     decididoEm: row.decidido_em,
     observacaoDecisao: row.observacao_decisao,
+    notaReprovacao: row.nota_reprovacao,
   };
 }
 

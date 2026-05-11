@@ -27,7 +27,12 @@ import {
 // Transição: 'compareceu' → 'reprovado' (terminal). Encerra o processo.
 
 const schema = z.object({
-  motivo: z.string().max(2000).optional(),
+  motivo: z.string().min(1, 'Motivo é obrigatório').max(2000),
+  nota: z
+    .number({ message: 'Nota é obrigatória' })
+    .int('Nota deve ser inteiro')
+    .min(1, 'Nota mínima é 1')
+    .max(5, 'Nota máxima é 5'),
 });
 
 export async function POST(
@@ -94,13 +99,15 @@ export async function POST(
                 valor_a_pagar = $2,
                 percentual_concluido = $3,
                 observacao_decisao = $4,
+                nota_reprovacao = $5,
                 atualizado_em = NOW()
-          WHERE id = $5::bigint`,
+          WHERE id = $6::bigint`,
         [
           user.userId,
           total.valorAgendamentoAtual,
           total.percentualAtual,
-          parsed.data.motivo ?? null,
+          parsed.data.motivo,
+          parsed.data.nota,
           id,
         ],
       );
@@ -115,7 +122,7 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato REPROVADO no dia de teste #${id} (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje)`,
+          descricao: `Candidato REPROVADO no dia de teste #${id} com nota ${parsed.data.nota}/5 (a pagar: R$ ${total.valorTotal.toFixed(2)} = R$ ${total.valorDiasAnteriores.toFixed(2)} dias anteriores + R$ ${total.valorAgendamentoAtual.toFixed(2)} hoje)`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
@@ -124,7 +131,8 @@ export async function POST(
             valorAgendamentoAtual: total.valorAgendamentoAtual,
             valorDiasAnteriores: total.valorDiasAnteriores,
             valorTotal: total.valorTotal,
-            motivo: parsed.data.motivo ?? null,
+            motivo: parsed.data.motivo,
+            notaReprovacao: parsed.data.nota,
           },
         }),
       );
