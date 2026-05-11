@@ -1056,13 +1056,11 @@ export async function GET(request: NextRequest) {
           id: string;
           candidato_recrutamento_id: number | null;
           status: string;
-          admitido_em: Date | null;
           criado_em: Date;
         }>(
           `SELECT id::text AS id,
                   candidato_recrutamento_id,
                   status,
-                  admitido_em,
                   criado_em
              FROM people.processo_seletivo
             WHERE criado_em >= $1`,
@@ -1081,7 +1079,7 @@ export async function GET(request: NextRequest) {
           const rec = recs && recs.length > 0 ? recs[0] : null;
           procToRec.set(p.id, rec);
           bumpFunil(rec, 'processos');
-          if (p.status === 'admitido' || p.admitido_em != null) {
+          if (p.status === 'admitido') {
             bumpFunil(rec, 'admitidos');
           }
         }
