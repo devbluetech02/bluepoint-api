@@ -20,5 +20,10 @@ export async function register() {
     const { iniciarEntrevistasAderenciaChecker } = await import('@/lib/entrevistas-aderencia-checker');
     iniciarEntrevistasAderenciaChecker();
     console.log('[Instrumentation] Entrevistas aderencia checker iniciado.');
+
+    console.log('[Instrumentation] Iniciando Entrevistas video_created checker...');
+    const { iniciarEntrevistasVideoCreatedChecker } = await import('@/lib/entrevistas-video-created-checker');
+    iniciarEntrevistasVideoCreatedChecker();
+    console.log('[Instrumentation] Entrevistas video_created checker iniciado.');
   }
 }

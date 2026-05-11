@@ -84,6 +84,7 @@ interface LinhaEntrevista {
   data_entrevista: Date;
   duracao_seg: number | null;
   aderencia_ia_pct: string | null;
+  video_created_at: Date | null;
 }
 
 interface AccPeriodo {
@@ -274,7 +275,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v4:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v5:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -353,7 +354,8 @@ export async function GET(request: NextRequest) {
       }
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
-        `SELECT id, recrutador, data_entrevista, duracao_seg, aderencia_ia_pct
+        `SELECT id, recrutador, data_entrevista, duracao_seg, aderencia_ia_pct,
+                video_created_at
            FROM public.entrevistas_agendadas
           WHERE ${where}`,
         params,
@@ -487,6 +489,78 @@ export async function GET(request: NextRequest) {
       const trintaAntFim = new Date(trintaInicio.getTime() - 24 * 60 * 60 * 1000);
       const bdTrintaAnt = countBusinessDays(sessenta, trintaAntFim);
 
+      // ───────────────────────────────────────────────────────────────
+      // Tempo ocioso entre entrevistas (Drive video_created_at)
+      // ───────────────────────────────────────────────────────────────
+      // Pra cada recrutador, ordena entrevistas com video_created_at
+      // valido + duracao_seg no periodo e calcula gap entre o fim do
+      // video anterior (video_created_at) e o inicio real do proximo
+      // (video_created_at - duracao_seg). Descarta gaps negativos
+      // (overlap defeito) e gaps > 4h (almoco/fim-de-expediente).
+      const MAX_GAP_OCIO_SEG = 4 * 3600;
+
+      const entriesPorRec = new Map<string, LinhaEntrevista[]>();
+      for (const r of linhas.rows) {
+        const k =
+          (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
+        if (!recrutadorAtivo(k)) continue;
+        const dt = new Date(r.data_entrevista);
+        if (!isBusinessDay(dt)) continue;
+        const arr = entriesPorRec.get(k) ?? [];
+        arr.push(r);
+        entriesPorRec.set(k, arr);
+      }
+
+      // Calcula tempo ocioso médio de um conjunto de entradas (já
+      // filtrado pra janela do periodo). Retorna null se nao houver
+      // pelo menos 2 entradas com video_created_at + duracao_seg.
+      function calcOcioMedioSeg(entries: LinhaEntrevista[]): number | null {
+        const validos = entries
+          .filter((e) => e.video_created_at != null && e.duracao_seg != null)
+          .map((e) => ({
+            videoEnd: new Date(e.video_created_at!).getTime(),
+            duracaoMs: (e.duracao_seg ?? 0) * 1000,
+          }))
+          .sort((a, b) => a.videoEnd - b.videoEnd);
+        if (validos.length < 2) return null;
+        let soma = 0;
+        let n = 0;
+        for (let i = 1; i < validos.length; i++) {
+          const prevEnd = validos[i - 1].videoEnd;
+          const nextStart = validos[i].videoEnd - validos[i].duracaoMs;
+          const gapMs = nextStart - prevEnd;
+          if (gapMs > 0 && gapMs <= MAX_GAP_OCIO_SEG * 1000) {
+            soma += gapMs;
+            n++;
+          }
+        }
+        return n > 0 ? Math.round(soma / n / 1000) : null;
+      }
+
+      function entriesNaJanela(
+        all: LinhaEntrevista[],
+        janelaIni: Date,
+      ): LinhaEntrevista[] {
+        return all.filter((e) => new Date(e.data_entrevista) >= janelaIni);
+      }
+
+      // Equipe: agrega todas as entrevistas de todos recrutadores
+      // (mesma lógica de janela) e calcula. Por-recrutador: idem na
+      // mesma lista do recrutador.
+      const todasEntries = Array.from(entriesPorRec.values()).flat();
+      const ocioEquipeHoje = calcOcioMedioSeg(
+        entriesNaJanela(todasEntries, hojeIni),
+      );
+      const ocioEquipeSete = calcOcioMedioSeg(
+        entriesNaJanela(todasEntries, seteIni),
+      );
+      const ocioEquipeTrinta = calcOcioMedioSeg(
+        entriesNaJanela(todasEntries, trintaInicio),
+      );
+      const ocioEquipeQuinze = calcOcioMedioSeg(
+        entriesNaJanela(todasEntries, quinzeIni),
+      );
+
       const equipeHoje = consolidar(accsEquipe.hoje, duracaoMinSeg, bdHoje);
       const equipeUdu = consolidar(accsEquipe.udu, duracaoMinSeg, bdUdu);
       const equipeUduAnt = consolidar(accsEquipe.uduAnt, duracaoMinSeg, bdUduAnt);
@@ -508,6 +582,7 @@ export async function GET(request: NextRequest) {
       const equipe = {
         hoje: {
           ...equipeHoje,
+          mediaOcioSeg: ocioEquipeHoje,
           anterior: {
             total: equipeUdu.total,
             mediaPorDia: equipeUdu.mediaPorDia,
@@ -526,6 +601,7 @@ export async function GET(request: NextRequest) {
         },
         sete: {
           ...equipeSete,
+          mediaOcioSeg: ocioEquipeSete,
           anterior: {
             total: equipeSeteAnt.total,
             mediaPorDia: equipeSeteAnt.mediaPorDia,
@@ -534,6 +610,7 @@ export async function GET(request: NextRequest) {
         },
         quinze: {
           ...equipeQuinze,
+          mediaOcioSeg: ocioEquipeQuinze,
           anterior: {
             total: equipeQuinzeAnt.total,
             mediaPorDia: equipeQuinzeAnt.mediaPorDia,
@@ -542,6 +619,7 @@ export async function GET(request: NextRequest) {
         },
         trinta: {
           ...equipeTrinta,
+          mediaOcioSeg: ocioEquipeTrinta,
           anterior: {
             total: equipeTrintaAnt.total,
             mediaPorDia: equipeTrintaAnt.mediaPorDia,
@@ -560,6 +638,15 @@ export async function GET(request: NextRequest) {
           hoje: consolidar(b.hoje, duracaoMinSeg, bdHoje),
           sete: consolidar(b.sete, duracaoMinSeg, bdSete),
           trinta: consolidar(b.trinta, duracaoMinSeg, bdTrinta),
+        };
+
+        // Tempo ocioso do recrutador (mesma logica do equipe, mas
+        // limitado ao recrutador). 3 janelas pareadas com c.
+        const entriesRec = entriesPorRec.get(nome) ?? [];
+        const ocio = {
+          hoje: calcOcioMedioSeg(entriesNaJanela(entriesRec, hojeIni)),
+          sete: calcOcioMedioSeg(entriesNaJanela(entriesRec, seteIni)),
+          trinta: calcOcioMedioSeg(entriesNaJanela(entriesRec, trintaInicio)),
         };
 
         const trinta = c.trinta;
@@ -601,6 +688,7 @@ export async function GET(request: NextRequest) {
         return {
           recrutador: nome,
           periodos: c,
+          ocio,
           nota,
           insights,
           insightsFonte,

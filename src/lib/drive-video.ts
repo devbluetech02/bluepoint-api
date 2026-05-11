@@ -108,6 +108,7 @@ interface DriveFileResp {
   name?: string;
   size?: string;
   mimeType?: string;
+  createdTime?: string;
   videoMediaMetadata?: DriveVideoMeta;
   error?: { code?: number; message?: string };
 }
@@ -115,6 +116,12 @@ interface DriveFileResp {
 export interface DurationResult {
   ok: boolean;
   duracaoSegundos?: number;
+  erro?: string;
+}
+
+export interface CreatedTimeResult {
+  ok: boolean;
+  createdTime?: Date;
   erro?: string;
 }
 
@@ -150,6 +157,44 @@ export async function getVideoDurationSeconds(
       return { ok: false, erro: `duracao_invalida_${ms}` };
     }
     return { ok: true, duracaoSegundos: segundos };
+  } catch (e) {
+    return { ok: false, erro: `excecao: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * Retorna o `createdTime` do arquivo no Drive (momento em que foi
+ * salvo). Para vídeos de entrevista, isso corresponde ao fim do
+ * recording — útil pra calcular tempo ocioso entre entrevistas.
+ * Cache do access_token reutilizado por 1h.
+ */
+export async function getVideoCreatedTime(
+  videoId: string,
+): Promise<CreatedTimeResult> {
+  if (!videoId || videoId.trim() === '') {
+    return { ok: false, erro: 'video_id_vazio' };
+  }
+  const token = await getAccessToken();
+  if (!token) return { ok: false, erro: 'sem_credenciais' };
+
+  try {
+    const resp = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(videoId)}?fields=id,createdTime&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    const data = (await resp.json()) as DriveFileResp;
+    if (!resp.ok) {
+      return {
+        ok: false,
+        erro: `http_${resp.status}: ${data?.error?.message ?? ''}`.slice(0, 200),
+      };
+    }
+    if (!data.createdTime) return { ok: false, erro: 'sem_createdTime' };
+    const dt = new Date(data.createdTime);
+    if (isNaN(dt.getTime())) {
+      return { ok: false, erro: `createdTime_invalido_${data.createdTime}` };
+    }
+    return { ok: true, createdTime: dt };
   } catch (e) {
     return { ok: false, erro: `excecao: ${(e as Error).message}` };
   }
