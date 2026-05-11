@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   turbopack: {},
 
   // Pacotes que não devem ser empacotados pelo bundler (usam fs, binários nativos, etc.)
-  serverExternalPackages: ['pdfkit'],
+  serverExternalPackages: ['pdfkit', 'oracledb'],
 
   // Aumentar limite de body para uploads grandes
   experimental: {

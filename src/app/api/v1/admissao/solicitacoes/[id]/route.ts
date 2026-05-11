@@ -55,6 +55,7 @@ export async function GET(request: NextRequest, { params }: Params) {
            s.usuario_provisorio_id,
            s.pendencias_correcao,
            s.foto_perfil_url,
+           s.documento_assinatura_id,
            s.dados_extraidos,
            s.dados_extraidos_status,
            s.dados_extraidos_em,
@@ -139,6 +140,132 @@ export async function GET(request: NextRequest, { params }: Params) {
         criadoEm:        d.criado_em,
       }));
 
+      // ── Envelopes SignProof (multi-doc) + progresso por signatário ──
+      // Mesma estratégia da listagem (../route.ts): busca rows da
+      // tabela solicitacoes_admissao_documentos e consulta SignProof em
+      // paralelo pra cada doc, montando signedCount/signerCount/signers[].
+      // Sem isso, modal de detalhe não consegue mostrar quem já assinou.
+      interface EnvRow {
+        signproof_doc_id: string;
+        template_id: string | null;
+        titulo: string | null;
+        ordem: number | null;
+      }
+      const envRes = await query<EnvRow>(
+        `SELECT signproof_doc_id,
+                template_id::text AS template_id,
+                titulo,
+                ordem
+           FROM people.solicitacoes_admissao_documentos
+          WHERE solicitacao_id = $1
+          ORDER BY ordem ASC NULLS LAST, criado_em ASC`,
+        [id]
+      );
+
+      interface DocProgresso {
+        status: string;
+        signedCount: number;
+        signerCount: number;
+        allSigned: boolean;
+        signers: Array<{
+          id: string; nome: string; email: string | null; role: string | null;
+          signOrder: number | null; status: string; signedAt: string | null;
+        }>;
+      }
+
+      const legacyDocId = (s as { documento_assinatura_id?: string | null }).documento_assinatura_id ?? null;
+      const docIds = Array.from(new Set([
+        ...(legacyDocId ? [legacyDocId] : []),
+        ...envRes.rows.map((r) => r.signproof_doc_id).filter((v): v is string => !!v),
+      ]));
+
+      const docStatusMap = new Map<string, DocProgresso>();
+      if (docIds.length > 0) {
+        const baseUrl = process.env.SIGNPROOF_API_URL;
+        const apiKey = process.env.SIGNPROOF_API_KEY;
+        if (baseUrl && apiKey) {
+          await Promise.allSettled(
+            docIds.map(async (docId) => {
+              try {
+                const r = await fetch(
+                  `${baseUrl}/api/v1/integration/documents/${docId}/status`,
+                  { headers: { 'X-API-Key': apiKey, Accept: 'application/json' } },
+                );
+                if (!r.ok) return;
+                const d = (await r.json()) as {
+                  status?: string; signer_count?: number; signed_count?: number;
+                  all_signed?: boolean;
+                  signers?: Array<{
+                    id?: string; name?: string; email?: string | null;
+                    role?: string | null; sign_order?: number | null;
+                    status?: string; signed_at?: string | null;
+                  }>;
+                };
+                docStatusMap.set(docId, {
+                  status: d.status ?? 'pending',
+                  signedCount: d.signed_count ?? 0,
+                  signerCount: d.signer_count ?? 0,
+                  allSigned: d.all_signed ?? false,
+                  signers: (d.signers ?? []).map((sg) => ({
+                    id:        sg.id ?? '',
+                    nome:      sg.name ?? '',
+                    email:     sg.email ?? null,
+                    role:      sg.role ?? null,
+                    signOrder: sg.sign_order ?? null,
+                    status:    sg.status ?? 'pending',
+                    signedAt:  sg.signed_at ?? null,
+                  })),
+                });
+              } catch (e) {
+                console.warn(`[admissao/solicitacoes/:id] falha SignProof doc ${docId}:`, e);
+              }
+            }),
+          );
+        }
+      }
+
+      // Filtra residuais (sem título E sem progresso vivo) — mesmo
+      // tratamento da listagem; PATCH /status faz dedup mas envios
+      // antigos podem ter deixado phantoms.
+      const linkedDocs = envRes.rows.filter((d) => {
+        const temTitulo = (d.titulo ?? '').trim().length > 0;
+        const temProgresso = docStatusMap.has(d.signproof_doc_id);
+        return temTitulo || temProgresso;
+      });
+
+      const documentosAssinatura = linkedDocs.length > 0
+        ? linkedDocs.map((d) => ({
+            docId:      d.signproof_doc_id,
+            templateId: d.template_id,
+            titulo:     d.titulo,
+            ordem:      d.ordem,
+            progresso:  docStatusMap.get(d.signproof_doc_id) ?? null,
+          }))
+        : (legacyDocId
+            ? [{
+                docId:      legacyDocId,
+                templateId: null as string | null,
+                titulo:     null as string | null,
+                ordem:      0,
+                progresso:  docStatusMap.get(legacyDocId) ?? null,
+              }]
+            : []);
+
+      const aggSignedCount = documentosAssinatura.reduce(
+        (sum, d) => sum + (d.progresso?.signedCount ?? 0), 0,
+      );
+      const aggSignerCount = documentosAssinatura.reduce(
+        (sum, d) => sum + (d.progresso?.signerCount ?? 0), 0,
+      );
+      const documentosAssinaturaProgresso = {
+        signedCount: aggSignedCount,
+        signerCount: aggSignerCount,
+        allSigned: aggSignerCount > 0 && aggSignedCount >= aggSignerCount,
+      };
+      const documentoAssinaturaProgresso = legacyDocId
+        ? docStatusMap.get(legacyDocId) ?? null
+        : null;
+
       const fotoPerfil = s.foto_perfil_url ? { url: s.foto_perfil_url as string } : null;
 
       const biometriaFacial = s.biometria_foto_referencia_url
@@ -164,6 +291,10 @@ export async function GET(request: NextRequest, { params }: Params) {
         diasTeste: s.candidato_dias_teste ?? null,
         ...(aso ? { aso } : {}),
         documentos,
+        documentoAssinaturaId: legacyDocId,
+        documentoAssinaturaProgresso,
+        documentosAssinatura,
+        documentosAssinaturaProgresso,
         ...(fotoPerfil       ? { fotoPerfil }       : {}),
         ...(biometriaFacial  ? { biometriaFacial }  : {}),
         pendenciasCorrecao:  s.pendencias_correcao ?? null,

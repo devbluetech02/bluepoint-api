@@ -328,6 +328,41 @@ export async function iniciarPagamentoPix(
 // Reexportados pro caller normalizar antes de gravar/exibir.
 export { normalizarChavePix, tipoChaveSicoob, PIX_CNPJ_DEFAULT };
 
+/**
+ * Converte mensagem de erro crua do Sicoob (formato `http_NNN: <texto JSON>`)
+ * em algo amigável pro gestor que vai ler na tela do app.
+ *
+ * Mantém o erro técnico no console/auditoria — só a UI passa a ver versão
+ * humana. Casos não mapeados caem na mensagem original (sem mascarar bug).
+ */
+export function traduzirErroPix(erroBruto: string): string {
+  const e = (erroBruto || '').toLowerCase();
+  if (e.includes('chave dict não foi encontrada') || e.includes('chave dict nao foi encontrada') ||
+      e.includes('chave não encontrada') || e.includes('chave nao encontrada')) {
+    return 'Chave PIX não encontrada no Banco Central. Confirma com o candidato qual chave ele tem ativa (CPF, telefone, e-mail ou aleatória) e atualiza o cadastro.';
+  }
+  if (e.includes('saldo insuficiente') || e.includes('insufficient funds')) {
+    return 'Saldo insuficiente na conta empresa pra fazer o PIX.';
+  }
+  if (e.includes('limite') && (e.includes('excedido') || e.includes('exceeded'))) {
+    return 'Limite PIX da conta empresa excedido. Tenta amanhã ou usa outra conta.';
+  }
+  if (e.includes('cpf') && e.includes('inválido')) {
+    return 'CPF do candidato inválido. Confere o cadastro.';
+  }
+  if (e.includes('cnpj pagador') || e.includes('cnpj inválido')) {
+    return 'CNPJ pagador da empresa inválido ou não autorizado pelo Sicoob.';
+  }
+  if (e.includes('idempotency') || e.includes('idempotência')) {
+    return 'Chave de idempotência conflitante. Tenta de novo em alguns segundos.';
+  }
+  if (e.startsWith('http_5') || e.includes('timeout') || e.includes('econnreset')) {
+    return 'Sicoob fora do ar ou indisponível. Tenta de novo em alguns minutos.';
+  }
+  // Sem match → devolve crua (max 200 chars pra não estourar UI).
+  return erroBruto.slice(0, 200);
+}
+
 export async function confirmarPagamentoPix(
   args: ConfirmarPagamentoArgs,
 ): Promise<PixApiResult<PagamentoSnapshot>> {

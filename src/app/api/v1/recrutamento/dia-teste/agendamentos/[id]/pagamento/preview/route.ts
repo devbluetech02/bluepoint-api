@@ -14,6 +14,7 @@ import {
   cadastrarBeneficiarioPix,
   normalizarChavePix,
   tipoChaveSicoob,
+  traduzirErroPix,
   PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
 import { isValidCPF } from '@/lib/utils';
@@ -370,7 +371,7 @@ export async function POST(
           [r.erro.slice(0, 1000), pagamentoId],
         );
         return errorResponse(
-          `Falha ao iniciar pagamento PIX: ${r.erro}`,
+          traduzirErroPix(r.erro),
           r.status && r.status >= 400 && r.status < 500 ? r.status : 502,
         );
       }

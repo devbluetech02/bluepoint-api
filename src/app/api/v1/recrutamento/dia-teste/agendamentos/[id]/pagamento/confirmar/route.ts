@@ -13,6 +13,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   confirmarPagamentoPix,
   formatarValorBR,
+  traduzirErroPix,
   PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
 
@@ -141,7 +142,7 @@ export async function POST(
           }),
         );
         return errorResponse(
-          `Falha ao confirmar pagamento PIX: ${r.erro}`,
+          traduzirErroPix(r.erro),
           r.status && r.status >= 400 && r.status < 500 ? r.status : 502,
         );
       }
