@@ -448,6 +448,25 @@ export async function criarProximoDiaTeste(args: {
   valorDiaria: string | number;
   cargaHoraria: number;
 }): Promise<{ id: string; ordem: number }> {
+  // Defesa: nunca cria 2 dias na mesma data dentro de um processo —
+  // independente do status do outro (até dias aprovados/cancelados contam).
+  // Evita estado "candidato com 2 dias na mesma data" mesmo se o handler
+  // chamador esquecer a validação. Lança erro pra fluxo abortar antes do
+  // INSERT (e antes de gerar contrato SignProof).
+  const dupRes = await query<{ id: string; ordem: number; status: string }>(
+    `SELECT id::text, ordem, status
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint AND data = $2::date
+      LIMIT 1`,
+    [args.processoId, args.data],
+  );
+  if (dupRes.rows[0]) {
+    const d = dupRes.rows[0];
+    throw new Error(
+      `Já existe agendamento no processo ${args.processoId} para a data ${args.data} (id=${d.id}, ordem=${d.ordem}, status=${d.status}).`,
+    );
+  }
+
   const ordemRes = await query<{ proxima: number }>(
     `SELECT COALESCE(MAX(ordem), 0) + 1 AS proxima
        FROM people.dia_teste_agendamento

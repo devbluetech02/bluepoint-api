@@ -130,6 +130,31 @@ export async function POST(
         adicionarDegradadoParaManter = true;
       }
 
+      // Defesa contra duplicar data: mesmo que não exista pendente, recusa
+      // criar um agendamento novo na mesma data de qualquer outro ag do
+      // processo (incluindo já aprovados/reprovados). Caso real: gestor
+      // aprovou dia 11 (status aprovado), depois voltou no dia 9 e clicou
+      // "aprovar e adicionar mais 1 dia" escolhendo 11 — sistema criou
+      // ordem 3 também em 11, duplicando o dia. Agora bloqueia.
+      if (acao === 'adicionar_dia' && parsed.data.dataNovoDia) {
+        const colisaoRes = await query<{ id: string; ordem: number; status: string }>(
+          `SELECT id::text, ordem, status
+             FROM people.dia_teste_agendamento
+            WHERE processo_seletivo_id = $1::bigint
+              AND data = $2::date
+              AND id != $3::bigint
+            LIMIT 1`,
+          [ag.processo_seletivo_id, parsed.data.dataNovoDia, id],
+        );
+        if (colisaoRes.rows[0]) {
+          const colisao = colisaoRes.rows[0];
+          return errorResponse(
+            `Já existe um agendamento neste processo na data ${parsed.data.dataNovoDia} (ordem ${colisao.ordem}, status ${colisao.status}). Escolha outra data.`,
+            409,
+          );
+        }
+      }
+
       if (acao === 'manter' && pendentes === 0) {
         return errorResponse(
           'Não há outro dia agendado para manter o candidato em teste — use "encerrar" ou "adicionar_dia"',
