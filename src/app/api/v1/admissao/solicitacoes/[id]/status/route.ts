@@ -657,56 +657,84 @@ async function notificarAssinaturaContrato(
   }
   const { nome: nomeCandidato, cpf: cpfCandidato } = candidatoResult.rows[0];
 
-  // Consulta signing-links
-  let signingUrl: string | null = null;
-  try {
-    const response = await fetch(
-      `${baseUrl}/api/v1/integration/documents/${documentoAssinaturaId}/signing-links`,
-      { headers: { 'X-API-Key': apiKey, Accept: 'application/json' } },
-    );
-    if (!response.ok) {
-      console.error(
-        `[assinatura_solicitada] signing-links HTTP ${response.status}: ${await response.text().catch(() => '')}`,
-      );
-    } else {
-      // Conforme INTEGRATION_API.md §10, o campo é `signing_link` (não `url`).
-      // Mantemos fallback pra `url` por garantia caso o backend mude o nome.
-      type Link = {
-        signing_link?: string;
-        url?: string;
-        cpf?: string;
-        signer_cpf?: string;
-        document?: string;
-      };
-      const payload = (await response.json()) as
-        | { links?: Link[]; signing_links?: Link[]; data?: Link[] }
-        | Link[];
-      const links: Link[] = Array.isArray(payload)
-        ? payload
-        : payload.signing_links ?? payload.links ?? payload.data ?? [];
+  // ── Lista TODOS os docs da solicitação (multi-doc). Cada envelope tem
+  // seu próprio signing-link por signatário; o candidato precisa do link
+  // de cada um pra assinar o pacote inteiro. Fallback p/ documentoAssinaturaId
+  // legacy quando a tabela _documentos está vazia (envios antigos
+  // pre-multi-doc).
+  type DocLink = { titulo: string; signingUrl: string | null; docId: string };
+  const docsRes = await query<{ signproof_doc_id: string; titulo: string | null; ordem: number | null }>(
+    `SELECT signproof_doc_id, titulo, ordem
+       FROM people.solicitacoes_admissao_documentos
+      WHERE solicitacao_id = $1
+      ORDER BY ordem ASC NULLS LAST, criado_em ASC`,
+    [solicitacaoId],
+  );
+  const docsParaNotificar: Array<{ docId: string; titulo: string | null }> =
+    docsRes.rows.length > 0
+      ? docsRes.rows.map((r) => ({ docId: r.signproof_doc_id, titulo: r.titulo }))
+      : [{ docId: documentoAssinaturaId, titulo: null }];
 
-      const soDigitos = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
-      const cpfAlvo = soDigitos(cpfCandidato);
-      const match = cpfAlvo
-        ? links.find((l) => soDigitos(l.cpf ?? l.signer_cpf ?? l.document) === cpfAlvo)
-        : undefined;
-      const chosen = match ?? links[0];
-      signingUrl = chosen?.signing_link ?? chosen?.url ?? null;
-      if (!signingUrl) {
-        console.warn('[assinatura_solicitada] Nenhum signing_link encontrado para doc', documentoAssinaturaId);
+  type Link = {
+    signing_link?: string;
+    url?: string;
+    cpf?: string;
+    signer_cpf?: string;
+    document?: string;
+  };
+  const soDigitos = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '');
+  const cpfAlvo = soDigitos(cpfCandidato);
+
+  const docLinks: DocLink[] = await Promise.all(
+    docsParaNotificar.map(async ({ docId, titulo }) => {
+      try {
+        const response = await fetch(
+          `${baseUrl}/api/v1/integration/documents/${docId}/signing-links`,
+          { headers: { 'X-API-Key': apiKey, Accept: 'application/json' } },
+        );
+        if (!response.ok) {
+          console.error(
+            `[assinatura_solicitada] signing-links doc ${docId} HTTP ${response.status}: ${await response.text().catch(() => '')}`,
+          );
+          return { docId, titulo: titulo ?? 'Documento', signingUrl: null };
+        }
+        const payload = (await response.json()) as
+          | { links?: Link[]; signing_links?: Link[]; data?: Link[] }
+          | Link[];
+        const links: Link[] = Array.isArray(payload)
+          ? payload
+          : payload.signing_links ?? payload.links ?? payload.data ?? [];
+        const match = cpfAlvo
+          ? links.find((l) => soDigitos(l.cpf ?? l.signer_cpf ?? l.document) === cpfAlvo)
+          : undefined;
+        const chosen = match ?? links[0];
+        const url = chosen?.signing_link ?? chosen?.url ?? null;
+        if (!url) {
+          console.warn(`[assinatura_solicitada] Nenhum signing_link para doc ${docId}`);
+        }
+        return { docId, titulo: titulo ?? 'Documento', signingUrl: url };
+      } catch (err) {
+        console.error(`[assinatura_solicitada] Erro signing-links doc ${docId}:`, err);
+        return { docId, titulo: titulo ?? 'Documento', signingUrl: null };
       }
-    }
-  } catch (err) {
-    console.error('[assinatura_solicitada] Erro consultando signing-links:', err);
-  }
+    }),
+  );
+
+  // Primeiro link válido — usado pelo push (deep-link único) e fallback
+  // de URL pra notificação. WhatsApp recebe TODOS abaixo.
+  const primeiroLink = docLinks.find((l) => !!l.signingUrl) ?? null;
+  const signingUrl = primeiroLink?.signingUrl ?? null;
 
   await enviarPushParaProvisorio(
     usuarioProvisorioId,
     {
       titulo: 'Contrato aguardando assinatura',
-      mensagem: `Olá ${nomeCandidato}, seu contrato de admissão está pronto. Toque para assinar.`,
+      mensagem:
+        docLinks.length > 1
+          ? `Olá ${nomeCandidato}, ${docLinks.length} documentos prontos pra assinatura. Toque para abrir.`
+          : `Olá ${nomeCandidato}, seu contrato de admissão está pronto. Toque para assinar.`,
       severidade: 'atencao',
-      data: { solicitacaoId, documentoAssinaturaId, signingUrl },
+      data: { solicitacaoId, documentoAssinaturaId, signingUrl, totalDocumentos: docLinks.length },
       url: signingUrl ?? '/pre-admissao',
     },
     subscriptionId,
@@ -758,10 +786,15 @@ async function notificarAssinaturaContrato(
         }
 
         const primeiroNome = (nomeCandidato.split(' ')[0] || nomeCandidato).trim();
+        const linksValidos = docLinks.filter((l) => !!l.signingUrl);
+        const totalDocs = docLinks.length;
+        const cabecalho = totalDocs > 1
+          ? `Seus *${totalDocs} documentos de admissão* estão prontos pra assinatura.`
+          : `Seu *contrato de admissão* está pronto pra assinatura.`;
         const linhas: string[] = [
           `Olá, ${primeiroNome}! 👋`,
           ``,
-          `Seu *contrato de admissão* está pronto pra assinatura.`,
+          cabecalho,
         ];
         if (dataAdmissaoFmt) {
           linhas.push(
@@ -769,10 +802,18 @@ async function notificarAssinaturaContrato(
             `📅 *Primeiro dia de trabalho:* ${dataAdmissaoFmt}`,
           );
         }
-        if (signingUrl) {
-          linhas.push(``, `📋 *Assinar contrato:*`, signingUrl);
+        if (linksValidos.length > 0) {
+          if (linksValidos.length === 1) {
+            linhas.push(``, `📋 *Assinar contrato:*`, linksValidos[0].signingUrl!);
+          } else {
+            linhas.push(``, `📋 *Links para assinatura:*`);
+            linksValidos.forEach((l, i) => {
+              const numero = i + 1;
+              linhas.push(``, `${numero}. *${l.titulo}*`, l.signingUrl!);
+            });
+          }
         } else {
-          linhas.push(``, `Acesse o app *People* → "Pré-admissão" pra abrir o contrato.`);
+          linhas.push(``, `Acesse o app *People* → "Pré-admissão" pra abrir os contratos.`);
         }
         linhas.push(``, `Qualquer dúvida, estamos à disposição.`);
         // sem config = instancia PEOPLE (default).
