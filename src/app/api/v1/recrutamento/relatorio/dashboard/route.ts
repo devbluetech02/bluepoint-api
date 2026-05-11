@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v1:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v2:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -270,11 +270,14 @@ export async function GET(request: NextRequest) {
         return firstNameCount.get(fn) === 1;
       };
 
-      // 3. Sempre carrega 30d (engloba 7d + hoje). Filtra na memoria.
-      const trinta = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      trinta.setHours(0, 0, 0, 0);
+      // 3. Sempre carrega 60d (engloba 30d + 30d anterior pra comparativo).
+      // Filtra na memoria nos buckets hoje/ontem/sete/seteAnt/trinta/trintaAnt.
+      const sessenta = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+      sessenta.setHours(0, 0, 0, 0);
+      const trintaInicio = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      trintaInicio.setHours(0, 0, 0, 0);
 
-      const params: unknown[] = [trinta.toISOString()];
+      const params: unknown[] = [sessenta.toISOString()];
       let where = `data_entrevista >= $1`;
       if (recrutadorFiltro) {
         params.push(recrutadorFiltro);
@@ -298,16 +301,29 @@ export async function GET(request: NextRequest) {
 
       const hojeIni = new Date();
       hojeIni.setHours(0, 0, 0, 0);
-      const seteIni = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      seteIni.setHours(0, 0, 0, 0);
+      const ontemIni = new Date(hojeIni.getTime() - 1 * 24 * 60 * 60 * 1000);
+      const seteIni = new Date(hojeIni.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const seteAntIni = new Date(hojeIni.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-      // 4. Agrega por recrutador × periodo
+      // 4. Agrega por recrutador × periodo (3 janelas).
+      // No nivel equipe agrega tambem janelas anteriores (ontem / 7d ant /
+      // 30d ant) pra calcular variacao percentual nos KPIs do topo.
       type ChavePer = 'hoje' | 'sete' | 'trinta';
+      type ChavePerEquipe =
+        | 'hoje'
+        | 'ontem'
+        | 'sete'
+        | 'seteAnt'
+        | 'trinta'
+        | 'trintaAnt';
       const accs = new Map<string, Record<ChavePer, AccPeriodo>>();
-      const accsEquipe: Record<ChavePer, AccPeriodo> = {
+      const accsEquipe: Record<ChavePerEquipe, AccPeriodo> = {
         hoje: novoAcc(),
+        ontem: novoAcc(),
         sete: novoAcc(),
+        seteAnt: novoAcc(),
         trinta: novoAcc(),
+        trintaAnt: novoAcc(),
       };
 
       // Pra serie diaria 30d (visao geral)
@@ -330,8 +346,7 @@ export async function GET(request: NextRequest) {
         const aderencia =
           r.aderencia_ia_pct != null ? Number(r.aderencia_ia_pct) : null;
 
-        const aplicar = (p: ChavePer) => {
-          const a = bucket![p];
+        const aplicarAcc = (a: AccPeriodo) => {
           a.total++;
           a.diasUnicos.add(dia);
           a.datasOrdenadas.push(dt.getTime());
@@ -344,28 +359,26 @@ export async function GET(request: NextRequest) {
             a.somaAderencia += aderencia;
             a.comAderencia++;
           }
-          // Equipe
-          const e = accsEquipe[p];
-          e.total++;
-          e.diasUnicos.add(dia);
-          e.datasOrdenadas.push(dt.getTime());
-          if (r.duracao_seg != null) {
-            e.somaDuracao += r.duracao_seg;
-            e.comDuracao++;
-            if (r.duracao_seg >= duracaoMinSeg) e.validas++;
-          }
-          if (aderencia != null && Number.isFinite(aderencia)) {
-            e.somaAderencia += aderencia;
-            e.comAderencia++;
-          }
         };
 
-        // sempre cai em 30
-        aplicar('trinta');
-        if (dt >= seteIni) aplicar('sete');
-        if (dt >= hojeIni) aplicar('hoje');
+        // Recrutador: 3 janelas atuais (hoje / 7d / 30d)
+        const inTrinta = dt >= trintaInicio;
+        const inSete = dt >= seteIni;
+        const inHoje = dt >= hojeIni;
+        if (inTrinta) aplicarAcc(bucket.trinta);
+        if (inSete) aplicarAcc(bucket.sete);
+        if (inHoje) aplicarAcc(bucket.hoje);
 
-        // Serie diaria 30d
+        // Equipe: janelas atuais + anteriores pra variacao percentual.
+        if (inTrinta) aplicarAcc(accsEquipe.trinta);
+        else aplicarAcc(accsEquipe.trintaAnt);
+        if (inSete) aplicarAcc(accsEquipe.sete);
+        else if (dt >= seteAntIni) aplicarAcc(accsEquipe.seteAnt);
+        if (inHoje) aplicarAcc(accsEquipe.hoje);
+        else if (dt >= ontemIni) aplicarAcc(accsEquipe.ontem);
+
+        // Serie diaria 30d: pula registros mais antigos
+        if (!inTrinta) continue;
         let s = serieMap.get(dia);
         if (!s) {
           s = { total: 0, somaDur: 0, comDur: 0 };
@@ -378,10 +391,45 @@ export async function GET(request: NextRequest) {
         }
       }
 
+      const equipeHoje = consolidar(accsEquipe.hoje, duracaoMinSeg);
+      const equipeOntem = consolidar(accsEquipe.ontem, duracaoMinSeg);
+      const equipeSete = consolidar(accsEquipe.sete, duracaoMinSeg);
+      const equipeSeteAnt = consolidar(accsEquipe.seteAnt, duracaoMinSeg);
+      const equipeTrinta = consolidar(accsEquipe.trinta, duracaoMinSeg);
+      const equipeTrintaAnt = consolidar(accsEquipe.trintaAnt, duracaoMinSeg);
+
+      // Variacao percentual atual vs anterior na metrica principal (media/dia).
+      // Retorna null quando nao ha base de comparacao (anterior = 0).
+      const calcVariacaoPct = (atual: number, anterior: number): number | null => {
+        if (anterior === 0) return atual === 0 ? 0 : null;
+        return Math.round(((atual - anterior) / anterior) * 1000) / 10;
+      };
+
       const equipe = {
-        hoje: consolidar(accsEquipe.hoje, duracaoMinSeg),
-        sete: consolidar(accsEquipe.sete, duracaoMinSeg),
-        trinta: consolidar(accsEquipe.trinta, duracaoMinSeg),
+        hoje: {
+          ...equipeHoje,
+          anterior: {
+            total: equipeOntem.total,
+            mediaPorDia: equipeOntem.mediaPorDia,
+          },
+          variacaoPct: calcVariacaoPct(equipeHoje.mediaPorDia, equipeOntem.mediaPorDia),
+        },
+        sete: {
+          ...equipeSete,
+          anterior: {
+            total: equipeSeteAnt.total,
+            mediaPorDia: equipeSeteAnt.mediaPorDia,
+          },
+          variacaoPct: calcVariacaoPct(equipeSete.mediaPorDia, equipeSeteAnt.mediaPorDia),
+        },
+        trinta: {
+          ...equipeTrinta,
+          anterior: {
+            total: equipeTrintaAnt.total,
+            mediaPorDia: equipeTrintaAnt.mediaPorDia,
+          },
+          variacaoPct: calcVariacaoPct(equipeTrinta.mediaPorDia, equipeTrintaAnt.mediaPorDia),
+        },
       };
 
       // 5. Por recrutador: consolida + nota + insights
@@ -451,7 +499,7 @@ export async function GET(request: NextRequest) {
 
       // 6. Serie diaria 30d (preenche dias vazios com 0)
       const serieDiaria30d: { data: string; total: number; mediaDuracaoSeg: number }[] = [];
-      const cur = new Date(trinta);
+      const cur = new Date(trintaInicio);
       const fim = new Date();
       fim.setHours(0, 0, 0, 0);
       while (cur <= fim) {
@@ -465,7 +513,11 @@ export async function GET(request: NextRequest) {
         cur.setDate(cur.getDate() + 1);
       }
 
-      // 7. Distribuicao por bucket de duracao (30d)
+      // 7. Distribuicao por bucket de duracao (30d).
+      // Filtra para janela atual de 30d (query traz 60d pra comparativo).
+      const linhasTrinta = linhas.rows.filter(
+        (r) => new Date(r.data_entrevista) >= trintaInicio,
+      );
       const buckets = [
         { label: '< 5min', min: 0, max: 5 * 60 },
         { label: '5–10', min: 5 * 60, max: 10 * 60 },
@@ -474,7 +526,7 @@ export async function GET(request: NextRequest) {
         { label: '30+', min: 30 * 60, max: Number.POSITIVE_INFINITY },
       ];
       const distribuicao = buckets.map((b) => {
-        const qty = linhas.rows.filter(
+        const qty = linhasTrinta.filter(
           (r) =>
             r.duracao_seg != null &&
             r.duracao_seg >= b.min &&
@@ -482,7 +534,7 @@ export async function GET(request: NextRequest) {
         ).length;
         return { label: b.label, total: qty };
       });
-      const semDuracao = linhas.rows.filter((r) => r.duracao_seg == null).length;
+      const semDuracao = linhasTrinta.filter((r) => r.duracao_seg == null).length;
 
       // 8. Opcoes (cacheado 5min — listas mudam raro)
       const opcoes = await cacheAside(
