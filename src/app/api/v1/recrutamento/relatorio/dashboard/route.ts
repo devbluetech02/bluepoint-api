@@ -275,7 +275,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v5:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v6:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -495,9 +495,17 @@ export async function GET(request: NextRequest) {
       // Pra cada recrutador, ordena entrevistas com video_created_at
       // valido + duracao_seg no periodo e calcula gap entre o fim do
       // video anterior (video_created_at) e o inicio real do proximo
-      // (video_created_at - duracao_seg). Descarta gaps negativos
-      // (overlap defeito) e gaps > 4h (almoco/fim-de-expediente).
+      // (video_created_at - duracao_seg).
+      //
+      // Descarta gaps negativos (overlap defeito) e gaps > 4h (almoco/
+      // fim-de-expediente). Aplica margem de UPLOAD_LAG_SEG (20min) em
+      // cada gap antes de acumular: vídeos sobem pro Drive de forma
+      // assíncrona com lag variável de até ~20min, então parte do gap
+      // bruto é só atraso de upload, não ociosidade real. gapAjustado
+      // = max(0, gapBruto - 20min). Floor em 0 mantém estimativa
+      // conservadora.
       const MAX_GAP_OCIO_SEG = 4 * 3600;
+      const UPLOAD_LAG_SEG = 20 * 60;
 
       const entriesPorRec = new Map<string, LinhaEntrevista[]>();
       for (const r of linhas.rows) {
@@ -528,9 +536,15 @@ export async function GET(request: NextRequest) {
         for (let i = 1; i < validos.length; i++) {
           const prevEnd = validos[i - 1].videoEnd;
           const nextStart = validos[i].videoEnd - validos[i].duracaoMs;
-          const gapMs = nextStart - prevEnd;
-          if (gapMs > 0 && gapMs <= MAX_GAP_OCIO_SEG * 1000) {
-            soma += gapMs;
+          const gapBrutoMs = nextStart - prevEnd;
+          if (gapBrutoMs > 0 && gapBrutoMs <= MAX_GAP_OCIO_SEG * 1000) {
+            // Subtrai lag de upload (até ~20min) — parte do gap é
+            // só atraso pra subir o video, nao ociosidade real.
+            const gapAjustadoMs = Math.max(
+              0,
+              gapBrutoMs - UPLOAD_LAG_SEG * 1000,
+            );
+            soma += gapAjustadoMs;
             n++;
           }
         }
