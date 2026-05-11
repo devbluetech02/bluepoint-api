@@ -111,13 +111,24 @@ export async function POST(
       // continuar trabalhando o dia inteiro — recebe o dia COMPLETO.
       const total = await calcularValorTotalProcesso(ag);
 
-      const acao = parsed.data.acao;
-
       // Validações específicas de cada ação ────────────────────────────
       const pendentes = await contarAgendamentosPendentesDoProcesso(
         ag.processo_seletivo_id,
         id,
       );
+
+      // `acao` é mutável: se o gestor pediu 'adicionar_dia' mas já existe
+      // um dia futuro agendado no processo, degradamos pra 'manter' — só
+      // aprova o atual e preserva o dia já marcado. Evita erro 409 no
+      // mobile quando o gestor não percebe que o próximo dia já está
+      // agendado (relatado em campo: "aprovei e ele só não foi por causa
+      // do dia de amanhã que já estava agendado").
+      let acao = parsed.data.acao;
+      let adicionarDegradadoParaManter = false;
+      if (acao === 'adicionar_dia' && pendentes > 0) {
+        acao = 'manter';
+        adicionarDegradadoParaManter = true;
+      }
 
       if (acao === 'manter' && pendentes === 0) {
         return errorResponse(
@@ -125,19 +136,11 @@ export async function POST(
           409,
         );
       }
-      if (acao === 'adicionar_dia') {
-        if (pendentes > 0) {
-          return errorResponse(
-            'Já existe um dia de teste agendado neste processo — use "manter em teste" para o próximo dia ou "encerrar"',
-            409,
-          );
-        }
-        if (!parsed.data.dataNovoDia) {
-          return errorResponse(
-            'Campo "dataNovoDia" é obrigatório quando acao="adicionar_dia"',
-            400,
-          );
-        }
+      if (acao === 'adicionar_dia' && !parsed.data.dataNovoDia) {
+        return errorResponse(
+          'Campo "dataNovoDia" é obrigatório quando acao="adicionar_dia"',
+          400,
+        );
       }
 
       // Sobrescreve valor/percentual quando aprovação MANTÉM o candidato em
@@ -333,7 +336,9 @@ export async function POST(
           ? 'aguardando RH coletar 2 referências do candidato'
           : acao === 'adicionar_dia'
             ? `mantido em teste — novo dia agendado (${novoAgendamento?.data}, ordem ${novoAgendamento?.ordem})`
-            : 'mantido em teste — aguardando próximo dia já agendado';
+            : adicionarDegradadoParaManter
+              ? 'mantido em teste — pedido era adicionar dia, mas já havia um dia agendado'
+              : 'mantido em teste — aguardando próximo dia já agendado';
 
       await registrarAuditoria(
         buildAuditParams(req, user, {
@@ -373,6 +378,9 @@ export async function POST(
         agendamentoId: id,
         status: 'aprovado',
         acao,
+        // Sinaliza pro mobile que a ação solicitada foi degradada
+        // (gestor pediu 'adicionar_dia' mas processo já tinha pendente).
+        acaoDegradada: adicionarDegradadoParaManter ? 'adicionar_dia->manter' : null,
         valorAPagar: valorTotalFinal,
         valorAgendamentoAtual: valorAgendamentoAtualFinal,
         valorDiasAnteriores: total.valorDiasAnteriores,
