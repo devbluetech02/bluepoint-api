@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v12:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v13:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -1150,6 +1150,69 @@ export async function GET(request: NextRequest) {
         console.warn('[funil] busca processos/testes falhou:', e);
       }
 
+      // ───────────────────────────────────────────────────────────────
+      // Projeções — entrevistas/testes/gasto estimados pros próximos
+      // 7/15/30 dias úteis com base na média/dia útil dos últimos 30d
+      // ───────────────────────────────────────────────────────────────
+      const mediaEntrevistasPorBD =
+        bdTrinta > 0 ? equipeTrinta.total / bdTrinta : 0;
+      const mediaTestesPorBD =
+        bdTrinta > 0 ? dtAcc.trinta.count / bdTrinta : 0;
+      const mediaGastoCentsPorBD =
+        bdTrinta > 0 ? dtAcc.trinta.totalCents / bdTrinta : 0;
+
+      // Próximos N dias úteis a partir de amanhã (exclusivo de hoje).
+      function calcProximosBD(n: number): { ini: string; fim: string; count: number } {
+        const amanha = new Date(hojeIni.getTime() + 24 * 60 * 60 * 1000);
+        const cur = new Date(amanha);
+        let ini = new Date(amanha);
+        let fim = new Date(amanha);
+        let count = 0;
+        let achouPrimeiro = false;
+        // Limita iteração a 90 dias corridos pra evitar loop sem fim.
+        for (let i = 0; i < 120 && count < n; i++) {
+          if (isBusinessDay(cur)) {
+            if (!achouPrimeiro) {
+              ini = new Date(cur);
+              achouPrimeiro = true;
+            }
+            count++;
+            fim = new Date(cur);
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+        return {
+          ini: ini.toISOString().slice(0, 10),
+          fim: fim.toISOString().slice(0, 10),
+          count,
+        };
+      }
+
+      function montaProjecao(diasUteis: number) {
+        const janela = calcProximosBD(diasUteis);
+        return {
+          diasUteis: janela.count,
+          dataInicio: janela.ini,
+          dataFim: janela.fim,
+          entrevistasEstimadas: Math.round(mediaEntrevistasPorBD * diasUteis),
+          testesEstimados: Math.round(mediaTestesPorBD * diasUteis),
+          gastoEstimadoCents: Math.round(mediaGastoCentsPorBD * diasUteis),
+        };
+      }
+
+      const projecoes = {
+        // Médias base usadas pra extrapolar.
+        baseline: {
+          mediaEntrevistasPorDiaUtil:
+            Math.round(mediaEntrevistasPorBD * 10) / 10,
+          mediaTestesPorDiaUtil: Math.round(mediaTestesPorBD * 10) / 10,
+          mediaGastoCentsPorDiaUtil: Math.round(mediaGastoCentsPorBD),
+        },
+        proximos7: montaProjecao(7),
+        proximos15: montaProjecao(15),
+        proximos30: montaProjecao(30),
+      };
+
       // Stats globais (sempre baseados em "_todos", não muda com dropdown).
       const todosBucket = funilAcc.get('_todos')!;
       const vagasDistintas = new Set<string>();
@@ -1251,6 +1314,7 @@ export async function GET(request: NextRequest) {
         diasTeste,
         diasTesteOps,
         funilRecrutamento,
+        projecoes,
         opcoes: {
           ...opcoes,
           // Filtra dropdown: so recrutadores com usuario ativo cargo
