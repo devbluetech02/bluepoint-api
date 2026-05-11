@@ -287,7 +287,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v8:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v9:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -418,19 +418,6 @@ export async function GET(request: NextRequest) {
       // Pra serie diaria 30d (visao geral)
       const serieMap = new Map<string, { total: number; somaDur: number; comDur: number }>();
 
-      // Contagem de entrevistas por vaga × periodo (udu / hoje / sete /
-      // trinta). Mesmas regras de filtro do resto: business day +
-      // recrutadorAtivo. Usado pelo grafico comparativo por vaga.
-      type ChavePerVaga = 'hoje' | 'udu' | 'sete' | 'trinta';
-      const vagaCounts = new Map<string, Record<ChavePerVaga, number>>();
-      function bumpVaga(vaga: string, p: ChavePerVaga) {
-        let rec = vagaCounts.get(vaga);
-        if (!rec) {
-          rec = { hoje: 0, udu: 0, sete: 0, trinta: 0 };
-          vagaCounts.set(vaga, rec);
-        }
-        rec[p]++;
-      }
 
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
@@ -486,15 +473,6 @@ export async function GET(request: NextRequest) {
         if (dt >= uduIni && dt < uduFim) aplicarAcc(accsEquipe.udu);
         else if (dt >= uduAntIni && dt < uduAntFim) aplicarAcc(accsEquipe.uduAnt);
         if (inHoje) aplicarAcc(accsEquipe.hoje);
-
-        // Contagem por vaga (mesmos filtros já aplicados acima).
-        const vagaNome = (r.vaga ?? '').trim();
-        if (vagaNome.length > 0) {
-          if (inHoje) bumpVaga(vagaNome, 'hoje');
-          if (dt >= uduIni && dt < uduFim) bumpVaga(vagaNome, 'udu');
-          if (inSete) bumpVaga(vagaNome, 'sete');
-          if (inTrinta) bumpVaga(vagaNome, 'trinta');
-        }
 
         // Serie diaria 30d: pula registros mais antigos
         if (!inTrinta) continue;
@@ -824,11 +802,13 @@ export async function GET(request: NextRequest) {
       const diasTesteRows = await query<{
         data: string;
         valor: string;
+        status: string;
         vaga: string | null;
         departamento_id: number | null;
       }>(
         `SELECT a.data::text AS data,
                 COALESCE(a.valor_a_pagar, a.valor_diaria)::text AS valor,
+                a.status,
                 ps.vaga_snapshot AS vaga,
                 ps.departamento_id
            FROM people.dia_teste_agendamento a
@@ -838,20 +818,61 @@ export async function GET(request: NextRequest) {
       );
 
       type ChavePerDT = 'hoje' | 'udu' | 'uduAnt' | 'sete' | 'seteAnt' | 'quinze' | 'quinzeAnt' | 'trinta' | 'trintaAnt';
-      const dtAcc: Record<ChavePerDT, { totalCents: number; count: number }> = {
-        hoje: { totalCents: 0, count: 0 },
-        udu: { totalCents: 0, count: 0 },
-        uduAnt: { totalCents: 0, count: 0 },
-        sete: { totalCents: 0, count: 0 },
-        seteAnt: { totalCents: 0, count: 0 },
-        quinze: { totalCents: 0, count: 0 },
-        quinzeAnt: { totalCents: 0, count: 0 },
-        trinta: { totalCents: 0, count: 0 },
-        trintaAnt: { totalCents: 0, count: 0 },
+      interface DTBucket {
+        totalCents: number;
+        count: number;
+        aprovados: number;
+        reprovados: number;
+        compareceu: number;
+        naoCompareceu: number;
+        desistencia: number;
+        agendado: number;
+      }
+      const novoDT = (): DTBucket => ({
+        totalCents: 0,
+        count: 0,
+        aprovados: 0,
+        reprovados: 0,
+        compareceu: 0,
+        naoCompareceu: 0,
+        desistencia: 0,
+        agendado: 0,
+      });
+      const dtAcc: Record<ChavePerDT, DTBucket> = {
+        hoje: novoDT(),
+        udu: novoDT(),
+        uduAnt: novoDT(),
+        sete: novoDT(),
+        seteAnt: novoDT(),
+        quinze: novoDT(),
+        quinzeAnt: novoDT(),
+        trinta: novoDT(),
+        trintaAnt: novoDT(),
       };
-      const bumpDT = (p: ChavePerDT, valorCents: number) => {
-        dtAcc[p].totalCents += valorCents;
-        dtAcc[p].count++;
+      const bumpDT = (p: ChavePerDT, valorCents: number, status: string) => {
+        const b = dtAcc[p];
+        b.totalCents += valorCents;
+        b.count++;
+        switch (status) {
+          case 'aprovado':
+            b.aprovados++;
+            break;
+          case 'reprovado':
+            b.reprovados++;
+            break;
+          case 'compareceu':
+            b.compareceu++;
+            break;
+          case 'nao_compareceu':
+            b.naoCompareceu++;
+            break;
+          case 'desistencia':
+            b.desistencia++;
+            break;
+          case 'agendado':
+            b.agendado++;
+            break;
+        }
       };
       for (const row of diasTesteRows.rows) {
         // data é yyyy-mm-dd. Constrói Date em local TZ midnight pra
@@ -867,15 +888,16 @@ export async function GET(request: NextRequest) {
         const inSete = dtT >= seteIni.getTime();
         const inHoje = dtT >= hojeIni.getTime();
 
-        if (inTrinta) bumpDT('trinta', valorCents);
-        else bumpDT('trintaAnt', valorCents);
-        if (dtT >= quinzeIni.getTime()) bumpDT('quinze', valorCents);
-        else if (dtT >= quinzeAntIni.getTime()) bumpDT('quinzeAnt', valorCents);
-        if (inSete) bumpDT('sete', valorCents);
-        else if (dtT >= seteAntIni.getTime()) bumpDT('seteAnt', valorCents);
-        if (dtT >= uduIni.getTime() && dtT < uduFim.getTime()) bumpDT('udu', valorCents);
-        else if (dtT >= uduAntIni.getTime() && dtT < uduAntFim.getTime()) bumpDT('uduAnt', valorCents);
-        if (inHoje) bumpDT('hoje', valorCents);
+        const st = row.status;
+        if (inTrinta) bumpDT('trinta', valorCents, st);
+        else bumpDT('trintaAnt', valorCents, st);
+        if (dtT >= quinzeIni.getTime()) bumpDT('quinze', valorCents, st);
+        else if (dtT >= quinzeAntIni.getTime()) bumpDT('quinzeAnt', valorCents, st);
+        if (inSete) bumpDT('sete', valorCents, st);
+        else if (dtT >= seteAntIni.getTime()) bumpDT('seteAnt', valorCents, st);
+        if (dtT >= uduIni.getTime() && dtT < uduFim.getTime()) bumpDT('udu', valorCents, st);
+        else if (dtT >= uduAntIni.getTime() && dtT < uduAntFim.getTime()) bumpDT('uduAnt', valorCents, st);
+        if (inHoje) bumpDT('hoje', valorCents, st);
       }
 
       // Helper consolida cada período de dias de teste em formato comum:
@@ -912,6 +934,64 @@ export async function GET(request: NextRequest) {
         sete: consolidarDT(dtAcc.sete, dtAcc.seteAnt, bdSete, bdSeteAnt),
         quinze: consolidarDT(dtAcc.quinze, dtAcc.quinzeAnt, bdQuinze, bdQuinzeAnt),
         trinta: consolidarDT(dtAcc.trinta, dtAcc.trintaAnt, bdTrinta, bdTrintaAnt),
+      };
+
+      // Consolidação operacional — counts e taxas por bucket.
+      function consolidarDTOps(atual: DTBucket, anterior: DTBucket) {
+        const decididos = atual.aprovados + atual.reprovados;
+        const taxaAprovacao = decididos > 0
+          ? Math.round((atual.aprovados / decididos) * 1000) / 10
+          : null;
+        const decididosAnt = anterior.aprovados + anterior.reprovados;
+        const taxaAprovacaoAnt = decididosAnt > 0
+          ? Math.round((anterior.aprovados / decididosAnt) * 1000) / 10
+          : null;
+        const pctAprovTotal = atual.count > 0
+          ? Math.round((atual.aprovados / atual.count) * 1000) / 10
+          : 0;
+        const pctReprTotal = atual.count > 0
+          ? Math.round((atual.reprovados / atual.count) * 1000) / 10
+          : 0;
+        const pctNoShow = atual.count > 0
+          ? Math.round((atual.naoCompareceu / atual.count) * 1000) / 10
+          : 0;
+        return {
+          total: atual.count,
+          aprovados: atual.aprovados,
+          reprovados: atual.reprovados,
+          compareceu: atual.compareceu,
+          naoCompareceu: atual.naoCompareceu,
+          desistencia: atual.desistencia,
+          agendado: atual.agendado,
+          taxaAprovacaoPct: taxaAprovacao,
+          pctAprovadosTotal: pctAprovTotal,
+          pctReprovadosTotal: pctReprTotal,
+          pctNaoCompareceuTotal: pctNoShow,
+          anterior: {
+            total: anterior.count,
+            aprovados: anterior.aprovados,
+            reprovados: anterior.reprovados,
+            taxaAprovacaoPct: taxaAprovacaoAnt,
+          },
+          // Variação aplicada à taxa de aprovação. Pra Hoje/UDU, variação
+          // sobre total absoluto (mesmo padrão dos KPIs de entrevistas).
+          variacaoTotalPct: calcVariacaoPct(atual.count, anterior.count),
+          variacaoTaxaAprovacaoPct:
+            taxaAprovacaoAnt != null && taxaAprovacao != null
+              ? Math.round((taxaAprovacao - taxaAprovacaoAnt) * 10) / 10
+              : null,
+        };
+      }
+
+      const diasTesteOps = {
+        ultimoDiaUtil: {
+          ...consolidarDTOps(dtAcc.udu, dtAcc.uduAnt),
+          dataReferencia: uduIni.toISOString().slice(0, 10),
+        },
+        hoje: consolidarDTOps(dtAcc.hoje, dtAcc.udu),
+        sete: consolidarDTOps(dtAcc.sete, dtAcc.seteAnt),
+        quinze: consolidarDTOps(dtAcc.quinze, dtAcc.quinzeAnt),
+        trinta: consolidarDTOps(dtAcc.trinta, dtAcc.trintaAnt),
       };
 
       // 8. Opcoes (cacheado 5min — listas mudam raro)
@@ -980,10 +1060,8 @@ export async function GET(request: NextRequest) {
         // Contagem de entrevistas por vaga × periodo. Ordenado por
         // total de 30d desc. Frontend renderiza grafico de barras
         // agrupadas (4 barras por vaga: UDU, hoje, 7d, 30d).
-        entrevistasPorVaga: Array.from(vagaCounts.entries())
-          .map(([vaga, c]) => ({ vaga, ...c }))
-          .sort((a, b) => b.trinta - a.trinta),
         diasTeste,
+        diasTesteOps,
         opcoes: {
           ...opcoes,
           // Filtra dropdown: so recrutadores com usuario ativo cargo
