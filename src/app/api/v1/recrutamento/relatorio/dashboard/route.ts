@@ -82,6 +82,7 @@ interface LinhaEntrevista {
   id: number;
   recrutador: string | null;
   vaga: string | null;
+  telefone: string | null;
   data_entrevista: Date;
   duracao_seg: number | null;
   aderencia_ia_pct: string | null;
@@ -287,7 +288,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v10:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v11:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -368,7 +369,7 @@ export async function GET(request: NextRequest) {
       }
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
-        `SELECT id, recrutador, vaga, data_entrevista, duracao_seg,
+        `SELECT id, recrutador, vaga, telefone, data_entrevista, duracao_seg,
                 aderencia_ia_pct, video_created_at
            FROM public.entrevistas_agendadas
           WHERE ${where}`,
@@ -924,6 +925,196 @@ export async function GET(request: NextRequest) {
         };
       }
 
+      // ───────────────────────────────────────────────────────────────
+      // Funil de recrutamento (30d) — entrevistas → admissão
+      // ───────────────────────────────────────────────────────────────
+      // Liga entrevistas (DB Recrutamento) → processo seletivo (DB People)
+      // via candidato_recrutamento_id ↔ candidatos.id, usando telefone
+      // como ponte entre os dois bancos. Pra cada recrutador (e total
+      // agregado em "_todos"), conta candidatos em cada estágio.
+
+      // 1. Normaliza telefones das entrevistas filtradas (apenas trinta).
+      //    Map<telefoneNorm, Set<recrutador>>.
+      const normTel = (t: string | null): string => {
+        if (!t) return '';
+        return t.replace(/\D+/g, '').replace(/^55/, '');
+      };
+      const telToRec = new Map<string, Set<string>>();
+      const recrutadoresAtivosLista: string[] = [];
+      const recrutadoresAtivosSet = new Set<string>();
+      const linhasTrintaFunil = linhas.rows.filter((r) => {
+        const dt = new Date(r.data_entrevista);
+        return dt >= trintaInicio && isBusinessDay(dt);
+      });
+      for (const r of linhasTrintaFunil) {
+        const k = (r.recrutador ?? '').trim();
+        if (!k || !recrutadorAtivo(k)) continue;
+        if (!recrutadoresAtivosSet.has(k)) {
+          recrutadoresAtivosSet.add(k);
+          recrutadoresAtivosLista.push(k);
+        }
+        const tel = normTel(r.telefone);
+        if (tel.length < 8) continue;
+        let s = telToRec.get(tel);
+        if (!s) {
+          s = new Set();
+          telToRec.set(tel, s);
+        }
+        s.add(k);
+      }
+
+      // 2. Resolve candidato_recrutamento_id (DB Recrutamento) via telefone.
+      //    candidatos.telefone também precisa ser normalizado pra match.
+      const candIdToRec = new Map<number, string[]>();
+      if (telToRec.size > 0) {
+        const telefonesArr = Array.from(telToRec.keys());
+        try {
+          const candRes = await queryRecrutamento<{
+            id: number;
+            telefone: string;
+          }>(
+            `SELECT id, telefone FROM public.candidatos
+              WHERE regexp_replace(regexp_replace(telefone, '\\D+', '', 'g'), '^55', '') = ANY($1::text[])`,
+            [telefonesArr],
+          );
+          for (const c of candRes.rows) {
+            const tel = normTel(c.telefone);
+            const recs = telToRec.get(tel);
+            if (recs && recs.size > 0) {
+              candIdToRec.set(c.id, Array.from(recs));
+            }
+          }
+        } catch (e) {
+          console.warn('[funil] busca candidatos falhou:', e);
+        }
+      }
+
+      // 3. Acumuladores por recrutador. "_todos" agrega total geral.
+      interface FunilBucket {
+        entrevistas: number;
+        processos: number;
+        testesAgendados: number;
+        compareceu: number;
+        aprovados: number;
+        admitidos: number;
+      }
+      const novoFunil = (): FunilBucket => ({
+        entrevistas: 0,
+        processos: 0,
+        testesAgendados: 0,
+        compareceu: 0,
+        aprovados: 0,
+        admitidos: 0,
+      });
+      const funilAcc = new Map<string, FunilBucket>();
+      funilAcc.set('_todos', novoFunil());
+      for (const r of recrutadoresAtivosLista) {
+        funilAcc.set(r, novoFunil());
+      }
+      const bumpFunil = (rec: string | null, key: keyof FunilBucket) => {
+        funilAcc.get('_todos')![key]++;
+        if (rec && funilAcc.has(rec)) funilAcc.get(rec)![key]++;
+      };
+
+      // Estágio 1: entrevistas (já temos linhasTrintaFunil).
+      for (const r of linhasTrintaFunil) {
+        const k = (r.recrutador ?? '').trim();
+        if (!k || !recrutadorAtivo(k)) continue;
+        bumpFunil(k, 'entrevistas');
+      }
+
+      // Estágio 2-6: processos seletivos + testes + admissões.
+      // Filtra pela mesma janela trinta (data de criação do processo).
+      // Status terminal do processo: admitido. Estados intermediários
+      // (dia_teste / em_admissao) contam apenas como "processo".
+      try {
+        const procRes = await query<{
+          id: string;
+          candidato_recrutamento_id: number | null;
+          status: string;
+          admitido_em: Date | null;
+          criado_em: Date;
+        }>(
+          `SELECT id::text AS id,
+                  candidato_recrutamento_id,
+                  status,
+                  admitido_em,
+                  criado_em
+             FROM people.processo_seletivo
+            WHERE criado_em >= $1`,
+          [trintaInicio.toISOString()],
+        );
+
+        // Map<processo_id, recrutador_atribuido> — usa primeiro recrutador
+        // se candidato passou por entrevistas com múltiplos.
+        const procToRec = new Map<string, string | null>();
+        for (const p of procRes.rows) {
+          if (!p.candidato_recrutamento_id) {
+            procToRec.set(p.id, null);
+            continue;
+          }
+          const recs = candIdToRec.get(p.candidato_recrutamento_id);
+          const rec = recs && recs.length > 0 ? recs[0] : null;
+          procToRec.set(p.id, rec);
+          bumpFunil(rec, 'processos');
+          if (p.status === 'admitido' || p.admitido_em != null) {
+            bumpFunil(rec, 'admitidos');
+          }
+        }
+
+        // Estágio dia_teste — counts por processo.
+        // Agendado = "testesAgendados". Compareceu/aprovado/reprovado =
+        // "compareceu" (presença confirmada). Apenas aprovado conta
+        // também em "aprovados".
+        const procIds = Array.from(procToRec.keys());
+        if (procIds.length > 0) {
+          const dtFunilRes = await query<{
+            processo_seletivo_id: string;
+            status: string;
+          }>(
+            `SELECT processo_seletivo_id::text AS processo_seletivo_id, status
+               FROM people.dia_teste_agendamento
+              WHERE processo_seletivo_id = ANY($1::bigint[])
+                AND status != 'cancelado'`,
+            [procIds],
+          );
+          // Pra evitar double-counting quando processo tem múltiplos dias,
+          // marcamos por processo o estágio mais avançado atingido.
+          interface ProcEstagio {
+            agendou: boolean;
+            compareceu: boolean;
+            aprovado: boolean;
+          }
+          const procEstagios = new Map<string, ProcEstagio>();
+          for (const a of dtFunilRes.rows) {
+            const pid = a.processo_seletivo_id;
+            let est = procEstagios.get(pid);
+            if (!est) {
+              est = { agendou: false, compareceu: false, aprovado: false };
+              procEstagios.set(pid, est);
+            }
+            est.agendou = true;
+            if (['compareceu', 'aprovado', 'reprovado'].includes(a.status)) {
+              est.compareceu = true;
+            }
+            if (a.status === 'aprovado') est.aprovado = true;
+          }
+          for (const [pid, est] of procEstagios.entries()) {
+            const rec = procToRec.get(pid) ?? null;
+            if (est.agendou) bumpFunil(rec, 'testesAgendados');
+            if (est.compareceu) bumpFunil(rec, 'compareceu');
+            if (est.aprovado) bumpFunil(rec, 'aprovados');
+          }
+        }
+      } catch (e) {
+        console.warn('[funil] busca processos/testes falhou:', e);
+      }
+
+      const funilRecrutamento = {
+        recrutadores: recrutadoresAtivosLista.sort(),
+        buckets: Object.fromEntries(funilAcc.entries()),
+      };
+
       const diasTesteOps = {
         ultimoDiaUtil: {
           ...consolidarDTOps(dtAcc.udu, dtAcc.uduAnt),
@@ -995,6 +1186,7 @@ export async function GET(request: NextRequest) {
         recrutadores,
         diasTeste,
         diasTesteOps,
+        funilRecrutamento,
         opcoes: {
           ...opcoes,
           // Filtra dropdown: so recrutadores com usuario ativo cargo
