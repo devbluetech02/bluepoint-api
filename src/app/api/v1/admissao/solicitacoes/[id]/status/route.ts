@@ -349,17 +349,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
         if (body.status === 'aso_solicitado' && body.clinicaId) {
           const clinicaPushResult = await query<{
+            id: number;
             nome: string;
             logradouro: string | null; numero: string | null;
             bairro: string | null; cidade: string | null;
             estado: string | null; cep: string | null;
+            horario_atendimento: Record<string, unknown> | null;
           }>(
-            `SELECT nome, logradouro, numero, bairro, cidade, estado, cep
+            `SELECT id, nome, logradouro, numero, bairro, cidade, estado, cep,
+                    horario_atendimento
              FROM people.clinicas WHERE id = $1`,
             [body.clinicaId]
           );
           const cp = clinicaPushResult.rows[0];
           if (cp) {
+            pushData.clinicaId = cp.id;
             pushData.clinica = cp.nome;
             const parts: string[] = [];
             if (cp.logradouro) parts.push(cp.logradouro);
@@ -369,6 +373,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             else if (cp.cidade) parts.push(`, ${cp.cidade}`);
             if (cp.cep)        parts.push(`, ${cp.cep}`);
             pushData.endereco = parts.join('');
+            // Mobile (`aso_info_screen.dart`) usa `horarioAtendimento` para
+            // exibir a hora de chegada (abertura da clínica no dia da semana)
+            // quando o agendamento não tem hora específica — evita o bug do
+            // "00:00". OneSignal pode serializar additionalData como string,
+            // mas o cliente Flutter aceita Map ou string JSON.
+            if (cp.horario_atendimento) {
+              pushData.horarioAtendimento = cp.horario_atendimento;
+            }
           }
           if (dataExameTs) {
             pushData.dataHora = dataExameTs;
