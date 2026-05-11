@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v13:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v14:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -1056,14 +1056,24 @@ export async function GET(request: NextRequest) {
           id: string;
           candidato_recrutamento_id: number | null;
           status: string;
+          foi_admitido: boolean;
           criado_em: Date;
         }>(
-          `SELECT id::text AS id,
-                  candidato_recrutamento_id,
-                  status,
-                  criado_em
-             FROM people.processo_seletivo
-            WHERE criado_em >= $1`,
+          `SELECT p.id::text AS id,
+                  p.candidato_recrutamento_id,
+                  p.status,
+                  COALESCE(adm.foi_admitido, false) AS foi_admitido,
+                  p.criado_em
+             FROM people.processo_seletivo p
+             LEFT JOIN LATERAL (
+               SELECT TRUE AS foi_admitido
+                 FROM people.solicitacoes_admissao sa
+                 JOIN people.usuarios_provisorios up ON up.id = sa.usuario_provisorio_id
+                WHERE up.cpf = p.candidato_cpf_norm
+                  AND sa.status = 'admitido'
+                LIMIT 1
+             ) adm ON TRUE
+            WHERE p.criado_em >= $1`,
           [trintaInicio.toISOString()],
         );
 
@@ -1079,7 +1089,10 @@ export async function GET(request: NextRequest) {
           const rec = recs && recs.length > 0 ? recs[0] : null;
           procToRec.set(p.id, rec);
           bumpFunil(rec, 'processos');
-          if (p.status === 'admitido') {
+          // Admitido = solicitação de admissão associada (via cpf) com
+          // status='admitido'. processo_seletivo não tem status 'admitido'
+          // próprio — fluxo passa por solicitacoes_admissao + usuarios_provisorios.
+          if (p.foi_admitido) {
             bumpFunil(rec, 'admitidos');
           }
         }
