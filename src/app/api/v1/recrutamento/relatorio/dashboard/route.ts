@@ -81,6 +81,7 @@ function countBusinessDays(startIncl: Date, endIncl: Date): number {
 interface LinhaEntrevista {
   id: number;
   recrutador: string | null;
+  vaga: string | null;
   data_entrevista: Date;
   duracao_seg: number | null;
   aderencia_ia_pct: string | null;
@@ -275,7 +276,7 @@ export async function GET(request: NextRequest) {
       // recarga manual pra ver mudancas mesmo). Multiplos gestores na
       // mesma view (sem filtro) compartilham cache; cada filtro distinto
       // gera sua propria chave.
-      const cacheKey = `recrutamento:relatorio:dashboard:v6:${[
+      const cacheKey = `recrutamento:relatorio:dashboard:v7:${[
         recrutadorFiltro ?? '*',
         vagaFiltro ?? '*',
         departamentoId ?? '*',
@@ -354,8 +355,8 @@ export async function GET(request: NextRequest) {
       }
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
-        `SELECT id, recrutador, data_entrevista, duracao_seg, aderencia_ia_pct,
-                video_created_at
+        `SELECT id, recrutador, vaga, data_entrevista, duracao_seg,
+                aderencia_ia_pct, video_created_at
            FROM public.entrevistas_agendadas
           WHERE ${where}`,
         params,
@@ -403,6 +404,20 @@ export async function GET(request: NextRequest) {
 
       // Pra serie diaria 30d (visao geral)
       const serieMap = new Map<string, { total: number; somaDur: number; comDur: number }>();
+
+      // Contagem de entrevistas por vaga × periodo (udu / hoje / sete /
+      // trinta). Mesmas regras de filtro do resto: business day +
+      // recrutadorAtivo. Usado pelo grafico comparativo por vaga.
+      type ChavePerVaga = 'hoje' | 'udu' | 'sete' | 'trinta';
+      const vagaCounts = new Map<string, Record<ChavePerVaga, number>>();
+      function bumpVaga(vaga: string, p: ChavePerVaga) {
+        let rec = vagaCounts.get(vaga);
+        if (!rec) {
+          rec = { hoje: 0, udu: 0, sete: 0, trinta: 0 };
+          vagaCounts.set(vaga, rec);
+        }
+        rec[p]++;
+      }
 
       for (const r of linhas.rows) {
         const k = (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
@@ -458,6 +473,15 @@ export async function GET(request: NextRequest) {
         if (dt >= uduIni && dt < uduFim) aplicarAcc(accsEquipe.udu);
         else if (dt >= uduAntIni && dt < uduAntFim) aplicarAcc(accsEquipe.uduAnt);
         if (inHoje) aplicarAcc(accsEquipe.hoje);
+
+        // Contagem por vaga (mesmos filtros já aplicados acima).
+        const vagaNome = (r.vaga ?? '').trim();
+        if (vagaNome.length > 0) {
+          if (inHoje) bumpVaga(vagaNome, 'hoje');
+          if (dt >= uduIni && dt < uduFim) bumpVaga(vagaNome, 'udu');
+          if (inSete) bumpVaga(vagaNome, 'sete');
+          if (inTrinta) bumpVaga(vagaNome, 'trinta');
+        }
 
         // Serie diaria 30d: pula registros mais antigos
         if (!inTrinta) continue;
@@ -822,6 +846,12 @@ export async function GET(request: NextRequest) {
           buckets: distribuicao,
           semDuracaoRegistrada: semDuracao,
         },
+        // Contagem de entrevistas por vaga × periodo. Ordenado por
+        // total de 30d desc. Frontend renderiza grafico de barras
+        // agrupadas (4 barras por vaga: UDU, hoje, 7d, 30d).
+        entrevistasPorVaga: Array.from(vagaCounts.entries())
+          .map(([vaga, c]) => ({ vaga, ...c }))
+          .sort((a, b) => b.trinta - a.trinta),
         opcoes: {
           ...opcoes,
           // Filtra dropdown: so recrutadores com usuario ativo cargo
