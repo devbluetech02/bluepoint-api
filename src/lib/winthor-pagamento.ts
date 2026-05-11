@@ -39,6 +39,7 @@ export async function lancarPagamentoPixWinthorPorId(
     cod_filial_winthor: number | null;
     estado: string | null;
     cidade: string | null;
+    data_dia_teste: string;
   }>(
     `SELECT pp.id::text                AS pag_id,
             pp.status,
@@ -55,7 +56,8 @@ export async function lancarPagamentoPixWinthorPorId(
             e.nome_fantasia            AS empresa_nome_fantasia,
             e.cod_filial_winthor,
             e.estado,
-            e.cidade
+            e.cidade,
+            a.data::text               AS data_dia_teste
        FROM people.pagamento_pix pp
        JOIN people.dia_teste_agendamento a ON a.id = pp.agendamento_id
        JOIN people.processo_seletivo    ps ON ps.id = a.processo_seletivo_id
@@ -122,6 +124,9 @@ export async function lancarPagamentoPixWinthorPorId(
       chavePix: row.chave_pix,
       tipoChave: row.tipo_chave,
       nomeFunc,
+      // Diferencia HISTORICO por data — sem isso, 2 dias do mesmo
+      // candidato pagos no MESMO dia caem no anti-dup do Winthor.
+      dataDiaTeste: row.data_dia_teste,
     });
 
     await query(

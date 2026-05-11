@@ -78,6 +78,14 @@ interface LancarPagamentoArgs {
   tipoChave: string;
   /** Login Winthor do gestor que aprovou o pagamento (ex.: "ROBSONAREND") */
   nomeFunc: string;
+  /**
+   * Data do dia de teste sendo pago (YYYY-MM-DD). Entra no HISTORICO pra
+   * diferenciar lançamentos do mesmo candidato em dias distintos lançados
+   * no MESMO DIA — sem isso, o anti-dup por (HISTORICO+CHAVEPIX+VALOR) +
+   * TRUNC(DTLANC)=TRUNC(SYSDATE) bloqueia o segundo lançamento.
+   * Opcional pra compatibilidade com callers legados (cron, admin test).
+   */
+  dataDiaTeste?: string;
 }
 
 interface LancarResultado {
@@ -141,6 +149,13 @@ function resolverCentroCusto(cargo: string): string {
   return CARGO_TO_CC[normCargo(cargo)] || CC_DEFAULT;
 }
 
+/** "YYYY-MM-DD" → "DD/MM/YYYY". Retorna string vazia se input inválido. */
+function formatarDataDDMMYYYY(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) return '';
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
 /** Mapeia tipo de chave do nosso domínio pra (label, código) do Winthor. */
 function mapearTipoChavePix(tipo: string): { label: string; cod: string; chaveFormatada: (raw: string) => string } {
   const t = tipo.trim().toLowerCase();
@@ -182,8 +197,13 @@ export async function lancarPagamentoPixNoWinthor(
     const nome = args.nomeCandidato.trim().toUpperCase().slice(0, 80);
     const cargo = args.cargo.trim().toUpperCase().slice(0, 40);
     const codigoCentroCusto = resolverCentroCusto(args.cargo);
+    // Formata data como DD/MM/YYYY pra entrar no HISTORICO. Se o caller
+    // não passou (legado), cai pro formato antigo — backwards-compatible.
+    const dataFmt = args.dataDiaTeste
+      ? formatarDataDDMMYYYY(args.dataDiaTeste)
+      : '';
     const historico =
-      `PAGAMENTO REF.DIA DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
+      `PAGAMENTO REF.DIA ${dataFmt ? `${dataFmt} ` : ''}DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
 
     // 1. Anti-dup defensivo: olha pra PCLANC procurando um lançamento
