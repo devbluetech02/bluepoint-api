@@ -19,9 +19,12 @@ import { getVideoCreatedTime } from './drive-video';
 // limit do Drive.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const INTERVALO_MS = 5 * 60 * 1000;
-const DELAY_INICIAL_MS = 120 * 1000;
-const LIMITE_POR_CICLO = 30;
+// Drive API: ~1000 req/100s/usuario (10 req/s sustentado). 100 reqs
+// em sequencia ~ 10-30s. Intervalo de 60s deixa margem segura e
+// agiliza backfill (100 * 60 = 6000/hora).
+const INTERVALO_MS = 60 * 1000;
+const DELAY_INICIAL_MS = 15 * 1000;
+const LIMITE_POR_CICLO = 100;
 
 let timerRef: ReturnType<typeof setInterval> | null = null;
 

@@ -129,6 +129,13 @@ export async function GET(request: NextRequest) {
       const sp = request.nextUrl.searchParams;
       const empresaId = sp.get('empresa_id');
       const status = sp.get('status') ?? 'ativa';
+      const search = (sp.get('search') ?? '').trim();
+
+      // Paginação — page 1-based, limit clamp [1..100]. Sem `page` retorna
+      // tudo (compat com chamadas legadas que ainda esperam a lista inteira).
+      const hasPage = sp.has('page') || sp.has('limit');
+      const page = Math.max(1, parseInt(sp.get('page') ?? '1', 10) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(sp.get('limit') ?? '20', 10) || 20));
 
       const params: unknown[] = [status];
       const wheres = ['c.status = $1'];
@@ -136,14 +143,50 @@ export async function GET(request: NextRequest) {
       if (empresaId) {
         const eid = parseInt(empresaId, 10);
         if (isNaN(eid)) return errorResponse('empresa_id deve ser um número', 400);
-        wheres.push(`c.empresa_id = $2`);
         params.push(eid);
+        wheres.push(`c.empresa_id = $${params.length}`);
       }
 
-      const sql = `${SELECT_SQL} WHERE ${wheres.join(' AND ')} ORDER BY c.nome ASC`;
-      const result = await query<ClinicaRow>(sql, params);
+      if (search) {
+        // Busca textual em nome / cidade / bairro — útil pra DP filtrar
+        // grandes listas sem precisar carregar tudo.
+        params.push(`%${search}%`);
+        const idx = params.length;
+        wheres.push(`(c.nome ILIKE $${idx} OR c.cidade ILIKE $${idx} OR c.bairro ILIKE $${idx})`);
+      }
 
-      return successResponse({ clinicas: result.rows.map(formatClinica) });
+      const baseWhere = `WHERE ${wheres.join(' AND ')}`;
+
+      if (!hasPage) {
+        // Modo legacy — sem paginação, devolve lista inteira.
+        const sql = `${SELECT_SQL} ${baseWhere} ORDER BY c.nome ASC`;
+        const result = await query<ClinicaRow>(sql, params);
+        return successResponse({ clinicas: result.rows.map(formatClinica) });
+      }
+
+      // Modo paginado — COUNT + slice. Roda em paralelo pra reduzir latencia.
+      const offset = (page - 1) * limit;
+      const dataParams = [...params, limit, offset];
+      const dataSql =
+        `${SELECT_SQL} ${baseWhere} ORDER BY c.nome ASC ` +
+        `LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`;
+      const countSql = `SELECT COUNT(*)::int AS total FROM people.clinicas c ${baseWhere}`;
+
+      const [dataResult, countResult] = await Promise.all([
+        query<ClinicaRow>(dataSql, dataParams),
+        query<{ total: number }>(countSql, params),
+      ]);
+
+      const total = countResult.rows[0]?.total ?? 0;
+      const totalPages = Math.ceil(total / limit);
+
+      return successResponse({
+        clinicas: dataResult.rows.map(formatClinica),
+        total,
+        page,
+        limit,
+        totalPages,
+      });
     } catch (error) {
       console.error('Erro ao listar clínicas:', error);
       return serverErrorResponse('Erro ao listar clínicas');
