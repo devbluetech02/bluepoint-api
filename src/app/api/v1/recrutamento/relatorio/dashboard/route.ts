@@ -428,37 +428,32 @@ export async function GET(request: NextRequest) {
       const sessenta = startOfDayBRT(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
       const trintaInicio = startOfDayBRT(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
-      // "Entrevista realizada" = candidato.status_entrevista preenchido.
-      // candidatos e a fonte canonica do count; entrevistas_agendadas
-      // contribui apenas com metricas IA (duracao, aderencia, ocio)
-      // via LEFT JOIN — entrevistas sem video processado ainda contam.
-      const params: unknown[] = [sessenta.toISOString().slice(0, 10)];
-      let where = `c.data_entrevista >= $1::date
-                   AND c.status_entrevista IS NOT NULL
-                   AND TRIM(c.status_entrevista) <> ''`;
+      // "Entrevista realizada" = video gravado no Google Drive
+      // (video_created_at NOT NULL) + duracao >= minimo parametrizado
+      // em people.parametros_rh. Garante que so contam entrevistas
+      // efetivamente conduzidas e com tempo minimo de conversa.
+      const params: unknown[] = [sessenta.toISOString(), duracaoMinSeg];
+      let where = `data_entrevista >= $1
+                   AND video_created_at IS NOT NULL
+                   AND duracao_seg IS NOT NULL
+                   AND duracao_seg >= $2`;
       if (recrutadorFiltro) {
         params.push(recrutadorFiltro);
-        where += ` AND c.responsavel_entrevista = $${params.length}`;
+        where += ` AND recrutador = $${params.length}`;
       }
       if (vagaFiltro) {
         params.push(`%${vagaFiltro}%`);
-        where += ` AND c.vaga ILIKE $${params.length}`;
+        where += ` AND vaga ILIKE $${params.length}`;
       }
       if (vagasDoDept) {
         params.push(vagasDoDept);
-        where += ` AND c.vaga = ANY($${params.length}::text[])`;
+        where += ` AND vaga = ANY($${params.length}::text[])`;
       }
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
-        `SELECT c.id AS id,
-                c.responsavel_entrevista AS recrutador,
-                c.vaga AS vaga,
-                c.telefone AS telefone,
-                c.data_entrevista AS data_entrevista,
-                ea.duracao_seg, ea.aderencia_ia_pct, ea.houve_entrevista_ia,
-                ea.video_created_at
-           FROM public.candidatos c
-           LEFT JOIN public.entrevistas_agendadas ea ON ea.id_candidatura = c.id
+        `SELECT id, recrutador, vaga, telefone, data_entrevista, duracao_seg,
+                aderencia_ia_pct, houve_entrevista_ia, video_created_at
+           FROM public.entrevistas_agendadas
           WHERE ${where}`,
         params,
       );
@@ -507,10 +502,7 @@ export async function GET(request: NextRequest) {
         // Filtro 1: ignora entrevistas de recrutadores sem usuario ativo
         // cargo recrutador no People.
         if (!recrutadorAtivo(k)) continue;
-        // c.data_entrevista e `date` (sem TZ) — node-pg parseia como
-        // meia-noite UTC. Soma BRT_OFFSET_MS pra ancorar em meia-noite
-        // BRT-como-instante-UTC, mesmo eixo dos boundaries (hojeIni etc).
-        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        const dt = new Date(r.data_entrevista);
         // Filtro 2: dashboard contabiliza só dias úteis (seg-sex, sem
         // feriados nacionais). Entrevistas em fds/feriado ficam de fora
         // de todos os KPIs, séries, distribuição e nota dos recrutadores.
@@ -600,7 +592,7 @@ export async function GET(request: NextRequest) {
         const k =
           (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
         if (!recrutadorAtivo(k)) continue;
-        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        const dt = new Date(r.data_entrevista);
         if (!isBusinessDay(dt)) continue;
         const arr = entriesPorRec.get(k) ?? [];
         arr.push(r);
@@ -643,11 +635,7 @@ export async function GET(request: NextRequest) {
         all: LinhaEntrevista[],
         janelaIni: Date,
       ): LinhaEntrevista[] {
-        return all.filter(
-          (e) =>
-            new Date(new Date(e.data_entrevista).getTime() + BRT_OFFSET_MS) >=
-            janelaIni,
-        );
+        return all.filter((e) => new Date(e.data_entrevista) >= janelaIni);
       }
 
       // Equipe: agrega todas as entrevistas de todos recrutadores
@@ -751,7 +739,7 @@ export async function GET(request: NextRequest) {
       let mesAtualTotal = 0;
       for (const r of linhas.rows) {
         if (!recrutadorAtivo((r.recrutador ?? '').trim())) continue;
-        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        const dt = new Date(r.data_entrevista);
         if (!isBusinessDay(dt)) continue;
         if (dt >= mesAtualIni) mesAtualTotal++;
       }
@@ -1089,7 +1077,7 @@ export async function GET(request: NextRequest) {
       const recrutadoresAtivosLista: string[] = [];
       const recrutadoresAtivosSet = new Set<string>();
       const linhasTrintaFunil = linhas.rows.filter((r) => {
-        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        const dt = new Date(r.data_entrevista);
         return dt >= trintaInicio && isBusinessDay(dt);
       });
       for (const r of linhasTrintaFunil) {
@@ -1199,7 +1187,7 @@ export async function GET(request: NextRequest) {
       for (const r of linhasTrintaFunil) {
         const k = (r.recrutador ?? '').trim();
         if (!k || !recrutadorAtivo(k)) continue;
-        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        const dt = new Date(r.data_entrevista);
         const jans = janelasParaData(dt);
         bumpFunil(jans, k, 'entrevistas');
         // "Não iniciaram": entrevista marcada no Drive sem IA processada
@@ -1410,7 +1398,7 @@ export async function GET(request: NextRequest) {
         const todosBucket = accJanelas[j].get('_todos')!;
         const vagasJ = new Set<string>();
         for (const r of linhasTrintaFunil) {
-          const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+          const dt = new Date(r.data_entrevista);
           if (dt < janelaIni) continue;
           if (r.vaga && r.vaga.trim().length > 0) vagasJ.add(r.vaga.trim());
         }
