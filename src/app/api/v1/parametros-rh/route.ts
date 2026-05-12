@@ -29,6 +29,9 @@ const DEFAULTS = {
   // Migration 053 — Frequência do popup de feedback IA
   popupModo: 'por_avaliacao' as 'por_avaliacao' | 'por_dias',
   popupIntervalo: 1,
+  // Migration 072 — prazo p/ gestor marcar compareceu/nao-compareceu.
+  diaTesteHoraInicioMarcacao: '08:00:00',
+  diaTesteToleranciaMarcacaoMinutos: 60,
 };
 
 const RETURNING_COLS = `id, telefone_rh, email_rh,
@@ -40,7 +43,8 @@ const RETURNING_COLS = `id, telefone_rh, email_rh,
   valor_diaria_teste_padrao, percentual_minimo_decisao,
   entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
   duracao_minima_entrevista_minutos,
-  popup_modo, popup_intervalo`;
+  popup_modo, popup_intervalo,
+  dia_teste_hora_inicio_marcacao, dia_teste_tolerancia_marcacao_minutos`;
 
 type Row = {
   id: number;
@@ -64,6 +68,8 @@ type Row = {
   duracao_minima_entrevista_minutos: number | string | null;
   popup_modo: string | null;
   popup_intervalo: number | string | null;
+  dia_teste_hora_inicio_marcacao: string | null;
+  dia_teste_tolerancia_marcacao_minutos: number | string | null;
 };
 
 function mapRow(row: Row) {
@@ -90,6 +96,10 @@ function mapRow(row: Row) {
       | 'por_avaliacao'
       | 'por_dias',
     popupIntervalo: Number(row.popup_intervalo ?? 1),
+    diaTesteHoraInicioMarcacao: row.dia_teste_hora_inicio_marcacao ?? '08:00:00',
+    diaTesteToleranciaMarcacaoMinutos: Number(
+      row.dia_teste_tolerancia_marcacao_minutos ?? 60,
+    ),
   };
 }
 
@@ -169,9 +179,11 @@ export async function PUT(request: NextRequest) {
                popup_modo = COALESCE($18, popup_modo),
                popup_intervalo = COALESCE($19, popup_intervalo),
                duracao_minima_entrevista_minutos = COALESCE($20, duracao_minima_entrevista_minutos),
+               dia_teste_hora_inicio_marcacao = COALESCE($21::time, dia_teste_hora_inicio_marcacao),
+               dia_teste_tolerancia_marcacao_minutos = COALESCE($22, dia_teste_tolerancia_marcacao_minutos),
                atualizado_em = CURRENT_TIMESTAMP,
-               atualizado_por = $21
-           WHERE id = $22
+               atualizado_por = $23
+           WHERE id = $24
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? null,
@@ -194,6 +206,8 @@ export async function PUT(request: NextRequest) {
             data.popupModo ?? null,
             data.popupIntervalo ?? null,
             data.duracaoMinimaEntrevistaMinutos ?? null,
+            data.diaTesteHoraInicioMarcacao ?? null,
+            data.diaTesteToleranciaMarcacaoMinutos ?? null,
             user.userId,
             parametroId,
           ]
@@ -211,8 +225,9 @@ export async function PUT(request: NextRequest) {
              entrevistas_para_avaliar_ia, cobertura_minima_entrevista, avaliacao_ia_ativa,
              popup_modo, popup_intervalo,
              duracao_minima_entrevista_minutos,
+             dia_teste_hora_inicio_marcacao, dia_teste_tolerancia_marcacao_minutos,
              atualizado_por
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::time, $22, $23)
            RETURNING ${RETURNING_COLS}`,
           [
             data.telefoneRh ?? '',
@@ -235,6 +250,8 @@ export async function PUT(request: NextRequest) {
             data.popupModo ?? 'por_avaliacao',
             data.popupIntervalo ?? 1,
             data.duracaoMinimaEntrevistaMinutos ?? 5,
+            data.diaTesteHoraInicioMarcacao ?? '08:00',
+            data.diaTesteToleranciaMarcacaoMinutos ?? 60,
             user.userId,
           ]
         );

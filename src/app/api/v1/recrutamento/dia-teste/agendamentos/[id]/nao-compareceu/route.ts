@@ -14,6 +14,7 @@ import {
   loadAgendamento,
   buildAgendamentoPayload,
   avancarProcessoAposDecisao,
+  calcularAtrasoMarcacaoMinutos,
   invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
@@ -53,15 +54,19 @@ export async function POST(
         );
       }
 
+      // Atraso de marcação relativo ao prazo global — vira indicador.
+      const atrasoMinutos = await calcularAtrasoMarcacaoMinutos(ag.data);
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'nao_compareceu',
                 gestor_id = COALESCE(gestor_id, $1),
                 decidido_por = $1,
                 decidido_em = NOW(),
+                marcacao_atraso_minutos = $2,
                 atualizado_em = NOW()
-          WHERE id = $2::bigint`,
-        [user.userId, id],
+          WHERE id = $3::bigint`,
+        [user.userId, atrasoMinutos, id],
       );
 
       // Encerra o processo seletivo (não compareceu = não vira colaborador).
@@ -97,19 +102,25 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato marcado como AUSENTE no dia de teste #${id}`,
+          descricao: `Candidato marcado como AUSENTE no dia de teste #${id}${atrasoMinutos != null && atrasoMinutos > 0 ? ` (atraso de ${atrasoMinutos} min)` : ''}`,
           dadosNovos: {
             agendamentoId: id,
             processoId: ag.processo_seletivo_id,
             documentoAssinaturaId: ag.documento_assinatura_id,
             signProofCancelado,
             signProofErro,
+            marcacaoAtrasoMinutos: atrasoMinutos,
           },
         }),
       );
 
       const payload = await buildAgendamentoPayload(updated);
-      return successResponse(payload);
+      // Mobile usa `marcacaoAtrasoMinutos` pra modal de aviso (>0). Ver
+      // compareceu/route.ts pra mesma semântica.
+      return successResponse({
+        ...(payload as Record<string, unknown>),
+        marcacaoAtrasoMinutos: atrasoMinutos,
+      });
     } catch (error) {
       console.error(
         '[recrutamento/dia-teste/agendamentos/:id/nao-compareceu] erro:',

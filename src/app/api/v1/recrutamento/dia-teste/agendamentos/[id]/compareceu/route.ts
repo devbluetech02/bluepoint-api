@@ -13,6 +13,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   buildAgendamentoPayload,
+  calcularAtrasoMarcacaoMinutos,
   invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
@@ -97,14 +98,19 @@ export async function POST(
         comparecimentoEm = buildComparecimentoEmISO(ag.data, parsed.data.horarioReal);
       }
 
+      // Calcula atraso de marcação relativo ao prazo global (param RH).
+      // Indicador de performance do gestor: marcou no prazo ou não?
+      const atrasoMinutos = await calcularAtrasoMarcacaoMinutos(ag.data);
+
       await query(
         `UPDATE people.dia_teste_agendamento
             SET status = 'compareceu',
                 gestor_id = COALESCE(gestor_id, $1),
                 comparecimento_em = COALESCE($2::timestamptz, NOW()),
+                marcacao_atraso_minutos = $3,
                 atualizado_em = NOW()
-          WHERE id = $3::bigint`,
-        [user.userId, comparecimentoEm, id],
+          WHERE id = $4::bigint`,
+        [user.userId, comparecimentoEm, atrasoMinutos, id],
       );
 
       // Invalida cache do GET /agendamentos — ver nao-compareceu/route.ts.
@@ -117,16 +123,23 @@ export async function POST(
         buildAuditParams(req, user, {
           acao: 'editar',
           modulo: 'recrutamento_dia_teste',
-          descricao: `Candidato marcado como PRESENTE no dia de teste #${id}`,
+          descricao: `Candidato marcado como PRESENTE no dia de teste #${id}${atrasoMinutos != null && atrasoMinutos > 0 ? ` (atraso de ${atrasoMinutos} min)` : ''}`,
           dadosNovos: {
             agendamentoId: id,
             horarioReal: parsed.data.horarioReal ?? null,
+            marcacaoAtrasoMinutos: atrasoMinutos,
           },
         }),
       );
 
       const payload = await buildAgendamentoPayload(updated);
-      return successResponse(payload);
+      // Mobile usa `marcacaoAtrasoMinutos` pra abrir modal informando o
+      // gestor que ele registrou com atraso (>0). Null quando params
+      // ausentes ou erro de leitura — UI trata como "sem dado".
+      return successResponse({
+        ...(payload as Record<string, unknown>),
+        marcacaoAtrasoMinutos: atrasoMinutos,
+      });
     } catch (error) {
       console.error(
         '[recrutamento/dia-teste/agendamentos/:id/compareceu] erro:',

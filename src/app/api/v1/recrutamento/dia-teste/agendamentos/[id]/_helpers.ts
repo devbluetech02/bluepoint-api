@@ -28,6 +28,56 @@ export async function invalidarCacheAgendamentosDiaTeste(): Promise<void> {
   await cacheDelPattern('recrutamento:dia-teste:agendamentos:v1:*');
 }
 
+/**
+ * Calcula em quantos minutos a marcação atual (`agora`) ultrapassa o prazo
+ * limite global pra registrar comparecimento/ausência no dia de teste.
+ *
+ * Prazo limite (BRT) = dataAgendamento + parametros_rh.dia_teste_hora_inicio_marcacao
+ *                    + parametros_rh.dia_teste_tolerancia_marcacao_minutos
+ *
+ * Retorna:
+ *   - negativo: gestor marcou ANTES do prazo (sem atraso)
+ *   - 0:        marcou exatamente no limite
+ *   - positivo: minutos de atraso (vira indicador KPI)
+ *   - null:     parâmetros não cadastrados ou data malformada (não bloqueia)
+ *
+ * Best-effort: erro de leitura dos parâmetros NÃO desfaz a marcação;
+ * apenas devolve null pro caller salvar como "atraso desconhecido".
+ *
+ * Boundary BRT: server roda em UTC (ECS Fargate); construímos o instante
+ * limite com offset fixo -03:00 (Brasil não tem DST hoje).
+ */
+export async function calcularAtrasoMarcacaoMinutos(
+  dataAgendamento: string, // YYYY-MM-DD
+  agora: Date = new Date(),
+): Promise<number | null> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataAgendamento)) return null;
+  try {
+    const r = await query<{
+      dia_teste_hora_inicio_marcacao: string;
+      dia_teste_tolerancia_marcacao_minutos: number | string;
+    }>(
+      `SELECT dia_teste_hora_inicio_marcacao::text AS dia_teste_hora_inicio_marcacao,
+              dia_teste_tolerancia_marcacao_minutos
+         FROM people.parametros_rh
+        ORDER BY id DESC
+        LIMIT 1`,
+    );
+    if (r.rows.length === 0) return null;
+    const horaInicio = r.rows[0].dia_teste_hora_inicio_marcacao || '08:00:00';
+    const tolMin = Number(r.rows[0].dia_teste_tolerancia_marcacao_minutos ?? 60);
+    // Aceita HH:mm ou HH:mm:ss
+    const hms = horaInicio.length === 5 ? `${horaInicio}:00` : horaInicio;
+    const limiteIso = `${dataAgendamento}T${hms}-03:00`;
+    const limite = new Date(limiteIso).getTime() + tolMin * 60_000;
+    if (Number.isNaN(limite)) return null;
+    return Math.floor((agora.getTime() - limite) / 60_000);
+  } catch (err) {
+    console.warn('[calcularAtrasoMarcacaoMinutos] erro:', err);
+    return null;
+  }
+}
+
 export interface AgendamentoRow {
   id: string;
   processo_seletivo_id: string;

@@ -517,6 +517,18 @@ export const parametrosRhSchema = z.object({
   popupIntervalo: z.number().int().min(1, 'Mínimo 1').max(365, 'Máximo 365').optional(),
   // Migration 069 — duracao minima de entrevista (minutos) pra contar nas estatisticas
   duracaoMinimaEntrevistaMinutos: z.number().int().min(0).max(240).optional(),
+  // Migration 072 — prazo padrão pra gestor marcar comparecimento no dia de
+  // teste (HH:mm:ss início + tolerância em minutos). Atraso vira indicador.
+  diaTesteHoraInicioMarcacao: z
+    .string()
+    .regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Hora deve ser HH:mm ou HH:mm:ss')
+    .optional(),
+  diaTesteToleranciaMarcacaoMinutos: z
+    .number()
+    .int()
+    .min(0, 'Tolerância deve ser >= 0')
+    .max(1440, 'Tolerância deve ser <= 1440 (1 dia)')
+    .optional(),
 });
 
 // =====================================================
