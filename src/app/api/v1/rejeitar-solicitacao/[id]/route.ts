@@ -155,3 +155,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
   });
 }
+
+export const POST = PATCH;

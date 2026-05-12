@@ -13,6 +13,10 @@ interface Params {
   params: Promise<{ id: string }>;
 }
 
+// O app mobile chama esta rota via POST (o web usa PATCH). Mantém os dois
+// verbos apontando pro mesmo handler — sem POST, mobile recebe 405 com body
+// vazio e quebra ao fazer jsonDecode('') ("FormatException: Unexpected end
+// of input").
 export async function PATCH(request: NextRequest, { params }: Params) {
   return withGestor(request, async (req, user) => {
     const client = await getClient();
@@ -475,3 +479,5 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     }
   });
 }
+
+export const POST = PATCH;
