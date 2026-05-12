@@ -16,6 +16,7 @@ import {
   traduzirErroPix,
   PIX_CNPJ_DEFAULT,
 } from '@/lib/pix-pagamentos';
+import { invalidateDiaTesteAgendamentosCache } from '@/lib/cache';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/pagamento/confirmar
 //
@@ -135,6 +136,7 @@ export async function POST(
             WHERE id = $2::bigint`,
           [r.erro.slice(0, 1000), pag.id],
         );
+        await invalidateDiaTesteAgendamentosCache().catch(() => {});
         await registrarAuditoria(
           buildAuditParams(req, user, {
             acao: 'editar',
@@ -186,6 +188,11 @@ export async function POST(
           WHERE id = $2::bigint`,
         [pag.id, id],
       );
+
+      // Invalida o cache da listagem — sem isso o app continua mostrando
+      // o botão "Confirmar PIX" por até CACHE_TTL.SHORT depois de confirmar
+      // (risco de double-pay / confusão).
+      await invalidateDiaTesteAgendamentosCache().catch(() => {});
 
       await registrarAuditoria(
         buildAuditParams(req, user, {

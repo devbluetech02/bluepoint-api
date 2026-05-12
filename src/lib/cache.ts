@@ -744,6 +744,18 @@ export async function invalidateDocumentosColaboradorCache(colaboradorId: number
 }
 
 /**
+ * Invalida o cache da listagem de agendamentos de dia de teste
+ * (`/recrutamento/dia-teste/agendamentos`). Chave inclui userId + filtros,
+ * então usa pattern. Chamar sempre que mudar estado de um agendamento ou do
+ * pagamento PIX vinculado — sem isso o app mobile fica até CACHE_TTL.SHORT
+ * mostrando o status antigo (ex.: botão "Confirmar PIX" continua aparecendo
+ * depois de confirmar).
+ */
+export async function invalidateDiaTesteAgendamentosCache(): Promise<void> {
+  await cacheDelPattern('recrutamento:dia-teste:agendamentos:v1:*');
+}
+
+/**
  * Invalida todo o cache (usar com cuidado!)
  */
 export async function invalidateAllCache(): Promise<void> {

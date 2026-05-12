@@ -8,6 +8,7 @@ import {
   serverErrorResponse,
 } from '@/lib/api-response';
 import { consultarPagamentoPix } from '@/lib/pix-pagamentos';
+import { invalidateDiaTesteAgendamentosCache } from '@/lib/cache';
 
 // POST /api/v1/recrutamento/dia-teste/agendamentos/:id/pagamento/sincronizar
 //
@@ -103,6 +104,10 @@ export async function POST(
         lancarPagamentoPixWinthorPorId(pag.id).catch((err) =>
           console.error('[pagamento/sincronizar] winthor falhou:', err),
         );
+      }
+
+      if (changed) {
+        await invalidateDiaTesteAgendamentosCache().catch(() => {});
       }
 
       return successResponse({
