@@ -26,14 +26,18 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://face-service:50
 const MATCH_THRESHOLD = 0.45;
 
 // Timeout para chamadas ao serviço (ms)
-// /extract p99 real ≈ 500ms. 8s cobre picos sem enfileirar requests que
-// travariam o health-check do container.
-const SERVICE_TIMEOUT = 8000;
+// /extract p99 ≈ 500ms em carga normal, mas no pico de batida de ponto
+// (saída em massa ~17h-18h) a CPU da task fica contendida e a extração
+// sobe pra 1.5-2.5s. 12s dá folga sem enfileirar requests que travariam
+// o health-check do container.
+const SERVICE_TIMEOUT = 12_000;
 
 // Circuit breaker — se o microserviço engasgar, falha rápido em vez de
-// segurar requests pendurando 8s cada e derrubando o health-check da task.
-const CB_FAILURE_THRESHOLD = 5;   // falhas consecutivas para abrir
-const CB_OPEN_DURATION_MS = 30_000; // quanto tempo fica aberto
+// segurar requests pendurando cada um e derrubando o health-check da task.
+// Threshold mais alto tolera blips transitórios de pico; janela aberta
+// curta pra recuperar rápido assim que o serviço volta.
+const CB_FAILURE_THRESHOLD = 8;   // falhas consecutivas para abrir
+const CB_OPEN_DURATION_MS = 10_000; // quanto tempo fica aberto
 let cbFailures = 0;
 let cbOpenedAt = 0;
 
@@ -350,10 +354,15 @@ export function calcularThresholdDinamico(qualidade: number): number {
 // ==========================================
 
 // Máximo de encodings aprendidos por pessoa.
-// Reduzido de 40 → 20 após incidente de contaminação (caso EDUARDO
-// NATANAEL com 47 aprendidos: aparecia como Top1/Top2 pra várias
-// pessoas diferentes em distâncias <0.30 — cluster expandido demais).
-const MAX_ENCODINGS_APRENDIDOS = 20;
+// 40 → 20 após incidente de contaminação (caso EDUARDO NATANAEL com 47
+// aprendidos: aparecia como Top1/Top2 pra várias pessoas diferentes em
+// distâncias <0.30 — cluster expandido demais).
+// 20 → 12 (2026-05-12): o pool agregado de aprendidos (2584 encodings)
+// dominava o custo de comparação a cada verificação e, no pico de batida
+// de ponto, estourava o timeout do face-service / abria o circuit breaker.
+// Prune one-time aplicada no banco mantendo os 12 de maior qualidade por
+// pessoa (backup em people._bkp_biometria_aprendidos_20260512).
+const MAX_ENCODINGS_APRENDIDOS = 12;
 
 // Distância mínima entre encodings p/ considerar "diverso" (evita redundância).
 // Subido de 0.04 → 0.08: encoding novo precisa trazer informação real,
