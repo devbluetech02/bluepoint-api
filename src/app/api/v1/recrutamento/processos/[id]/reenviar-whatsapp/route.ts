@@ -10,7 +10,7 @@ import {
 import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   enviarMensagemWhatsApp,
-  getRecrutamentoEvolutionConfig,
+  getRecrutamentoEvolutionConfigPorResponsavel,
 } from '@/lib/evolution-api';
 import {
   enviarDocumentoDiaTeste,
@@ -90,8 +90,9 @@ export async function POST(
       const candResult = await queryRecrutamento<{
         nome: string;
         telefone: string | null;
+        resposavel: string | null;
       }>(
-        `SELECT nome, telefone FROM public.candidatos WHERE id = $1 LIMIT 1`,
+        `SELECT nome, telefone, resposavel FROM public.candidatos WHERE id = $1 LIMIT 1`,
         [proc.candidato_recrutamento_id]
       );
       const cand = candResult.rows[0];
@@ -254,12 +255,13 @@ export async function POST(
                 '📋 *Assinar contrato:*',
                 signingLink,
               ].join('\n');
-          // Reenvio do dia de teste usa a mesma instância de recrutamento
-          // (RH_ROBSON) — bate com o envio inicial em /processos.
+          // Reenvio sai pela instância Evolution do recrutador RESPONSÁVEL
+          // pelo candidato — mesmo critério do envio inicial em /processos
+          // (fallback pra instância default quando responsável não mapeado).
           const result = await enviarMensagemWhatsApp(
             numero,
             msg,
-            getRecrutamentoEvolutionConfig(),
+            getRecrutamentoEvolutionConfigPorResponsavel(cand.resposavel),
           );
           whatsappOk = result.ok;
           whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
