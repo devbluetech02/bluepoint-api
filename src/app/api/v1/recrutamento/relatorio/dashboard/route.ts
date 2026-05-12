@@ -115,10 +115,12 @@ interface LinhaEntrevista {
 }
 
 interface AccPeriodo {
-  total: number;
+  total: number;        // todas as entrevistas com video no Drive
   somaDuracao: number;
   comDuracao: number;
-  validas: number;
+  validas: number;      // duracao_seg >= duracaoMinSeg
+  invalidas: number;    // duracao_seg <  duracaoMinSeg
+  aderentes: number;    // validas COM aderencia_ia_pct >= aderenciaMinPct
   somaAderencia: number;
   comAderencia: number;
   diasUnicos: Set<string>;
@@ -132,6 +134,8 @@ function novoAcc(): AccPeriodo {
     somaDuracao: 0,
     comDuracao: 0,
     validas: 0,
+    invalidas: 0,
+    aderentes: 0,
     somaAderencia: 0,
     comAderencia: 0,
     diasUnicos: new Set(),
@@ -150,9 +154,11 @@ function consolidar(
   const dias = acc.diasUnicos.size || 0;
   // mediaPorDia divide pelo total de dias úteis no período (seg-sex sem
   // feriados nacionais). Entrevistas em fds/feriado são filtradas antes.
-  const mediaPorDia = diasUteisPeriodo > 0 ? acc.total / diasUteisPeriodo : 0;
+  // Usa VALIDAS como base — invalidas (curtas demais) nao entram no media.
+  const mediaPorDia = diasUteisPeriodo > 0 ? acc.validas / diasUteisPeriodo : 0;
   const mediaAderencia =
     acc.comAderencia > 0 ? acc.somaAderencia / acc.comAderencia : null;
+  const taxaAderentes = acc.validas > 0 ? acc.aderentes / acc.validas : 0;
   // Tempo entre entrevistas: média dos gaps entre datas ordenadas (mesmo dia ou cross-dia).
   let mediaGapSeg: number | null = null;
   if (acc.datasOrdenadas.length >= 2) {
@@ -171,7 +177,14 @@ function consolidar(
     if (n > 0) mediaGapSeg = Math.round(soma / n / 1000);
   }
   return {
-    total: acc.total,
+    // total = headline KPI = VALIDAS (entrevistas com video Drive +
+    // duracao >= minimo). Inválidas (duracao < min) ficam em campo
+    // separado pro chip e para o usuario nao confundir o numero grande.
+    total: acc.validas,
+    totalGeral: acc.total,        // total bruto (validas + invalidas)
+    invalidas: acc.invalidas,     // # entrevistas curtas demais
+    aderentes: acc.aderentes,     // # validas com aderencia >= minimo
+    taxaAderentesPct: Math.round(taxaAderentes * 1000) / 10,
     diasComEntrevista: dias,
     mediaPorDia: Math.round(mediaPorDia * 10) / 10,
     mediaDuracaoSeg,
@@ -350,9 +363,14 @@ export async function GET(request: NextRequest) {
           : null;
 
       // 1. Parametro global
-      const paramRes = await query<{ duracao_minima_entrevista_minutos: number }>(
-        `SELECT duracao_minima_entrevista_minutos FROM people.parametros_rh LIMIT 1`,
+      const paramRes = await query<{
+        duracao_minima_entrevista_minutos: number;
+        aderencia_minima_pct: string | number;
+      }>(
+        `SELECT duracao_minima_entrevista_minutos, aderencia_minima_pct
+           FROM people.parametros_rh LIMIT 1`,
       );
+      const aderenciaMinPct = Number(paramRes.rows[0]?.aderencia_minima_pct ?? 70);
       const duracaoMinMin =
         paramRes.rows[0]?.duracao_minima_entrevista_minutos ?? 5;
       const duracaoMinSeg = duracaoMinSegOverride
@@ -428,15 +446,14 @@ export async function GET(request: NextRequest) {
       const sessenta = startOfDayBRT(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
       const trintaInicio = startOfDayBRT(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
-      // "Entrevista realizada" = video gravado no Google Drive
-      // (video_created_at NOT NULL) + duracao >= minimo parametrizado
-      // em people.parametros_rh. Garante que so contam entrevistas
-      // efetivamente conduzidas e com tempo minimo de conversa.
-      const params: unknown[] = [sessenta.toISOString(), duracaoMinSeg];
+      // "Entrevista REALIZADA" = video gravado no Google Drive
+      // (video_created_at NOT NULL + duracao_seg NOT NULL). Bucketizada
+      // depois em VALIDAS (duracao >= min) ou INVALIDAS (duracao < min).
+      // Aderente = valida com aderencia_ia_pct >= aderenciaMinPct.
+      const params: unknown[] = [sessenta.toISOString()];
       let where = `data_entrevista >= $1
                    AND video_created_at IS NOT NULL
-                   AND duracao_seg IS NOT NULL
-                   AND duracao_seg >= $2`;
+                   AND duracao_seg IS NOT NULL`;
       if (recrutadorFiltro) {
         params.push(recrutadorFiltro);
         where += ` AND recrutador = $${params.length}`;
@@ -525,7 +542,19 @@ export async function GET(request: NextRequest) {
           if (r.duracao_seg != null) {
             a.somaDuracao += r.duracao_seg;
             a.comDuracao++;
-            if (r.duracao_seg >= duracaoMinSeg) a.validas++;
+            if (r.duracao_seg >= duracaoMinSeg) {
+              a.validas++;
+              // Aderente = valida + aderencia_ia_pct >= aderenciaMinPct
+              if (
+                aderencia != null &&
+                Number.isFinite(aderencia) &&
+                aderencia >= aderenciaMinPct
+              ) {
+                a.aderentes++;
+              }
+            } else {
+              a.invalidas++;
+            }
           }
           if (aderencia != null && Number.isFinite(aderencia)) {
             a.somaAderencia += aderencia;
@@ -735,13 +764,16 @@ export async function GET(request: NextRequest) {
       ));
       const bdMesAtual = Math.max(1, countBusinessDays(mesAtualIni, hojeIni));
 
-      // Total da equipe no mes atual (rows DB realizadas ja filtradas no SQL).
+      // Total VALIDAS da equipe no mes atual (consistente com a headline
+      // dos cards — mesma metrica que vai pro 'total').
       let mesAtualTotal = 0;
       for (const r of linhas.rows) {
         if (!recrutadorAtivo((r.recrutador ?? '').trim())) continue;
         const dt = new Date(r.data_entrevista);
         if (!isBusinessDay(dt)) continue;
-        if (dt >= mesAtualIni) mesAtualTotal++;
+        if (dt < mesAtualIni) continue;
+        if (r.duracao_seg == null || r.duracao_seg < duracaoMinSeg) continue;
+        mesAtualTotal++;
       }
       const mediaMesAtualPorDia = mesAtualTotal / bdMesAtual;
       const variacaoVsMesAtual = (atual: number): number | null => {
