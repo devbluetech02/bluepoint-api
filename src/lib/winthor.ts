@@ -206,6 +206,25 @@ export async function lancarPagamentoPixNoWinthor(
       `PAGAMENTO REF.DIA ${dataFmt ? `${dataFmt} ` : ''}DE PRESTACAO DE SERVICO (${nome}) ${cargo}` +
       (hashtag ? ` #${hashtag}` : '');
 
+    // Pagamento retroativo (data do teste anterior a hoje em BRT) →
+    // DTCOMPETENCIA aponta pro dia do teste (regra financeiro: competência
+    // reflete a prestação de serviço, não a data do caixa). Same-day mantém
+    // SYSDATE. Server roda em UTC; converte agora pra BRT (-03:00) só pra
+    // calcular o "hoje" usado na comparação.
+    let dtCompetenciaIso: string | null = null;
+    if (args.dataDiaTeste) {
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(args.dataDiaTeste);
+      if (m) {
+        const dataIso = `${m[1]}-${m[2]}-${m[3]}`;
+        const hojeBrt = new Date(Date.now() - 3 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10);
+        if (dataIso < hojeBrt) {
+          dtCompetenciaIso = dataIso;
+        }
+      }
+    }
+
     // 1. Anti-dup defensivo: olha pra PCLANC procurando um lançamento
     //    idêntico no MESMO DIA (mesmo HISTORICO + CHAVEPIX + VALOR). Se
     //    achar, devolve o RECNUM existente sem inserir de novo.
@@ -275,7 +294,9 @@ export async function lancarPagamentoPixNoWinthor(
          '45', 'DIA TESTE PEOPLE', 'DIA TESTE PEOPLE', '1', 0, 1045,
          '99', 0, 0,
          'S', 100, :valor, 23124,
-         TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE), TRUNC(SYSDATE),
+         TRUNC(SYSDATE), TRUNC(SYSDATE),
+         NVL(TO_DATE(:dtCompetencia, 'YYYY-MM-DD'), TRUNC(SYSDATE)),
+         TRUNC(SYSDATE),
          'PRESTADOR DE SERVICO', 'N', 'N',
          :chavePix, :tipoChaveLabel, :tipoChaveCod
        )`,
@@ -288,6 +309,7 @@ export async function lancarPagamentoPixNoWinthor(
         chavePix: chave,
         tipoChaveLabel: tipo.label,
         tipoChaveCod: tipo.cod,
+        dtCompetencia: dtCompetenciaIso,
       },
     );
 
