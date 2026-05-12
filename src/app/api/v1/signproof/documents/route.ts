@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/middleware';
 import { errorResponse, serverErrorResponse } from '@/lib/api-response';
 import { resolveImageVariables } from '@/lib/signproof-image-resolver';
+import { sanitizeCreatorEmail } from '@/lib/recrutamento-dia-teste';
 
 const SIGNPROOF_API_URL = process.env.SIGNPROOF_API_URL;
 const SIGNPROOF_API_KEY = process.env.SIGNPROOF_API_KEY;
@@ -22,6 +23,7 @@ interface SignerPayload {
 interface DocumentPayload {
   external_ref?: string;
   signers?: SignerPayload[];
+  creator_email?: string;
   [key: string]: unknown;
 }
 
@@ -50,12 +52,24 @@ function enforceWhatsAppForAdmissao(body: DocumentPayload): string | null {
 }
 
 export async function POST(request: NextRequest) {
-  return withAuth(request, async (req) => {
+  return withAuth(request, async (req, user) => {
     try {
       const body = (await req.json()) as DocumentPayload;
 
       const enforceError = enforceWhatsAppForAdmissao(body);
       if (enforceError) return errorResponse(enforceError, 400);
+
+      // Resolve quem criou: SignProof usa `creator_email` pra setar CreatedBy
+      // e disparar WhatsApp pela instância Evolution daquele usuário. Sem
+      // isso cai pro usuário de sistema da API Key + EVOLUTION_* global.
+      // Caller pode forçar um email no body; senão usa o JWT do solicitante.
+      const creatorFromBody = typeof body.creator_email === 'string' ? body.creator_email : null;
+      const resolvedCreator = sanitizeCreatorEmail(creatorFromBody) ?? sanitizeCreatorEmail(user.email);
+      if (resolvedCreator) {
+        body.creator_email = resolvedCreator;
+      } else {
+        delete body.creator_email; // não vaza string vazia/sentinel pro SignProof
+      }
 
       // Converte URLs de imagem (foto_colaborador, logo_empresa, …) em data
       // URI base64 — sem isso, SignProof renderiza a URL como texto.

@@ -170,6 +170,7 @@ export async function POST(
             cargaHoraria: carga,
             diasQtdContrato: 1,
             setarNoProcesso: true,
+            creatorEmail: user.email,
           });
           if (!gen.ok || !gen.documentId) {
             return errorResponse(

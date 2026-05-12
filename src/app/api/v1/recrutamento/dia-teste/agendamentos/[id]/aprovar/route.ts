@@ -252,6 +252,7 @@ export async function POST(
             cargaHoraria: ag.carga_horaria,
             diasQtdContrato: 1,
             setarNoProcesso: true,
+            creatorEmail: user.email,
           });
           if (!contratoNovoDia.ok) {
             console.warn(

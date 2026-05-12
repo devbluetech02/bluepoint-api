@@ -265,6 +265,7 @@ async function abrirCaminhoA(args: {
     },
     externalRef,
     title,
+    creatorEmail: user.email,
   });
 
   let docId: string | null = null;

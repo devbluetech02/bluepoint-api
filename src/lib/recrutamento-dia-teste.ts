@@ -24,6 +24,19 @@ import {
 const TEMPLATE_TERMO_CIENCIA = 'termo_ciencia_processo_seletivo_v1';
 const TEMPLATE_CONTRATO_AUTONOMO = 'contrato_autonomo_v1';
 
+/**
+ * Filtra creator_email pra mandar ao SignProof: descarta vazio/null e o
+ * sentinel `api-key-X@system` que `apiKeyToJwtPayload` injeta — esse não
+ * resolve em users.email no SignProof e poluiria o resolver.
+ */
+export function sanitizeCreatorEmail(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (trimmed.endsWith('@system')) return null; // api-key-*@system
+  return trimmed;
+}
+
 export interface CandidatoSnapshot {
   nome: string;
   cpf: string; // normalizado (11 dígitos)
@@ -277,6 +290,11 @@ export async function criarDocumentoDiaTeste(args: {
   signer: SignerInfo;
   externalRef: string; // ex: DT-{processoId}-{yyyymmdd}
   title: string;       // "Dia de Teste — Maria da Silva"
+  // E-mail do usuário People que disparou a criação (recrutador/gestor).
+  // SignProof resolve em CreatedBy + usa a instância Evolution dele pra
+  // envios de WhatsApp. Sem isso, cai pro usuário de sistema da API Key
+  // e instância EVOLUTION_* global. Ignorado se vazio ou sentinel de API key.
+  creatorEmail?: string | null;
 }): Promise<CriarDocumentoResult> {
   const baseUrl = process.env.SIGNPROOF_API_URL;
   const apiKey = process.env.SIGNPROOF_API_KEY;
@@ -287,12 +305,15 @@ export async function criarDocumentoDiaTeste(args: {
   const phoneE164 = normalizePhoneBR(args.signer.telefone);
   if (!phoneE164) return { ok: false, erro: 'telefone_signer_invalido' };
 
-  const body = {
+  const creatorEmail = sanitizeCreatorEmail(args.creatorEmail);
+
+  const body: Record<string, unknown> = {
     template_id: args.templateId,
     title: args.title,
     external_ref: args.externalRef,
     source_system: 'people-recrutamento',
     variables: args.variaveis,
+    ...(creatorEmail ? { creator_email: creatorEmail } : {}),
     signers: [
       {
         name: args.signer.nome,
@@ -475,6 +496,9 @@ export async function gerarEEnviarContratoDiaTeste(args: {
   setarNoProcesso?: boolean;
   // Mensagem WhatsApp custom (acoplada ao link). Default: gerada aqui.
   mensagemWhatsApp?: string;
+  // E-mail do usuário People que disparou — repassado pro SignProof
+  // (CreatedBy + instância Evolution dele). Ver criarDocumentoDiaTeste.
+  creatorEmail?: string | null;
 }): Promise<GerarContratoResult> {
   const diasQtdContrato = args.diasQtdContrato ?? 1;
   const setarNoProcesso = args.setarNoProcesso ?? true;
@@ -606,6 +630,7 @@ export async function gerarEEnviarContratoDiaTeste(args: {
     },
     externalRef,
     title,
+    creatorEmail: args.creatorEmail,
   });
 
   if (!criar.ok) {
