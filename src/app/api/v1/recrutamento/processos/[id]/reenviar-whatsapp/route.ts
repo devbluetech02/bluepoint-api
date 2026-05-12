@@ -16,7 +16,24 @@ import {
   enviarDocumentoDiaTeste,
   obterSigningLinkExistente,
   gerarEEnviarContratoDiaTeste,
+  fetchDiasAgendadosFormatados,
+  formatBlocoDiasAgendados,
 } from '@/lib/recrutamento-dia-teste';
+
+// Modos de reenvio do WhatsApp no caminho dia_teste.
+//   completa     → reenvia a mensagem original (contexto de seleção +
+//                  dias agendados + link de assinatura).
+//   apenas_link  → mensagem curta, sem mencionar que foi selecionada
+//                  pro dia de teste — só o link pra reabrir o contrato.
+//                  (Comportamento histórico até esta alteração; mantido
+//                  como default pra não quebrar callers antigos.)
+type ReenvioModo = 'completa' | 'apenas_link';
+
+function parseModo(req: NextRequest): ReenvioModo {
+  const raw = req.nextUrl.searchParams.get('modo')?.trim().toLowerCase();
+  if (raw === 'completa') return 'completa';
+  return 'apenas_link';
+}
 
 // POST /api/v1/recrutamento/processos/:id/reenviar-whatsapp
 //
@@ -40,6 +57,7 @@ export async function POST(
   return withGestor(request, async (req, user) => {
     try {
       const { id } = await params;
+      const modo: ReenvioModo = parseModo(req);
 
       const procResult = await query<{
         id: string;
@@ -200,16 +218,42 @@ export async function POST(
             );
           }
           signingLink = env.signingLink;
-          const msg = [
-            `Olá, ${primeiroNome}! 👋`,
-            '',
-            'Reenviando o link pra você assinar o contrato do dia de teste:',
-            '',
-            '📋 *Assinar contrato:*',
-            signingLink,
-            '',
-            'Qualquer dúvida, estamos à disposição!',
-          ].join('\n');
+          // Bloco com os dias agendados (best-effort). Usado quando o
+          // modo é `completa` — em `apenas_link` mandamos só o link mesmo
+          // pra evitar "spammar" o candidato com toda a contextualização.
+          let blocoDias = '';
+          if (modo === 'completa') {
+            try {
+              const dias = await fetchDiasAgendadosFormatados(id);
+              blocoDias = formatBlocoDiasAgendados(dias);
+            } catch (e) {
+              console.warn('[reenviar-whatsapp] falha ao listar dias agendados:', e);
+            }
+          }
+          const msg = modo === 'completa'
+            ? [
+                `Olá, ${primeiroNome}! 👋`,
+                '',
+                'Você foi selecionado(a) para um dia de teste conosco! 🎉',
+                '',
+                'Para participar, é necessário assinar o contrato de prestação de serviço. É rápido e 100% digital.',
+                '',
+                'Após assinar, você receberá todas as orientações por e-mail.',
+                ...(blocoDias ? ['', blocoDias] : []),
+                '',
+                '📋 *Assinar contrato:*',
+                signingLink,
+                '',
+                'Qualquer dúvida, estamos à disposição!',
+              ].join('\n')
+            : [
+                `Olá, ${primeiroNome}! 👋`,
+                '',
+                'Segue o link para você assinar o contrato:',
+                '',
+                '📋 *Assinar contrato:*',
+                signingLink,
+              ].join('\n');
           // Reenvio do dia de teste usa a mesma instância de recrutamento
           // (RH_ROBSON) — bate com o envio inicial em /processos.
           const result = await enviarMensagemWhatsApp(
@@ -246,10 +290,11 @@ Qualquer dúvida, estamos à disposição.`;
       await registrarAuditoria(buildAuditParams(req, user, {
         acao: 'editar',
         modulo: 'recrutamento_processo_seletivo',
-        descricao: `Reenvio de WhatsApp do processo ${id} (caminho ${proc.caminho}).`,
+        descricao: `Reenvio de WhatsApp do processo ${id} (caminho ${proc.caminho}${proc.caminho === 'dia_teste' ? `, modo ${modo}` : ''}).`,
         dadosNovos: {
           processoId: id,
           caminho: proc.caminho,
+          modo: proc.caminho === 'dia_teste' ? modo : null,
           whatsappOk,
           whatsappErro,
           comSigningLink: !!signingLink,

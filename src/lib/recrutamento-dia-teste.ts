@@ -37,6 +37,56 @@ export function sanitizeCreatorEmail(input: string | null | undefined): string |
   return trimmed;
 }
 
+const DIAS_SEMANA_PT = [
+  'domingo', 'segunda-feira', 'terça-feira', 'quarta-feira',
+  'quinta-feira', 'sexta-feira', 'sábado',
+];
+
+/**
+ * Lista os dias de teste ainda agendados (não finalizados) do processo,
+ * formatados pra exibição em WhatsApp:
+ *   "12/05/2026 (segunda-feira) às 08:00"
+ *
+ * Inclui agendamentos com status `agendado` ou `compareceu` (estes últimos
+ * são dias que o candidato participou mas ainda sem decisão final, então
+ * fazem parte do escopo do contrato vigente).
+ *
+ * Retorna lista vazia se não houver agendamento ativo — caller decide se
+ * pula o bloco da mensagem ou loga.
+ */
+export async function fetchDiasAgendadosFormatados(processoId: string | number): Promise<string[]> {
+  const r = await query<{ data: string; hora_inicio: string | null }>(
+    `SELECT data::text AS data,
+            hora_inicio::text AS hora_inicio
+       FROM people.dia_teste_agendamento
+      WHERE processo_seletivo_id = $1::bigint
+        AND status IN ('agendado', 'compareceu')
+      ORDER BY data ASC, ordem ASC`,
+    [processoId],
+  );
+  return r.rows.map((row) => {
+    const iso = (row.data ?? '').slice(0, 10);
+    const [y, m, d] = iso.split('-').map((p) => parseInt(p, 10));
+    if (!y || !m || !d) return iso;
+    // Date.UTC pra evitar shift de fuso ao calcular dia da semana.
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const diaSemana = DIAS_SEMANA_PT[dow] ?? '';
+    const dataBR = `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+    const hora = (row.hora_inicio ?? '').slice(0, 5); // HH:MM
+    const partes = [dataBR];
+    if (diaSemana) partes.push(`(${diaSemana})`);
+    if (hora) partes.push(`às ${hora}`);
+    return partes.join(' ');
+  });
+}
+
+/** Formata bloco WhatsApp dos dias agendados. String vazia se sem dias. */
+export function formatBlocoDiasAgendados(dias: string[]): string {
+  if (dias.length === 0) return '';
+  const label = dias.length === 1 ? '📅 *Data agendada:*' : '📅 *Datas agendadas:*';
+  return `${label}\n${dias.map((d) => `• ${d}`).join('\n')}`;
+}
+
 export interface CandidatoSnapshot {
   nome: string;
   cpf: string; // normalizado (11 dígitos)
@@ -686,7 +736,19 @@ export async function gerarEEnviarContratoDiaTeste(args: {
       '',
       `Qualquer dúvida, estamos à disposição!`,
     ].join('\n');
-    const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
+    // Lista dias agendados ativos (inclui o que acabou de ser criado em
+    // outras chamadas — `adicionar_dia` já fez o INSERT antes daqui).
+    let blocoDias = '';
+    try {
+      const dias = await fetchDiasAgendadosFormatados(args.processoId);
+      blocoDias = formatBlocoDiasAgendados(dias);
+    } catch (e) {
+      console.warn('[recrutamento/dia-teste] falha ao listar dias agendados:', e);
+    }
+    const partes = [mensagemBase];
+    if (blocoDias) partes.push(blocoDias);
+    partes.push(`📋 *Assinar contrato:*\n${signingLink}`);
+    const mensagem = partes.join('\n\n');
     const cfg: EvolutionConfig = getRecrutamentoEvolutionConfigPorResponsavel(det.resposavel);
     const result = await enviarMensagemWhatsApp(numeroWhats, mensagem, cfg);
     whatsappOk = result.ok;

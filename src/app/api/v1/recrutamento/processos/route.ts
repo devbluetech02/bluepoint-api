@@ -23,6 +23,8 @@ import {
   montarVariaveis,
   criarDocumentoDiaTeste,
   enviarDocumentoDiaTeste,
+  fetchDiasAgendadosFormatados,
+  formatBlocoDiasAgendados,
   type CandidatoSnapshot,
 } from '@/lib/recrutamento-dia-teste';
 
@@ -309,6 +311,15 @@ async function abrirCaminhoA(args: {
   if (envioOk && signingLink && numeroWhats.length >= 10) {
     const primeiroNome = dados.nome.split(' ')[0];
     const mensagemCustom = dados.mensagemWhatsApp?.trim();
+    // Lista dias agendados (best-effort — falha silenciosa não bloqueia
+    // envio do WhatsApp; campo opcional na mensagem).
+    let blocoDias = '';
+    try {
+      const dias = await fetchDiasAgendadosFormatados(processoId);
+      blocoDias = formatBlocoDiasAgendados(dias);
+    } catch (e) {
+      console.warn('[recrutamento/processos] falha ao listar dias agendados:', e);
+    }
     const mensagemBase = mensagemCustom || [
       `Olá, ${primeiroNome}! 👋`,
       '',
@@ -321,7 +332,11 @@ async function abrirCaminhoA(args: {
       `Qualquer dúvida, estamos à disposição!`,
     ].join('\n');
     // Sempre anexa o link de assinatura ao final da mensagem.
-    const mensagem = `${mensagemBase}\n\n📋 *Assinar contrato:*\n${signingLink}`;
+    // Dias agendados (se houver) vão entre o texto base e o link.
+    const partes = [mensagemBase];
+    if (blocoDias) partes.push(blocoDias);
+    partes.push(`📋 *Assinar contrato:*\n${signingLink}`);
+    const mensagem = partes.join('\n\n');
     // Dia de teste sai pela instancia do recrutador RESPONSAVEL pelo
     // candidato (mapa em EVOLUTION_INSTANCES_RECRUTAMENTO). Fallback
     // pra instancia default (Robson) quando responsavel nao reconhecido
