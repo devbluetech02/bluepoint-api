@@ -1,270 +1,205 @@
 import { NextRequest } from 'next/server';
 import { query } from '@/lib/db';
-import { errorResponse, serverErrorResponse, successResponse } from '@/lib/api-response';
+import {
+  errorResponse,
+  serverErrorResponse,
+  successResponse,
+} from '@/lib/api-response';
+
+// =====================================================
+// Rota pública /api/public/atualizacao-cadastral/[token]
+//
+// GET   → retorna lista de campos solicitados (keys do modal de
+//         detalhes), tipos de documento solicitados (id+label),
+//         e o snapshot dos dados ATUAIS do colaborador pra
+//         pré-preencher o formulário.
+// POST  → recebe respostas do colaborador (key → value) +
+//         lista de docs anexados. Marca status='respondido'.
+//
+// Schema novo (sem form builder global): toda a info da
+// solicitação carrega na própria row de
+// people.solicitacoes_atualizacao_cadastral.
+// =====================================================
 
 interface Params {
   params: Promise<{ token: string }>;
 }
 
-// =====================================================
-// Helpers
-// =====================================================
+// Mesmo conjunto de colunas que o modal de detalhes do front
+// pode editar. Front envia uma chave dessa lista; back devolve
+// o valor atual nesse mesmo nome pra pré-preencher.
+const COLABORADOR_COLUMNS = [
+  'nome', 'email', 'cpf', 'rg', 'telefone',
+  'data_admissao', 'data_nascimento',
+  'rg_orgao_emissor', 'rg_uf',
+  'estado_civil', 'formacao', 'cor_raca',
+  'uniforme_tamanho', 'altura_metros', 'peso_kg',
+  'contato_emergencia_nome', 'contato_emergencia_telefone',
+  'endereco_cep', 'endereco_logradouro', 'endereco_numero',
+  'endereco_complemento', 'endereco_bairro', 'endereco_cidade',
+  'endereco_estado',
+  'banco_nome', 'banco_tipo_conta', 'banco_agencia', 'banco_conta',
+  'pix_tipo', 'pix_chave',
+  'auxilio_combustivel',
+];
 
-function mapCamposParaApi(campos: unknown, apenasAtivos = false) {
-  if (!Array.isArray(campos)) return [];
-  const mapped = campos.map((campo) => {
-    const item = (campo ?? {}) as Record<string, unknown>;
-    return {
-      id: typeof item.id === 'string' ? item.id : null,
-      label: typeof item.label === 'string' ? item.label : '',
-      tipo: typeof item.tipo === 'string' ? item.tipo : '',
-      obrigatorio: Boolean(item.obrigatorio),
-      ativo: item.ativo === undefined ? true : Boolean(item.ativo),
-      ordem: typeof item.ordem === 'number' ? item.ordem : 0,
-      opcoes: Array.isArray(item.opcoes) ? item.opcoes.filter((v): v is string => typeof v === 'string') : [],
-      secaoNome:
-        typeof item.secao_nome === 'string'
-          ? item.secao_nome
-          : typeof item.secaoNome === 'string'
-            ? item.secaoNome
-            : null,
-    };
-  });
-  return apenasAtivos ? mapped.filter((c) => c.ativo) : mapped;
-}
-
-async function fetchDocumentosRequeridos(raw: unknown, documentosSelecionados: number[]) {
-  if (!Array.isArray(raw) || raw.length === 0) return [];
-
-  const items = raw
-    .map((entry) => {
-      const item = (entry ?? {}) as Record<string, unknown>;
-      const id =
-        typeof item.tipoDocumentoId === 'number'
-          ? item.tipoDocumentoId
-          : typeof item.tipo_documento_id === 'number'
-            ? item.tipo_documento_id
-            : null;
-      if (!id || !Number.isInteger(id) || id < 1) return null;
-      return {
-        tipoDocumentoId: id,
-        obrigatorio: Boolean(item.obrigatorio),
-      };
-    })
-    .filter((x): x is { tipoDocumentoId: number; obrigatorio: boolean } => x !== null);
-
-  // Filtrar apenas os documentos selecionados na solicitação
-  const filtered = documentosSelecionados.length > 0
-    ? items.filter((item) => documentosSelecionados.includes(item.tipoDocumentoId))
-    : items;
-
-  if (filtered.length === 0) return [];
-
-  const ids = [...new Set(filtered.map((i) => i.tipoDocumentoId))];
-  const tiposResult = await query(
+async function carregarTiposDocumento(ids: number[]) {
+  if (!ids || ids.length === 0) return [];
+  const r = await query<{ id: number; codigo: string; nome_exibicao: string }>(
     `SELECT id, codigo, nome_exibicao
-     FROM people.tipos_documento_colaborador
-     WHERE id = ANY($1::int[])`,
-    [ids]
+       FROM people.tipos_documento_colaborador
+      WHERE id = ANY($1::int[])
+      ORDER BY nome_exibicao`,
+    [ids],
   );
-  const byId = new Map(
-    (tiposResult.rows as { id: number; codigo: string; nome_exibicao: string }[]).map((r) => [r.id, r])
-  );
+  return r.rows.map((t) => ({
+    tipoDocumentoId: t.id,
+    codigo: t.codigo,
+    label: t.nome_exibicao,
+  }));
+}
 
-  return filtered.map((item) => {
-    const tipo = byId.get(item.tipoDocumentoId);
-    return {
-      tipoDocumentoId: item.tipoDocumentoId,
-      codigo: tipo?.codigo ?? '',
-      label: tipo?.nome_exibicao ?? '',
-      obrigatorio: item.obrigatorio,
-    };
-  });
+async function carregarSnapshotColaborador(colabId: number, campos: string[]) {
+  // Filtra só keys válidas pra evitar SQL inválido / colunas inexistentes.
+  const safe = campos.filter((k) => COLABORADOR_COLUMNS.includes(k));
+  if (safe.length === 0) return {};
+  const sel = safe.map((c) => `"${c}"`).join(', ');
+  const r = await query<Record<string, unknown>>(
+    `SELECT ${sel}
+       FROM people.colaboradores
+      WHERE id = $1
+      LIMIT 1`,
+    [colabId],
+  );
+  return r.rows[0] ?? {};
+}
+
+interface SolicitacaoRow {
+  id: string;
+  colaborador_id: number;
+  campos_solicitados: string[] | null;
+  tipos_documento_ids: number[] | null;
+  status: string;
+  criado_em: string;
+}
+
+async function carregarSolicitacao(token: string): Promise<SolicitacaoRow | null> {
+  const r = await query<SolicitacaoRow>(
+    `SELECT id::text,
+            colaborador_id,
+            campos_solicitados,
+            tipos_documento_ids,
+            status,
+            criado_em
+       FROM people.solicitacoes_atualizacao_cadastral
+      WHERE token = $1
+      LIMIT 1`,
+    [token],
+  );
+  return r.rows[0] ?? null;
 }
 
 // =====================================================
-// GET — Busca o formulário + dados atuais do colaborador
+// GET
 // =====================================================
 
 export async function GET(_request: NextRequest, { params }: Params) {
   try {
     const { token } = await params;
-
-    // Buscar solicitação pelo token
-    const solResult = await query(
-      `SELECT id, colaborador_id, campos_selecionados, documentos_selecionados, status, expira_em
-       FROM people.solicitacoes_atualizacao_cadastral
-       WHERE token_publico = $1
-       LIMIT 1`,
-      [token]
-    );
-
-    if (solResult.rows.length === 0) {
+    const solicitacao = await carregarSolicitacao(token);
+    if (!solicitacao) {
       return errorResponse('Token inválido ou solicitação não encontrada', 404);
     }
-
-    const solicitacao = solResult.rows[0] as {
-      id: number;
-      colaborador_id: number;
-      campos_selecionados: string[];
-      documentos_selecionados: number[];
-      status: string;
-      expira_em: string;
-    };
-
-    // Verificar status válido
     if (solicitacao.status !== 'pendente' && solicitacao.status !== 'enviado') {
       return errorResponse('Esta solicitação já foi respondida ou expirou', 403);
     }
 
-    // Verificar expiração
-    if (new Date(solicitacao.expira_em) < new Date()) {
-      return errorResponse('Esta solicitação expirou', 403);
-    }
-
-    // Buscar o template do formulário
-    const formResult = await query(
-      `SELECT id, titulo, campos, documentos_requeridos
-       FROM people.formularios_atualizacao_cadastral
-       WHERE ativo = true
-       ORDER BY atualizado_em DESC
-       LIMIT 1`
-    );
-
-    if (formResult.rows.length === 0) {
-      return errorResponse('Formulário de atualização cadastral não encontrado', 404);
-    }
-
-    const formulario = formResult.rows[0];
-
-    // Filtrar campos para incluir apenas os selecionados na solicitação
-    const todosCampos = mapCamposParaApi(formulario.campos, true);
-    const camposFiltrados = solicitacao.campos_selecionados.length > 0
-      ? todosCampos.filter((campo) =>
-          solicitacao.campos_selecionados.includes(campo.id ?? '') ||
-          solicitacao.campos_selecionados.includes(campo.label)
-        )
-      : todosCampos;
-
-    // Buscar documentos requeridos filtrados
-    const documentosSelecionados = Array.isArray(solicitacao.documentos_selecionados)
-      ? solicitacao.documentos_selecionados
+    const campos = Array.isArray(solicitacao.campos_solicitados)
+      ? solicitacao.campos_solicitados.filter((c): c is string => typeof c === 'string')
       : [];
-    const documentos = await fetchDocumentosRequeridos(formulario.documentos_requeridos, documentosSelecionados);
+    const tiposDocIds = Array.isArray(solicitacao.tipos_documento_ids)
+      ? solicitacao.tipos_documento_ids
+      : [];
 
-    // Buscar dados atuais do colaborador
-    const colabResult = await query(
-      `SELECT nome, cpf, email, telefone, rg,
-              endereco_cep, endereco_logradouro, endereco_numero,
-              endereco_complemento, endereco_bairro, endereco_cidade, endereco_estado
-       FROM people.colaboradores
-       WHERE id = $1`,
-      [solicitacao.colaborador_id]
-    );
+    const [tiposDocumento, snapshotColab, colabBasico] = await Promise.all([
+      carregarTiposDocumento(tiposDocIds),
+      carregarSnapshotColaborador(solicitacao.colaborador_id, campos),
+      query<{ nome: string; cpf: string }>(
+        `SELECT nome, cpf FROM people.colaboradores WHERE id = $1 LIMIT 1`,
+        [solicitacao.colaborador_id],
+      ),
+    ]);
 
-    if (colabResult.rows.length === 0) {
+    if (colabBasico.rows.length === 0) {
       return errorResponse('Colaborador não encontrado', 404);
     }
 
-    const colab = colabResult.rows[0] as Record<string, unknown>;
-
     return successResponse({
-      formulario: {
-        titulo: formulario.titulo,
-        campos: camposFiltrados,
-        documentos,
-      },
-      colaborador: {
-        nome: colab.nome,
-        cpf: colab.cpf,
-        email: colab.email,
-        telefone: colab.telefone,
-        rg: colab.rg,
-        endereco: {
-          cep: colab.endereco_cep,
-          logradouro: colab.endereco_logradouro,
-          numero: colab.endereco_numero,
-          complemento: colab.endereco_complemento,
-          bairro: colab.endereco_bairro,
-          cidade: colab.endereco_cidade,
-          estado: colab.endereco_estado,
-        },
-      },
       solicitacao: {
         id: solicitacao.id,
         status: solicitacao.status,
-        expiraEm: solicitacao.expira_em,
+        criadoEm: solicitacao.criado_em,
       },
+      colaborador: {
+        nome: colabBasico.rows[0].nome,
+        cpf: colabBasico.rows[0].cpf,
+      },
+      // Lista de campos pedidos pelo gestor + valor ATUAL pra pré-preencher.
+      campos: campos.map((key) => ({
+        key,
+        valorAtual: snapshotColab[key] ?? null,
+      })),
+      tiposDocumento,
     });
   } catch (error) {
-    console.error('Erro ao obter formulário de atualização cadastral público:', error);
-    return serverErrorResponse('Erro ao obter formulário de atualização cadastral');
+    console.error('[atualizacao-cadastral/public/GET] erro:', error);
+    return serverErrorResponse('Erro ao obter solicitação de atualização');
   }
 }
 
 // =====================================================
-// POST — Envia a resposta do colaborador
+// POST — colaborador envia respostas
 // =====================================================
 
 export async function POST(request: NextRequest, { params }: Params) {
   try {
     const { token } = await params;
-
-    // Buscar solicitação pelo token
-    const solResult = await query(
-      `SELECT id, status, expira_em
-       FROM people.solicitacoes_atualizacao_cadastral
-       WHERE token_publico = $1
-       LIMIT 1`,
-      [token]
-    );
-
-    if (solResult.rows.length === 0) {
+    const solicitacao = await carregarSolicitacao(token);
+    if (!solicitacao) {
       return errorResponse('Token inválido ou solicitação não encontrada', 404);
     }
-
-    const solicitacao = solResult.rows[0] as {
-      id: number;
-      status: string;
-      expira_em: string;
-    };
-
-    // Verificar status válido
     if (solicitacao.status !== 'pendente' && solicitacao.status !== 'enviado') {
       return errorResponse('Esta solicitação já foi respondida ou expirou', 403);
     }
 
-    // Verificar expiração
-    if (new Date(solicitacao.expira_em) < new Date()) {
-      return errorResponse('Esta solicitação expirou', 403);
-    }
-
-    // Parsear body
-    const body = await request.json();
-    const { dados, documentos } = body as { dados?: Record<string, unknown>; documentos?: unknown[] };
+    const body = await request.json().catch(() => ({}));
+    const { dados, documentos } = body as {
+      dados?: Record<string, unknown>;
+      documentos?: unknown[];
+    };
 
     if (!dados || typeof dados !== 'object') {
-      return errorResponse('O campo "dados" é obrigatório e deve ser um objeto');
+      return errorResponse('O campo "dados" é obrigatório e deve ser um objeto', 400);
     }
 
-    // Atualizar a solicitação com a resposta
+    // Mescla dados + docs num único JSON pro snapshot da resposta.
+    const respostas = {
+      dados,
+      documentos: Array.isArray(documentos) ? documentos : [],
+    };
+
     await query(
       `UPDATE people.solicitacoes_atualizacao_cadastral
-       SET dados_resposta = $2::jsonb,
-           documentos_resposta = $3::jsonb,
-           status = 'respondido',
-           respondido_em = NOW()
-       WHERE id = $1`,
-      [
-        solicitacao.id,
-        JSON.stringify(dados),
-        JSON.stringify(documentos ?? []),
-      ]
+          SET dados_respondidos = $2::jsonb,
+              status            = 'respondido',
+              respondido_em     = NOW()
+        WHERE id = $1::bigint`,
+      [solicitacao.id, JSON.stringify(respostas)],
     );
 
     return successResponse({ message: 'Atualização cadastral enviada com sucesso' });
   } catch (error) {
-    console.error('Erro ao enviar resposta de atualização cadastral:', error);
+    console.error('[atualizacao-cadastral/public/POST] erro:', error);
     return serverErrorResponse('Erro ao enviar resposta de atualização cadastral');
   }
 }

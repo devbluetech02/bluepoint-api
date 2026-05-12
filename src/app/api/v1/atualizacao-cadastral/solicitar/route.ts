@@ -1,7 +1,12 @@
 import { NextRequest } from 'next/server';
 import crypto from 'crypto';
 import { query } from '@/lib/db';
-import { createdResponse, errorResponse, serverErrorResponse, validationErrorResponse } from '@/lib/api-response';
+import {
+  createdResponse,
+  errorResponse,
+  serverErrorResponse,
+  validationErrorResponse,
+} from '@/lib/api-response';
 import { withGestor } from '@/lib/middleware';
 import { enviarMensagemWhatsApp } from '@/lib/evolution-api';
 import { enviarPushParaColaborador } from '@/lib/push-colaborador';
@@ -9,120 +14,104 @@ import { z } from 'zod';
 import { validateBody } from '@/lib/validation';
 
 // =====================================================
-// Schema
+// POST /api/v1/atualizacao-cadastral/solicitar
+//
+// Cria solicitação de atualização cadastral.
+//
+// Fluxo novo (sem form builder): o gestor seleciona, no front,
+// quais CAMPOS do modal de detalhes do colaborador devem ser
+// atualizados (`campos`) e/ou quais TIPOS DE DOCUMENTO devem
+// ser anexados (`tiposDocumento`). A solicitação carrega a
+// própria lista — não depende mais de um template global.
+//
+// Body:
+//   { colaboradorId: number,
+//     campos: string[],               // keys do modal (ex.: "nome","endereco_cep")
+//     tiposDocumento?: number[],      // IDs em people.tipos_documento_colaborador
+//     mensagemWhatsApp?: string|null  // opcional, override do template padrão
+//   }
+//
+// Exige pelo menos um campo OU um tipo de documento.
 // =====================================================
 
-const solicitarAtualizacaoCadastralSchema = z.object({
+const schema = z.object({
   colaboradorId: z.number().int().positive('colaboradorId é obrigatório'),
-  camposSelecionados: z.array(z.string()).min(1, 'Selecione pelo menos 1 campo'),
-  documentosSelecionados: z.array(z.number().int().positive()).default([]),
+  campos: z.array(z.string().min(1)).default([]),
+  tiposDocumento: z.array(z.number().int().positive()).default([]),
   mensagemWhatsApp: z.string().max(2000).optional().nullable(),
-});
-
-// =====================================================
-// POST — cria uma nova solicitação de atualização cadastral
-// =====================================================
+}).refine(
+  (v) => v.campos.length > 0 || v.tiposDocumento.length > 0,
+  { message: 'Selecione ao menos 1 campo ou tipo de documento', path: ['campos'] },
+);
 
 export async function POST(request: NextRequest) {
-  return withGestor(request, async (req) => {
+  return withGestor(request, async (req, user) => {
     try {
       const body = await req.json();
-      const validation = validateBody(solicitarAtualizacaoCadastralSchema, body);
+      const validation = validateBody(schema, body);
       if (!validation.success) {
         return validationErrorResponse(validation.errors);
       }
+      const { colaboradorId, campos, tiposDocumento, mensagemWhatsApp } = validation.data;
+      const criadorId: number | null = user.userId ?? null;
 
-      const { colaboradorId, camposSelecionados, documentosSelecionados, mensagemWhatsApp } = validation.data;
-
-      // Buscar dados do colaborador
-      const colabResult = await query(
+      // Colaborador existe?
+      const colabResult = await query<{ id: number; nome: string; telefone: string | null }>(
         `SELECT id, nome, telefone
-         FROM people.colaboradores
-         WHERE id = $1`,
-        [colaboradorId]
+           FROM people.colaboradores
+          WHERE id = $1`,
+        [colaboradorId],
       );
-
       if (colabResult.rows.length === 0) {
         return errorResponse('Colaborador não encontrado', 404);
       }
+      const colaborador = colabResult.rows[0];
 
-      const colaborador = colabResult.rows[0] as { id: number; nome: string; telefone: string | null };
-
-      // Buscar formulário ativo (ou criar um default se não existir)
-      let formularioId: string;
-      const formResult = await query<{ id: string }>(
-        `SELECT id FROM people.formularios_atualizacao_cadastral WHERE ativo = true ORDER BY criado_em DESC LIMIT 1`
-      );
-      if (formResult.rows.length > 0) {
-        formularioId = formResult.rows[0].id;
-      } else {
-        const newForm = await query<{ id: string }>(
-          `INSERT INTO people.formularios_atualizacao_cadastral (titulo, campos, ativo)
-           VALUES ('Atualização Cadastral', '[]'::jsonb, true)
-           RETURNING id`
-        );
-        formularioId = newForm.rows[0].id;
-      }
-
-      // Gerar token público
-      const tokenPublico = crypto.randomBytes(24).toString('hex');
-
-      // Calcular expiração (7 dias)
-      const expiraEm = new Date();
-      expiraEm.setDate(expiraEm.getDate() + 7);
-
-      // Inserir solicitação
-      const insertResult = await query(
+      // 3. Cria solicitação.
+      const token = crypto.randomBytes(24).toString('hex');
+      const insert = await query<{ id: string }>(
         `INSERT INTO people.solicitacoes_atualizacao_cadastral
-           (formulario_id, colaborador_id, campos_selecionados, documentos_selecionados, token_publico, status, expira_em)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, 'pendente', $6)
-         RETURNING id`,
+           (colaborador_id, token, campos_solicitados, tipos_documento_ids,
+            mensagem_whatsapp, status, criado_por)
+         VALUES ($1, $2, $3::jsonb, $4::int[], $5, 'pendente', $6)
+         RETURNING id::text`,
         [
-          formularioId,
           colaboradorId,
-          JSON.stringify(camposSelecionados),
-          JSON.stringify(documentosSelecionados),
-          tokenPublico,
-          expiraEm.toISOString(),
-        ]
+          token,
+          JSON.stringify(campos),
+          tiposDocumento,
+          mensagemWhatsApp ?? null,
+          criadorId,
+        ],
       );
+      const solicitacaoId = insert.rows[0].id;
 
-      const solicitacaoId = insertResult.rows[0].id;
+      const link = `https://people.valerisapp.com.br/?page=atualizacao&token=${token}`;
 
-      // Montar link público
-      const link = `https://people.valerisapp.com.br/?page=atualizacao&token=${tokenPublico}`;
-
-      // Enviar WhatsApp
+      // 4. WhatsApp (best-effort).
       let whatsappEnviado = false;
-
       if (colaborador.telefone) {
         const primeiroNome = colaborador.nome.split(' ')[0];
-
-        let mensagem: string;
-        if (mensagemWhatsApp) {
-          mensagem = `${mensagemWhatsApp}\n\n${link}`;
-        } else {
-          mensagem =
-            `Olá, ${primeiroNome}! 👋\n\n` +
-            `Precisamos que você atualize alguns dados cadastrais. É rápido e pode ser feito pelo celular:\n\n` +
+        const corpo = mensagemWhatsApp && mensagemWhatsApp.trim() !== ''
+          ? `${mensagemWhatsApp}\n\n${link}`
+          : `Olá, ${primeiroNome}! 👋\n\n` +
+            `Precisamos que você atualize alguns dados cadastrais. ` +
+            `É rápido e pode ser feito pelo celular:\n\n` +
             `📋 *Atualizar dados:*\n${link}\n\n` +
             `Qualquer dúvida, fale com o RH. Obrigado! 💙`;
-        }
-
-        const resultado = await enviarMensagemWhatsApp(colaborador.telefone, mensagem);
-        whatsappEnviado = resultado.ok;
-
-        if (resultado.ok) {
+        const r = await enviarMensagemWhatsApp(colaborador.telefone, corpo);
+        whatsappEnviado = r.ok;
+        if (r.ok) {
           await query(
             `UPDATE people.solicitacoes_atualizacao_cadastral
-             SET status = 'enviado'
-             WHERE id = $1`,
-            [solicitacaoId]
+                SET status = 'enviado'
+              WHERE id = $1::bigint`,
+            [solicitacaoId],
           );
         }
       }
 
-      // Push notification no app (best-effort)
+      // 5. Push (best-effort).
       enviarPushParaColaborador(colaboradorId, {
         titulo: 'Atualização Cadastral',
         mensagem: 'O RH solicitou que você atualize seus dados cadastrais. Toque para abrir.',
@@ -132,12 +121,12 @@ export async function POST(request: NextRequest) {
 
       return createdResponse({
         id: solicitacaoId,
-        token: tokenPublico,
+        token,
         link,
         whatsappEnviado,
       });
     } catch (error) {
-      console.error('Erro ao solicitar atualização cadastral:', error);
+      console.error('[atualizacao-cadastral/solicitar] erro:', error);
       return serverErrorResponse('Erro ao solicitar atualização cadastral');
     }
   });
