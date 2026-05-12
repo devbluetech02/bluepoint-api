@@ -15,6 +15,7 @@ import {
 import {
   enviarDocumentoDiaTeste,
   obterSigningLinkExistente,
+  gerarEEnviarContratoDiaTeste,
 } from '@/lib/recrutamento-dia-teste';
 
 // POST /api/v1/recrutamento/processos/:id/reenviar-whatsapp
@@ -97,46 +98,127 @@ export async function POST(
       let signingLink: string | undefined;
 
       if (proc.caminho === 'dia_teste') {
-        if (!proc.documento_assinatura_id) {
-          return errorResponse(
-            'Processo de dia de teste sem contrato gerado — não há link pra reenviar',
-            400
+        // Descobre o documento de assinatura:
+        //   1) processo_seletivo.documento_assinatura_id (caminho legado).
+        //   2) Fallback: dia_teste_agendamento.documento_assinatura_id do
+        //      agendamento mais recente — contratos gerados via
+        //      `adicionar_dia` ficam só no agendamento.
+        //   3) Auto-gen: se nenhum agendamento tem doc, gera o contrato
+        //      agora pro PRÓXIMO agendamento ainda "agendado" (não
+        //      compareceu/desistencia/etc). Cobre o caso de processos
+        //      antigos onde a geração inicial silenciosamente não rodou
+        //      ou foi pulada — clicar "Reenviar" resolve sem precisar
+        //      passar por outro fluxo.
+        let documentId: string | null = proc.documento_assinatura_id;
+
+        if (!documentId) {
+          const agRes = await query<{
+            id: string;
+            documento_assinatura_id: string | null;
+          }>(
+            `SELECT id::text, documento_assinatura_id
+               FROM people.dia_teste_agendamento
+              WHERE processo_seletivo_id = $1::bigint
+                AND documento_assinatura_id IS NOT NULL
+              ORDER BY data DESC, id DESC
+              LIMIT 1`,
+            [id],
           );
+          documentId = agRes.rows[0]?.documento_assinatura_id ?? null;
         }
-        // Reenvio: doc ja foi enviado antes, esta in_progress no SignProof.
-        // /send retorna 409 nesse estado — usar GET signing-links pra
-        // reaproveitar link existente. Fallback /send se nunca enviou
-        // (doc ainda em draft).
-        let env = await obterSigningLinkExistente(proc.documento_assinatura_id);
-        if (!env.ok || !env.signingLink) {
-          env = await enviarDocumentoDiaTeste(proc.documento_assinatura_id);
-        }
-        if (!env.ok || !env.signingLink) {
-          return errorResponse(
-            `Não foi possível obter o link de assinatura: ${env.erro ?? 'sem signing_link'}`,
-            502
+
+        if (!documentId) {
+          // Auto-gen: nenhum doc em lugar nenhum. Acha o próximo
+          // agendamento ainda em aberto pra gerar o contrato pra ele.
+          const proxRes = await query<{
+            id: string;
+            data: string;
+            valor_diaria: string | null;
+            carga_horaria: number | null;
+          }>(
+            `SELECT id::text,
+                    data::text                  AS data,
+                    valor_diaria::text          AS valor_diaria,
+                    carga_horaria
+               FROM people.dia_teste_agendamento
+              WHERE processo_seletivo_id = $1::bigint
+                AND status = 'agendado'
+              ORDER BY data ASC, id ASC
+              LIMIT 1`,
+            [id],
           );
+          const prox = proxRes.rows[0];
+          if (!prox) {
+            return errorResponse(
+              'Processo sem contrato gerado e nenhum agendamento em aberto pra gerar — verifique se o candidato ainda tem dia de teste futuro.',
+              400,
+            );
+          }
+          const valor = parseFloat(prox.valor_diaria ?? '0');
+          const carga = prox.carga_horaria ?? 8;
+          if (!valor || valor <= 0) {
+            return errorResponse(
+              `Agendamento ${prox.id} sem valor_diaria configurado — não dá pra gerar contrato.`,
+              400,
+            );
+          }
+          const gen = await gerarEEnviarContratoDiaTeste({
+            processoId: id,
+            agendamentoId: prox.id,
+            data: prox.data.slice(0, 10),
+            valorDiaria: valor,
+            cargaHoraria: carga,
+            diasQtdContrato: 1,
+            setarNoProcesso: true,
+          });
+          if (!gen.ok || !gen.documentId) {
+            return errorResponse(
+              `Falha ao gerar contrato: ${gen.signProofErro ?? 'desconhecido'}`,
+              502,
+            );
+          }
+          documentId = gen.documentId;
+          // gerarEEnviar... já manda o WhatsApp inicial. Não precisa
+          // reenviar de novo — devolve sucesso com o link gerado.
+          signingLink = gen.signingLink ?? undefined;
+          whatsappOk = gen.whatsappOk;
+          whatsappErro = gen.whatsappErro;
+        } else {
+          // Reenvio: doc ja foi enviado antes, esta in_progress no SignProof.
+          // /send retorna 409 nesse estado — usar GET signing-links pra
+          // reaproveitar link existente. Fallback /send se nunca enviou
+          // (doc ainda em draft).
+          let env = await obterSigningLinkExistente(documentId);
+          if (!env.ok || !env.signingLink) {
+            env = await enviarDocumentoDiaTeste(documentId);
+          }
+          if (!env.ok || !env.signingLink) {
+            return errorResponse(
+              `Não foi possível obter o link de assinatura: ${env.erro ?? 'sem signing_link'}`,
+              502
+            );
+          }
+          signingLink = env.signingLink;
+          const msg = [
+            `Olá, ${primeiroNome}! 👋`,
+            '',
+            'Reenviando o link pra você assinar o contrato do dia de teste:',
+            '',
+            '📋 *Assinar contrato:*',
+            signingLink,
+            '',
+            'Qualquer dúvida, estamos à disposição!',
+          ].join('\n');
+          // Reenvio do dia de teste usa a mesma instância de recrutamento
+          // (RH_ROBSON) — bate com o envio inicial em /processos.
+          const result = await enviarMensagemWhatsApp(
+            numero,
+            msg,
+            getRecrutamentoEvolutionConfig(),
+          );
+          whatsappOk = result.ok;
+          whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
         }
-        signingLink = env.signingLink;
-        const msg = [
-          `Olá, ${primeiroNome}! 👋`,
-          '',
-          'Reenviando o link pra você assinar o contrato do dia de teste:',
-          '',
-          '📋 *Assinar contrato:*',
-          signingLink,
-          '',
-          'Qualquer dúvida, estamos à disposição!',
-        ].join('\n');
-        // Reenvio do dia de teste usa a mesma instância de recrutamento
-        // (RH_ROBSON) — bate com o envio inicial em /processos.
-        const result = await enviarMensagemWhatsApp(
-          numero,
-          msg,
-          getRecrutamentoEvolutionConfig(),
-        );
-        whatsappOk = result.ok;
-        whatsappErro = result.ok ? null : (result.erro ?? 'falha_desconhecida');
       } else if (proc.caminho === 'pre_admissao') {
         const msg = `Olá, ${primeiroNome}! 👋
 
