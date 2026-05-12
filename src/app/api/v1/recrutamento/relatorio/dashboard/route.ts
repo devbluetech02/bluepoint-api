@@ -14,6 +14,7 @@ import {
   lerInsightsCacheado,
   dispararGeracaoEmBackground,
 } from '@/lib/recrutador-insights';
+import { getEntrevistasRealizadas } from '@/lib/sheet-entrevistas-realizadas';
 
 // GET /api/v1/recrutamento/relatorio/dashboard
 //
@@ -715,8 +716,100 @@ export async function GET(request: NextRequest) {
         },
       };
 
+      // ───────────────────────────────────────────────────────────────
+      // 4b. Override de totais via Google Sheet "Controle de entrevista"
+      // ───────────────────────────────────────────────────────────────
+      // "Entrevista realizada" = candidato compareceu (status REPROVADO
+      // ou TESTE no sheet). Substituimos os totais agregados do DB
+      // (que incluem entrevistas agendadas mas nao realizadas) pelos
+      // counts do sheet. Aderencia/duracao/ocio ficam como antes
+      // (computados sobre rows DB que tem video processado).
+      const sheetAll = await getEntrevistasRealizadas();
+      const sheetRealizadas = sheetAll.filter(
+        (r) => r.realizada && recrutadorAtivo(r.recrutador),
+      );
+
+      // Mes atual: 1o dia do mes BRT ate hoje. Referencia fixa pros %.
+      const hojeBrtParts = new Date(hojeIni.getTime() - BRT_OFFSET_MS);
+      const mesAtualIni = new Date(Date.UTC(
+        hojeBrtParts.getUTCFullYear(),
+        hojeBrtParts.getUTCMonth(),
+        1, 3, 0, 0, 0,
+      ));
+      const bdMesAtual = Math.max(1, countBusinessDays(mesAtualIni, hojeIni));
+
+      type SW = 'hoje' | 'udu' | 'uduAnt' | 'sete' | 'seteAnt' | 'quinze' | 'quinzeAnt' | 'trinta' | 'trintaAnt' | 'mesAtual';
+      const novoBucketSW = (): Record<SW, number> => ({
+        hoje: 0, udu: 0, uduAnt: 0, sete: 0, seteAnt: 0,
+        quinze: 0, quinzeAnt: 0, trinta: 0, trintaAnt: 0, mesAtual: 0,
+      });
+      const sheetTeam = novoBucketSW();
+      const sheetByRec = new Map<string, Record<SW, number>>();
+      const bumpRec = (fn: string, w: SW) => {
+        if (!fn) return;
+        let m = sheetByRec.get(fn);
+        if (!m) { m = novoBucketSW(); sheetByRec.set(fn, m); }
+        m[w]++;
+      };
+
+      for (const r of sheetRealizadas) {
+        const dt = new Date(`${r.dataBrtIso}T03:00:00.000Z`);
+        if (dt < sessenta) continue;
+        const fn = firstName(r.recrutador);
+        const inTrinta = dt >= trintaInicio;
+        const inSete = dt >= seteIni;
+        const inHoje = dt >= hojeIni;
+        const inUdu = dt >= uduIni && dt < uduFim;
+        const inUduAnt = dt >= uduAntIni && dt < uduAntFim;
+        const inMesAtual = dt >= mesAtualIni;
+
+        if (inTrinta) { sheetTeam.trinta++; bumpRec(fn, 'trinta'); }
+        else { sheetTeam.trintaAnt++; bumpRec(fn, 'trintaAnt'); }
+        if (dt >= quinzeIni) { sheetTeam.quinze++; bumpRec(fn, 'quinze'); }
+        else if (dt >= quinzeAntIni) { sheetTeam.quinzeAnt++; bumpRec(fn, 'quinzeAnt'); }
+        if (inSete) { sheetTeam.sete++; bumpRec(fn, 'sete'); }
+        else if (dt >= seteAntIni) { sheetTeam.seteAnt++; bumpRec(fn, 'seteAnt'); }
+        if (inUdu) { sheetTeam.udu++; bumpRec(fn, 'udu'); }
+        else if (inUduAnt) { sheetTeam.uduAnt++; bumpRec(fn, 'uduAnt'); }
+        if (inHoje) { sheetTeam.hoje++; bumpRec(fn, 'hoje'); }
+        if (inMesAtual) { sheetTeam.mesAtual++; bumpRec(fn, 'mesAtual'); }
+      }
+
+      const mediaMesAtualPorDia = sheetTeam.mesAtual / bdMesAtual;
+      const variacaoVsMesAtual = (atual: number): number | null => {
+        if (mediaMesAtualPorDia === 0) return atual === 0 ? 0 : null;
+        return Math.round(((atual - mediaMesAtualPorDia) / mediaMesAtualPorDia) * 1000) / 10;
+      };
+
+      // Override equipe (team-level). Mantem mediaDuracao/aderencia/ocio
+      // do DB; substitui apenas total/mediaPorDia/anterior/variacaoPct.
+      const overrideJanela = (
+        janela: { total: number; mediaPorDia: number; anterior: { total: number; mediaPorDia: number; dataReferencia?: string }; variacaoPct: number | null },
+        sheetTotal: number,
+        bdDias: number,
+        compararPorMedia: boolean,
+      ) => {
+        janela.total = sheetTotal;
+        janela.mediaPorDia = sheetTotal / Math.max(bdDias, 1);
+        janela.anterior.total = sheetTeam.mesAtual;
+        janela.anterior.mediaPorDia = mediaMesAtualPorDia;
+        janela.variacaoPct = variacaoVsMesAtual(
+          compararPorMedia ? janela.mediaPorDia : janela.total,
+        );
+      };
+      overrideJanela(equipe.hoje, sheetTeam.hoje, Math.max(bdHoje, 1), false);
+      overrideJanela(equipe.ultimoDiaUtil, sheetTeam.udu, bdUdu, false);
+      overrideJanela(equipe.sete, sheetTeam.sete, bdSete, true);
+      overrideJanela(equipe.quinze, sheetTeam.quinze, bdQuinze, true);
+      overrideJanela(equipe.trinta, sheetTeam.trinta, bdTrinta, true);
+
       // 5. Por recrutador: consolida + nota + insights
-      const totaisRecs = Array.from(accs.values()).map((b) => b.trinta.total);
+      // Volume max calculado em cima dos totais do SHEET (entrevistas
+      // realizadas) — mesma base usada nos cards.
+      const totaisRecs = Array.from(accs.keys()).map((nome) => {
+        const fn = firstName(nome);
+        return sheetByRec.get(fn)?.trinta ?? 0;
+      });
       const volumeMax = Math.max(1, ...totaisRecs);
       const duracaoAlvoSeg = duracaoMinSeg * 1.5;
 
@@ -726,6 +819,23 @@ export async function GET(request: NextRequest) {
           sete: consolidar(b.sete, duracaoMinSeg, bdSete),
           trinta: consolidar(b.trinta, duracaoMinSeg, bdTrinta),
         };
+        // Override de totais via sheet (fonte = entrevistas REALIZADAS).
+        // Match por primeiro nome (DB "Tayane Oliveira" vs Sheet "Tayane Passos").
+        const fn = firstName(nome);
+        const recSheet = sheetByRec.get(fn);
+        if (recSheet) {
+          c.hoje.total = recSheet.hoje;
+          c.hoje.mediaPorDia = recSheet.hoje / Math.max(bdHoje, 1);
+          c.sete.total = recSheet.sete;
+          c.sete.mediaPorDia = recSheet.sete / Math.max(bdSete, 1);
+          c.trinta.total = recSheet.trinta;
+          c.trinta.mediaPorDia = recSheet.trinta / Math.max(bdTrinta, 1);
+        } else {
+          // Recrutador ativo sem registros no sheet — zera totais
+          c.hoje.total = 0; c.hoje.mediaPorDia = 0;
+          c.sete.total = 0; c.sete.mediaPorDia = 0;
+          c.trinta.total = 0; c.trinta.mediaPorDia = 0;
+        }
 
         // Tempo ocioso do recrutador (mesma logica do equipe, mas
         // limitado ao recrutador). 3 janelas pareadas com c.
