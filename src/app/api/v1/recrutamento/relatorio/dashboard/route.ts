@@ -14,7 +14,6 @@ import {
   lerInsightsCacheado,
   dispararGeracaoEmBackground,
 } from '@/lib/recrutador-insights';
-import { getEntrevistasRealizadas } from '@/lib/sheet-entrevistas-realizadas';
 
 // GET /api/v1/recrutamento/relatorio/dashboard
 //
@@ -429,25 +428,37 @@ export async function GET(request: NextRequest) {
       const sessenta = startOfDayBRT(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
       const trintaInicio = startOfDayBRT(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
-      const params: unknown[] = [sessenta.toISOString()];
-      let where = `data_entrevista >= $1`;
+      // "Entrevista realizada" = candidato.status_entrevista preenchido.
+      // candidatos e a fonte canonica do count; entrevistas_agendadas
+      // contribui apenas com metricas IA (duracao, aderencia, ocio)
+      // via LEFT JOIN — entrevistas sem video processado ainda contam.
+      const params: unknown[] = [sessenta.toISOString().slice(0, 10)];
+      let where = `c.data_entrevista >= $1::date
+                   AND c.status_entrevista IS NOT NULL
+                   AND TRIM(c.status_entrevista) <> ''`;
       if (recrutadorFiltro) {
         params.push(recrutadorFiltro);
-        where += ` AND recrutador = $${params.length}`;
+        where += ` AND c.responsavel_entrevista = $${params.length}`;
       }
       if (vagaFiltro) {
         params.push(`%${vagaFiltro}%`);
-        where += ` AND vaga ILIKE $${params.length}`;
+        where += ` AND c.vaga ILIKE $${params.length}`;
       }
       if (vagasDoDept) {
         params.push(vagasDoDept);
-        where += ` AND vaga = ANY($${params.length}::text[])`;
+        where += ` AND c.vaga = ANY($${params.length}::text[])`;
       }
 
       const linhas = await queryRecrutamento<LinhaEntrevista>(
-        `SELECT id, recrutador, vaga, telefone, data_entrevista, duracao_seg,
-                aderencia_ia_pct, houve_entrevista_ia, video_created_at
-           FROM public.entrevistas_agendadas
+        `SELECT c.id AS id,
+                c.responsavel_entrevista AS recrutador,
+                c.vaga AS vaga,
+                c.telefone AS telefone,
+                c.data_entrevista AS data_entrevista,
+                ea.duracao_seg, ea.aderencia_ia_pct, ea.houve_entrevista_ia,
+                ea.video_created_at
+           FROM public.candidatos c
+           LEFT JOIN public.entrevistas_agendadas ea ON ea.id_candidatura = c.id
           WHERE ${where}`,
         params,
       );
@@ -496,7 +507,10 @@ export async function GET(request: NextRequest) {
         // Filtro 1: ignora entrevistas de recrutadores sem usuario ativo
         // cargo recrutador no People.
         if (!recrutadorAtivo(k)) continue;
-        const dt = new Date(r.data_entrevista);
+        // c.data_entrevista e `date` (sem TZ) — node-pg parseia como
+        // meia-noite UTC. Soma BRT_OFFSET_MS pra ancorar em meia-noite
+        // BRT-como-instante-UTC, mesmo eixo dos boundaries (hojeIni etc).
+        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
         // Filtro 2: dashboard contabiliza só dias úteis (seg-sex, sem
         // feriados nacionais). Entrevistas em fds/feriado ficam de fora
         // de todos os KPIs, séries, distribuição e nota dos recrutadores.
@@ -586,7 +600,7 @@ export async function GET(request: NextRequest) {
         const k =
           (r.recrutador ?? 'sem_recrutador').trim() || 'sem_recrutador';
         if (!recrutadorAtivo(k)) continue;
-        const dt = new Date(r.data_entrevista);
+        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
         if (!isBusinessDay(dt)) continue;
         const arr = entriesPorRec.get(k) ?? [];
         arr.push(r);
@@ -629,7 +643,11 @@ export async function GET(request: NextRequest) {
         all: LinhaEntrevista[],
         janelaIni: Date,
       ): LinhaEntrevista[] {
-        return all.filter((e) => new Date(e.data_entrevista) >= janelaIni);
+        return all.filter(
+          (e) =>
+            new Date(new Date(e.data_entrevista).getTime() + BRT_OFFSET_MS) >=
+            janelaIni,
+        );
       }
 
       // Equipe: agrega todas as entrevistas de todos recrutadores
@@ -717,19 +735,10 @@ export async function GET(request: NextRequest) {
       };
 
       // ───────────────────────────────────────────────────────────────
-      // 4b. Override de totais via Google Sheet "Controle de entrevista"
+      // 4b. Aplica variacao percentual contra MEDIA DO MES ATUAL
       // ───────────────────────────────────────────────────────────────
-      // "Entrevista realizada" = candidato compareceu (status REPROVADO
-      // ou TESTE no sheet). Substituimos os totais agregados do DB
-      // (que incluem entrevistas agendadas mas nao realizadas) pelos
-      // counts do sheet. Aderencia/duracao/ocio ficam como antes
-      // (computados sobre rows DB que tem video processado).
-      const sheetAll = await getEntrevistasRealizadas();
-      const sheetRealizadas = sheetAll.filter(
-        (r) => r.realizada && recrutadorAtivo(r.recrutador),
-      );
-
-      // Mes atual: 1o dia do mes BRT ate hoje. Referencia fixa pros %.
+      // Mes atual: 1o dia BRT do mes corrente ate hoje. Substitui
+      // o anterior.* e recalcula variacaoPct usando essa referencia.
       const hojeBrtParts = new Date(hojeIni.getTime() - BRT_OFFSET_MS);
       const mesAtualIni = new Date(Date.UTC(
         hojeBrtParts.getUTCFullYear(),
@@ -738,78 +747,37 @@ export async function GET(request: NextRequest) {
       ));
       const bdMesAtual = Math.max(1, countBusinessDays(mesAtualIni, hojeIni));
 
-      type SW = 'hoje' | 'udu' | 'uduAnt' | 'sete' | 'seteAnt' | 'quinze' | 'quinzeAnt' | 'trinta' | 'trintaAnt' | 'mesAtual';
-      const novoBucketSW = (): Record<SW, number> => ({
-        hoje: 0, udu: 0, uduAnt: 0, sete: 0, seteAnt: 0,
-        quinze: 0, quinzeAnt: 0, trinta: 0, trintaAnt: 0, mesAtual: 0,
-      });
-      const sheetTeam = novoBucketSW();
-      const sheetByRec = new Map<string, Record<SW, number>>();
-      const bumpRec = (fn: string, w: SW) => {
-        if (!fn) return;
-        let m = sheetByRec.get(fn);
-        if (!m) { m = novoBucketSW(); sheetByRec.set(fn, m); }
-        m[w]++;
-      };
-
-      for (const r of sheetRealizadas) {
-        const dt = new Date(`${r.dataBrtIso}T03:00:00.000Z`);
-        if (dt < sessenta) continue;
-        const fn = firstName(r.recrutador);
-        const inTrinta = dt >= trintaInicio;
-        const inSete = dt >= seteIni;
-        const inHoje = dt >= hojeIni;
-        const inUdu = dt >= uduIni && dt < uduFim;
-        const inUduAnt = dt >= uduAntIni && dt < uduAntFim;
-        const inMesAtual = dt >= mesAtualIni;
-
-        if (inTrinta) { sheetTeam.trinta++; bumpRec(fn, 'trinta'); }
-        else { sheetTeam.trintaAnt++; bumpRec(fn, 'trintaAnt'); }
-        if (dt >= quinzeIni) { sheetTeam.quinze++; bumpRec(fn, 'quinze'); }
-        else if (dt >= quinzeAntIni) { sheetTeam.quinzeAnt++; bumpRec(fn, 'quinzeAnt'); }
-        if (inSete) { sheetTeam.sete++; bumpRec(fn, 'sete'); }
-        else if (dt >= seteAntIni) { sheetTeam.seteAnt++; bumpRec(fn, 'seteAnt'); }
-        if (inUdu) { sheetTeam.udu++; bumpRec(fn, 'udu'); }
-        else if (inUduAnt) { sheetTeam.uduAnt++; bumpRec(fn, 'uduAnt'); }
-        if (inHoje) { sheetTeam.hoje++; bumpRec(fn, 'hoje'); }
-        if (inMesAtual) { sheetTeam.mesAtual++; bumpRec(fn, 'mesAtual'); }
+      // Total da equipe no mes atual (rows DB realizadas ja filtradas no SQL).
+      let mesAtualTotal = 0;
+      for (const r of linhas.rows) {
+        if (!recrutadorAtivo((r.recrutador ?? '').trim())) continue;
+        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
+        if (!isBusinessDay(dt)) continue;
+        if (dt >= mesAtualIni) mesAtualTotal++;
       }
-
-      const mediaMesAtualPorDia = sheetTeam.mesAtual / bdMesAtual;
+      const mediaMesAtualPorDia = mesAtualTotal / bdMesAtual;
       const variacaoVsMesAtual = (atual: number): number | null => {
         if (mediaMesAtualPorDia === 0) return atual === 0 ? 0 : null;
         return Math.round(((atual - mediaMesAtualPorDia) / mediaMesAtualPorDia) * 1000) / 10;
       };
-
-      // Override equipe (team-level). Mantem mediaDuracao/aderencia/ocio
-      // do DB; substitui apenas total/mediaPorDia/anterior/variacaoPct.
-      const overrideJanela = (
+      const ancorarMesAtual = (
         janela: { total: number; mediaPorDia: number; anterior: { total: number; mediaPorDia: number; dataReferencia?: string }; variacaoPct: number | null },
-        sheetTotal: number,
-        bdDias: number,
         compararPorMedia: boolean,
       ) => {
-        janela.total = sheetTotal;
-        janela.mediaPorDia = sheetTotal / Math.max(bdDias, 1);
-        janela.anterior.total = sheetTeam.mesAtual;
+        janela.anterior.total = mesAtualTotal;
         janela.anterior.mediaPorDia = mediaMesAtualPorDia;
         janela.variacaoPct = variacaoVsMesAtual(
           compararPorMedia ? janela.mediaPorDia : janela.total,
         );
       };
-      overrideJanela(equipe.hoje, sheetTeam.hoje, Math.max(bdHoje, 1), false);
-      overrideJanela(equipe.ultimoDiaUtil, sheetTeam.udu, bdUdu, false);
-      overrideJanela(equipe.sete, sheetTeam.sete, bdSete, true);
-      overrideJanela(equipe.quinze, sheetTeam.quinze, bdQuinze, true);
-      overrideJanela(equipe.trinta, sheetTeam.trinta, bdTrinta, true);
+      ancorarMesAtual(equipe.hoje, false);
+      ancorarMesAtual(equipe.ultimoDiaUtil, false);
+      ancorarMesAtual(equipe.sete, true);
+      ancorarMesAtual(equipe.quinze, true);
+      ancorarMesAtual(equipe.trinta, true);
 
       // 5. Por recrutador: consolida + nota + insights
-      // Volume max calculado em cima dos totais do SHEET (entrevistas
-      // realizadas) — mesma base usada nos cards.
-      const totaisRecs = Array.from(accs.keys()).map((nome) => {
-        const fn = firstName(nome);
-        return sheetByRec.get(fn)?.trinta ?? 0;
-      });
+      const totaisRecs = Array.from(accs.values()).map((b) => b.trinta.total);
       const volumeMax = Math.max(1, ...totaisRecs);
       const duracaoAlvoSeg = duracaoMinSeg * 1.5;
 
@@ -819,23 +787,6 @@ export async function GET(request: NextRequest) {
           sete: consolidar(b.sete, duracaoMinSeg, bdSete),
           trinta: consolidar(b.trinta, duracaoMinSeg, bdTrinta),
         };
-        // Override de totais via sheet (fonte = entrevistas REALIZADAS).
-        // Match por primeiro nome (DB "Tayane Oliveira" vs Sheet "Tayane Passos").
-        const fn = firstName(nome);
-        const recSheet = sheetByRec.get(fn);
-        if (recSheet) {
-          c.hoje.total = recSheet.hoje;
-          c.hoje.mediaPorDia = recSheet.hoje / Math.max(bdHoje, 1);
-          c.sete.total = recSheet.sete;
-          c.sete.mediaPorDia = recSheet.sete / Math.max(bdSete, 1);
-          c.trinta.total = recSheet.trinta;
-          c.trinta.mediaPorDia = recSheet.trinta / Math.max(bdTrinta, 1);
-        } else {
-          // Recrutador ativo sem registros no sheet — zera totais
-          c.hoje.total = 0; c.hoje.mediaPorDia = 0;
-          c.sete.total = 0; c.sete.mediaPorDia = 0;
-          c.trinta.total = 0; c.trinta.mediaPorDia = 0;
-        }
 
         // Tempo ocioso do recrutador (mesma logica do equipe, mas
         // limitado ao recrutador). 3 janelas pareadas com c.
@@ -1138,7 +1089,7 @@ export async function GET(request: NextRequest) {
       const recrutadoresAtivosLista: string[] = [];
       const recrutadoresAtivosSet = new Set<string>();
       const linhasTrintaFunil = linhas.rows.filter((r) => {
-        const dt = new Date(r.data_entrevista);
+        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
         return dt >= trintaInicio && isBusinessDay(dt);
       });
       for (const r of linhasTrintaFunil) {
@@ -1248,7 +1199,7 @@ export async function GET(request: NextRequest) {
       for (const r of linhasTrintaFunil) {
         const k = (r.recrutador ?? '').trim();
         if (!k || !recrutadorAtivo(k)) continue;
-        const dt = new Date(r.data_entrevista);
+        const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
         const jans = janelasParaData(dt);
         bumpFunil(jans, k, 'entrevistas');
         // "Não iniciaram": entrevista marcada no Drive sem IA processada
@@ -1459,7 +1410,7 @@ export async function GET(request: NextRequest) {
         const todosBucket = accJanelas[j].get('_todos')!;
         const vagasJ = new Set<string>();
         for (const r of linhasTrintaFunil) {
-          const dt = new Date(r.data_entrevista);
+          const dt = new Date(new Date(r.data_entrevista).getTime() + BRT_OFFSET_MS);
           if (dt < janelaIni) continue;
           if (r.vaga && r.vaga.trim().length > 0) vagasJ.add(r.vaga.trim());
         }
