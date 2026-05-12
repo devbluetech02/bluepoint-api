@@ -53,31 +53,51 @@ const FERIADOS_NACIONAIS = new Set<string>([
   '2028-11-15','2028-11-20','2028-12-25',
 ]);
 
+// Brasil aboliu horario de verao em 2019 — BRT/BRST e fixo UTC-3 ano todo.
+// Server roda em UTC (Fargate default); todos os boundaries de "dia" abaixo
+// sao em BRT pra match com o que o usuario espera ver na tela.
+const BRT_OFFSET_MS = 3 * 60 * 60 * 1000;
+
+/** Instante UTC que corresponde a 00:00 BRT do dia BRT do `input` (ou agora). */
+function startOfDayBRT(input?: Date): Date {
+  const t = input ? input.getTime() : Date.now();
+  const shifted = new Date(t - BRT_OFFSET_MS);
+  return new Date(Date.UTC(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth(),
+    shifted.getUTCDate(),
+    3, 0, 0, 0,
+  ));
+}
+
+/** Data ISO (yyyy-mm-dd) do dia BRT ao qual o instante pertence. */
+function brtDayIso(dt: Date): string {
+  return new Date(dt.getTime() - BRT_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 function isBusinessDay(dt: Date): boolean {
-  const dow = dt.getDay(); // 0=dom, 6=sab
+  // Avalia o dia BRT do instante (evita falsos sab/dom em rollover UTC).
+  const shifted = new Date(dt.getTime() - BRT_OFFSET_MS);
+  const dow = shifted.getUTCDay(); // 0=dom, 6=sab
   if (dow === 0 || dow === 6) return false;
-  const iso = dt.toISOString().slice(0, 10);
-  return !FERIADOS_NACIONAIS.has(iso);
+  return !FERIADOS_NACIONAIS.has(shifted.toISOString().slice(0, 10));
 }
 
 function previousBusinessDay(from: Date): Date {
-  const d = new Date(from);
-  d.setHours(0, 0, 0, 0);
+  const d = startOfDayBRT(from);
   do {
-    d.setDate(d.getDate() - 1);
+    d.setUTCDate(d.getUTCDate() - 1);
   } while (!isBusinessDay(d));
   return d;
 }
 
 function countBusinessDays(startIncl: Date, endIncl: Date): number {
   let n = 0;
-  const cur = new Date(startIncl);
-  cur.setHours(0, 0, 0, 0);
-  const end = new Date(endIncl);
-  end.setHours(0, 0, 0, 0);
+  const cur = startOfDayBRT(startIncl);
+  const end = startOfDayBRT(endIncl);
   while (cur.getTime() <= end.getTime()) {
     if (isBusinessDay(cur)) n++;
-    cur.setDate(cur.getDate() + 1);
+    cur.setUTCDate(cur.getUTCDate() + 1);
   }
   return n;
 }
@@ -404,10 +424,9 @@ export async function GET(request: NextRequest) {
 
       // 3. Sempre carrega 60d (engloba 30d + 30d anterior pra comparativo).
       // Filtra na memoria nos buckets hoje/ontem/sete/seteAnt/trinta/trintaAnt.
-      const sessenta = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-      sessenta.setHours(0, 0, 0, 0);
-      const trintaInicio = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-      trintaInicio.setHours(0, 0, 0, 0);
+      // Todos os boundaries em BRT (server roda UTC mas usuario ve BRT).
+      const sessenta = startOfDayBRT(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000));
+      const trintaInicio = startOfDayBRT(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
 
       const params: unknown[] = [sessenta.toISOString()];
       let where = `data_entrevista >= $1`;
@@ -432,8 +451,7 @@ export async function GET(request: NextRequest) {
         params,
       );
 
-      const hojeIni = new Date();
-      hojeIni.setHours(0, 0, 0, 0);
+      const hojeIni = startOfDayBRT();
       // Ultimo dia util (anterior a hoje). Comparativo de "hoje" usa
       // este dia em vez de ontem cronologico — pula fds/feriados.
       const uduIni = previousBusinessDay(hojeIni);
@@ -482,7 +500,7 @@ export async function GET(request: NextRequest) {
         // feriados nacionais). Entrevistas em fds/feriado ficam de fora
         // de todos os KPIs, séries, distribuição e nota dos recrutadores.
         if (!isBusinessDay(dt)) continue;
-        const dia = dt.toISOString().slice(0, 10);
+        const dia = brtDayIso(dt);
 
         let bucket = accs.get(k);
         if (!bucket) {
