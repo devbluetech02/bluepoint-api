@@ -1063,11 +1063,18 @@ export async function GET(request: NextRequest) {
         const pctNoShow = atual.count > 0
           ? Math.round((atual.naoCompareceu / atual.count) * 1000) / 10
           : 0;
+        // 'compareceuTotal' = todos que apareceram fisicamente,
+        // independente do desfecho. aprovado/reprovado tambem compareceram
+        // (so e marcado APOS comparecer). 'compareceu' puro = apareceu mas
+        // ainda nao foi decidido.
+        const compareceuTotal =
+          atual.compareceu + atual.aprovados + atual.reprovados;
         return {
           total: atual.count,
           aprovados: atual.aprovados,
           reprovados: atual.reprovados,
           compareceu: atual.compareceu,
+          compareceuTotal,
           naoCompareceu: atual.naoCompareceu,
           desistencia: atual.desistencia,
           agendado: atual.agendado,
