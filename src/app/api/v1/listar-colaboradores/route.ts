@@ -147,7 +147,8 @@ export async function GET(request: NextRequest) {
             j.nome as jornada_nome,
             e.nome_fantasia as empresa_nome_fantasia,
             CASE WHEN bf.id IS NOT NULL THEN true ELSE false END as tem_biometria,
-            bf.data_cadastro as biometria_cadastrada_em
+            bf.data_cadastro as biometria_cadastrada_em,
+            bf.foto_referencia_url as biometria_foto_referencia
           FROM people.colaboradores c
           LEFT JOIN people.cargos cg ON c.cargo_id = cg.id
           LEFT JOIN people.departamentos d ON c.departamento_id = d.id
@@ -203,6 +204,9 @@ export async function GET(request: NextRequest) {
             biometria: {
               cadastrada: row.tem_biometria,
               cadastradaEm: row.biometria_cadastrada_em || null,
+              // Frame de referência (MinIO) — usado como fallback do
+              // avatar na UI quando o colaborador não tem foto de perfil.
+              fotoReferencia: row.biometria_foto_referencia ?? null,
             },
           };
           if (mesRefBeneficios) {
