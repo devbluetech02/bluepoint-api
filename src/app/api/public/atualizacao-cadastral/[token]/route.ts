@@ -6,6 +6,7 @@ import {
   successResponse,
 } from '@/lib/api-response';
 import { gerarUrlPublica } from '@/lib/storage';
+import { invalidateColaboradorCache } from '@/lib/cache';
 
 // =====================================================
 // Rota pública /api/public/atualizacao-cadastral/[token]
@@ -367,6 +368,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     } finally {
       client.release();
     }
+
+    // Invalida o cache do colaborador — o GET /obter-colaborador usa
+    // cacheAside e sem isso o modal de detalhes mostra o dado antigo
+    // até o TTL expirar.
+    await invalidateColaboradorCache(colabId).catch(() => {});
 
     return successResponse({
       message: 'Atualização cadastral aplicada com sucesso',
