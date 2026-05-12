@@ -13,6 +13,7 @@ import { registrarAuditoria, buildAuditParams } from '@/lib/audit';
 import {
   loadAgendamento,
   buildAgendamentoPayload,
+  invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
 
@@ -105,6 +106,9 @@ export async function POST(
           WHERE id = $3::bigint`,
         [user.userId, comparecimentoEm, id],
       );
+
+      // Invalida cache do GET /agendamentos — ver nao-compareceu/route.ts.
+      await invalidarCacheAgendamentosDiaTeste();
 
       const updated = await loadAgendamento(id);
       if (!updated) return serverErrorResponse('Estado inconsistente após update');

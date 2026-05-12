@@ -15,6 +15,7 @@ import {
   avancarProcessoAposDecisao,
   calcularValorTotalProcesso,
   calcularPodeDecidir,
+  invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
 
@@ -122,6 +123,9 @@ export async function POST(
         'reprovado',
         id,
       );
+
+      // Invalida cache do GET /agendamentos — ver nao-compareceu/route.ts.
+      await invalidarCacheAgendamentosDiaTeste();
 
       await registrarAuditoria(
         buildAuditParams(req, user, {

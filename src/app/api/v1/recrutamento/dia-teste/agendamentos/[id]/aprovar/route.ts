@@ -19,6 +19,7 @@ import {
   calcularValorTotalProcesso,
   contarAgendamentosPendentesDoProcesso,
   criarProximoDiaTeste,
+  invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
 import { forbiddenResponse } from '@/lib/api-response';
@@ -269,6 +270,9 @@ export async function POST(
         // 'manter' — não toca em outros agendamentos nem no processo.
         proximoStatus = 'dia_teste';
       }
+
+      // Invalida cache do GET /agendamentos — ver nao-compareceu/route.ts.
+      await invalidarCacheAgendamentosDiaTeste();
 
       // Aprovação no dia de teste com acao='encerrar' agora NÃO cria
       // provisório/solicitação direto — o processo entra em

@@ -14,6 +14,7 @@ import {
   loadAgendamento,
   buildAgendamentoPayload,
   avancarProcessoAposDecisao,
+  invalidarCacheAgendamentosDiaTeste,
   verificarEscopoGestorAgendamento,
 } from '../_helpers';
 
@@ -65,6 +66,12 @@ export async function POST(
 
       // Encerra o processo seletivo (não compareceu = não vira colaborador).
       await avancarProcessoAposDecisao(ag.processo_seletivo_id, 'nao_compareceu', id);
+
+      // Invalida cache do GET /agendamentos pra todos os gestors (incluindo o
+      // que acabou de agir) — sem isso o próximo _carregar() do mobile devolve
+      // a lista stale do Redis e o gestor vê o agendamento ainda como
+      // 'agendado', tenta de novo e leva 409.
+      await invalidarCacheAgendamentosDiaTeste();
 
       // Cancela o contrato no SignProof — sem isso o candidato continua
       // recebendo lembrete de assinatura mesmo sem ter comparecido.

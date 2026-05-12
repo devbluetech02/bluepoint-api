@@ -11,6 +11,22 @@ import { queryRecrutamento } from '@/lib/db';
 import { JWTPayload, isSuperAdmin, resolveNivelFromColaborador } from '@/lib/auth';
 import { obterEscopoGestor } from '@/lib/escopo-gestor';
 import { NIVEL_ADMIN, NIVEL_GESTOR } from '@/lib/niveis';
+import { cacheDelPattern } from '@/lib/cache';
+
+/**
+ * Invalida o cache Redis do GET /agendamentos do dia de teste em TODAS as
+ * variações (user × filtros). Necessário após qualquer mutação de status
+ * de agendamento ou de processo seletivo — sem isso, o gestor que acabou
+ * de marcar uma decisão continua vendo o estado antigo por até 30s e
+ * sente que "a ação não foi", tentando de novo e batendo no 409
+ * "Processo seletivo está cancelado".
+ *
+ * Best-effort: erros do Redis são engolidos por cacheDelPattern; não
+ * desfazem a mutação que acabou de acontecer no Postgres.
+ */
+export async function invalidarCacheAgendamentosDiaTeste(): Promise<void> {
+  await cacheDelPattern('recrutamento:dia-teste:agendamentos:v1:*');
+}
 
 export interface AgendamentoRow {
   id: string;
