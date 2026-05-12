@@ -182,11 +182,40 @@ export async function POST(request: NextRequest, { params }: Params) {
       return errorResponse('O campo "dados" é obrigatório e deve ser um objeto', 400);
     }
 
-    // Mescla dados + docs num único JSON pro snapshot da resposta.
-    const respostas = {
-      dados,
-      documentos: Array.isArray(documentos) ? documentos : [],
-    };
+    // Documentos: aceita só metadata (uploads JÁ foram feitos via
+    // POST /[token]/documento, que sobe pro MinIO e devolve storageKey).
+    // Recusa qualquer payload com `contentBase64` pra impedir blobs
+    // gigantes em JSONB.
+    const docsBrutos = Array.isArray(documentos) ? documentos : [];
+    const docs: Array<{
+      tipoDocumentoId: number;
+      storageKey: string;
+      filename: string;
+      contentType?: string;
+    }> = [];
+    for (const raw of docsBrutos) {
+      if (!raw || typeof raw !== 'object') continue;
+      const r = raw as Record<string, unknown>;
+      if (typeof r.contentBase64 === 'string') {
+        return errorResponse(
+          'Upload via base64 não suportado — use POST /documento antes de finalizar',
+          400,
+        );
+      }
+      const tipoId = Number(r.tipoDocumentoId);
+      const storageKey = typeof r.storageKey === 'string' ? r.storageKey : '';
+      const filename = typeof r.filename === 'string' ? r.filename : '';
+      if (!Number.isInteger(tipoId) || tipoId <= 0 || !storageKey) continue;
+      docs.push({
+        tipoDocumentoId: tipoId,
+        storageKey,
+        filename,
+        contentType:
+          typeof r.contentType === 'string' ? r.contentType : undefined,
+      });
+    }
+
+    const respostas = { dados, documentos: docs };
 
     await query(
       `UPDATE people.solicitacoes_atualizacao_cadastral
